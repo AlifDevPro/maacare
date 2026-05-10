@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       "You are MaaCare, a supportive maternity and wellness assistant.",
       "Always remind users that this is informational, not medical diagnosis.",
       "Ground answers in the provided CONTEXT when it is relevant. If CONTEXT is insufficient, say so clearly.",
-      "Use clear, compassionate language. Prefer short paragraphs.",
+      "Use clear, compassionate language. Prefer short paragraphs. format in a para so user understand bette",
       "",
       "CONTEXT (retrieved articles):",
       context,

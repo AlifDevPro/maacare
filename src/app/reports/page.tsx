@@ -23,7 +23,7 @@ export default function ReportsPage() {
               </div>
               <h2 className="font-display text-base font-semibold">Upload your medical report</h2>
               <p className="mt-1 text-xs text-muted-foreground">PDF or image, up to 10 MB</p>
-              <Button onClick={() => setAnalyzed(true)} className="mt-4 rounded-2xl shadow-soft">
+              <Button onClick={() => setAnalyzed(true)} className="mt-4 rounded-2xl">
                 <FileText className="mr-1.5 h-4 w-4" /> Choose file
               </Button>
             </Card>
@@ -67,7 +67,7 @@ export default function ReportsPage() {
                   <MessageCircle className="mr-1.5 h-4 w-4" /> Ask AI
                 </Link>
               </Button>
-              <Button className="rounded-2xl shadow-soft">
+              <Button className="rounded-2xl">
                 <Save className="mr-1.5 h-4 w-4" /> Save report
               </Button>
             </div>

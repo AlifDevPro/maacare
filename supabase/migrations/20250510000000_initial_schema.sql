@@ -18,18 +18,6 @@ begin
 end;
 $$ language plpgsql;
 
-create or replace function public.is_admin(uid uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1 from public.profiles p where p.id = uid and p.role = 'admin'
-  );
-$$;
-
 -- ---------------------------------------------------------------------------
 -- Profiles (1:1 with auth.users)
 -- ---------------------------------------------------------------------------
@@ -49,6 +37,19 @@ create table public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Depends on `profiles` existing (SQL body is validated at CREATE time).
+create or replace function public.is_admin(uid uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p where p.id = uid and p.role = 'admin'
+  );
+$$;
 
 create index profiles_role_idx on public.profiles (role);
 create index profiles_email_idx on public.profiles (lower(email));

@@ -35,7 +35,7 @@ export default function VerifyOtpPage() {
             </InputOTPGroup>
           </InputOTP>
         </div>
-        <Button onClick={submit} className="w-full rounded-full shadow-soft">Verify & continue</Button>
+        <Button onClick={submit} className="w-full rounded-full">Verify & continue</Button>
         <p className="text-center text-xs text-muted-foreground">
           {seconds > 0 ? (
             <>Resend code in <span className="font-medium text-foreground">0:{String(seconds).padStart(2, "0")}</span></>

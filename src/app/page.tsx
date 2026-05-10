@@ -79,7 +79,7 @@ function SiteHeader() {
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
             <Link href="/login">Log in</Link>
           </Button>
-          <Button asChild size="sm" className="rounded-full shadow-soft">
+          <Button asChild size="sm" className="rounded-full">
             <Link href="/signup">Get started</Link>
           </Button>
         </div>
@@ -90,9 +90,14 @@ function SiteHeader() {
 
 function Hero() {
   return (
-    <section className="relative overflow-hidden bg-gradient-hero">
-      <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 md:grid-cols-2 md:py-28">
-        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="flex flex-col justify-center">
+    <section className="relative overflow-x-clip bg-gradient-hero">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-4 py-12 sm:gap-10 sm:py-16 md:grid-cols-2 md:gap-10 md:py-28">
+        <motion.div
+          initial={false}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45 }}
+          className="order-1 flex min-h-0 flex-col justify-center"
+        >
           <Badge variant="secondary" className="mb-5 w-fit gap-1.5 rounded-full bg-card/70 px-3 py-1 text-xs font-medium backdrop-blur">
             <Sparkles className="h-3.5 w-3.5 text-primary" /> AI grounded in medical knowledge
           </Badge>
@@ -103,7 +108,7 @@ function Hero() {
             MaaCare is your AI maternal health companion — personalized week-by-week guidance, symptom triage, and a gentle community, all in one place.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
-            <Button asChild size="lg" className="h-12 rounded-full px-6 shadow-card">
+            <Button asChild size="lg" className="h-12 rounded-full px-6">
               <Link href="/signup">Get started free <ChevronRight className="ml-1 h-4 w-4" /></Link>
             </Button>
             <Button asChild size="lg" variant="outline" className="h-12 rounded-full px-6">
@@ -117,8 +122,10 @@ function Hero() {
           </div>
         </motion.div>
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6, delay: 0.1 }}
-          className="relative flex items-center justify-center"
+          initial={false}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.45 }}
+          className="relative order-2 flex min-h-0 items-center justify-center"
         >
           <div className="absolute -left-6 top-8 hidden h-44 w-44 rounded-full bg-primary-soft blur-3xl md:block" />
           <div className="absolute -right-6 bottom-8 hidden h-52 w-52 rounded-full bg-accent-soft blur-3xl md:block" />
@@ -274,7 +281,7 @@ function Pricing() {
               </li>
             ))}
           </ul>
-          <Button asChild size="lg" className="mt-7 w-full rounded-full shadow-soft">
+          <Button asChild size="lg" className="mt-7 w-full rounded-full">
             <Link href="/signup">Claim free access</Link>
           </Button>
         </Card>
@@ -308,7 +315,7 @@ function CTA() {
       <Card className="overflow-hidden border-0 bg-gradient-rose p-10 text-center shadow-card">
         <h2 className="font-display text-3xl font-semibold text-balance md:text-4xl">Begin your gentle journey today.</h2>
         <p className="mx-auto mt-3 max-w-lg text-muted-foreground">Join thousands of mothers using MaaCare for calmer, more confident pregnancy care.</p>
-        <Button asChild size="lg" className="mt-6 rounded-full shadow-soft">
+        <Button asChild size="lg" className="mt-6 rounded-full">
           <Link href="/signup">Create my free account <ChevronRight className="ml-1 h-4 w-4" /></Link>
         </Button>
       </Card>

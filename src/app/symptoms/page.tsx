@@ -141,7 +141,7 @@ export default function SymptomsPage() {
 
         <Button
           size="lg"
-          className="w-full rounded-2xl shadow-soft"
+          className="w-full rounded-2xl"
           disabled={selected.length === 0}
           onClick={analyze}
         >

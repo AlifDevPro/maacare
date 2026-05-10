@@ -36,7 +36,7 @@ export default function ForgotPage() {
             <Input id="email" type="email" placeholder="you@example.com" className="pl-9" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
         </div>
-        <Button className="w-full rounded-full shadow-soft" type="submit">Send reset link</Button>
+        <Button className="w-full rounded-full" type="submit">Send reset link</Button>
       </form>
     </AuthShell>
   );

@@ -69,7 +69,7 @@ export default function SignupPage() {
           <Checkbox checked={terms} onCheckedChange={(v) => setTerms(!!v)} className="mt-0.5" />
           <span className="text-muted-foreground">I agree to the <a href="#" className="font-medium text-primary">Terms</a> and <a href="#" className="font-medium text-primary">Privacy Policy</a>.</span>
         </label>
-        <Button type="submit" className="w-full rounded-full shadow-soft">
+        <Button type="submit" className="w-full rounded-full">
           Create account <ChevronRight className="ml-1 h-4 w-4" />
         </Button>
       </form>

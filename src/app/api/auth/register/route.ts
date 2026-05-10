@@ -1,19 +1,32 @@
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  validationJsonResponse,
+  failJson,
+  serverErrorJson,
+  friendlyAuth,
+} from "@/lib/api/error-response";
+import { resolvePublicUser } from "@/lib/auth/profile";
+import { createSupabaseAuthRouteHandler } from "@/lib/supabase/route-handler-client";
 
 const bodySchema = z.object({
-  name: z.string().min(1).max(120),
-  email: z.string().email(),
-  password: z.string().min(8).max(200),
+  name: z.string().min(1, "Name is required.").max(120, "Name is too long."),
+  email: z.string().email("Enter a valid email address."),
+  password: z.string().min(8, "Password must be at least 8 characters.").max(200),
 });
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { name, email, password } = bodySchema.parse(await req.json());
+    const parsed = bodySchema.safeParse(await req.json());
+    if (!parsed.success) {
+      return validationJsonResponse(parsed.error);
+    }
 
-    const supabase = await createSupabaseServerClient();
+    const { name, email, password } = parsed.data;
+
+    const { supabase, applyAuthCookies } = createSupabaseAuthRouteHandler(req);
 
     const { data, error } = await supabase.auth.signUp({
       email: email.toLowerCase().trim(),
@@ -27,49 +40,37 @@ export async function POST(req: Request) {
     });
 
     if (error) {
-      const msg = error.message.toLowerCase().includes("already")
-        ? "Email already registered"
-        : error.message;
-      return NextResponse.json({ error: msg }, { status: 409 });
+      const dup = error.message.toLowerCase().includes("already");
+      if (dup) {
+        return failJson(409, "This email is already registered. Try signing in instead.");
+      }
+      console.error("[auth/register] signUp:", error.message);
+      return failJson(409, friendlyAuth.accountIncomplete);
     }
 
     if (!data.user) {
-      return NextResponse.json({ error: "Registration failed" }, { status: 500 });
+      console.error("[auth/register] no user returned from signUp");
+      return failJson(500, friendlyAuth.accountIncomplete);
     }
 
     if (!data.session) {
-      return NextResponse.json({
-        ok: true,
-        needsEmailConfirmation: true,
-        message: "Check your email to confirm your account before signing in.",
-      });
+      return applyAuthCookies(
+        NextResponse.json({
+          ok: true,
+          needsEmailConfirmation: true,
+          message:
+            "We've sent you a confirmation email. Open the link inside, then come back and sign in.",
+        }),
+      );
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("display_name, email, role, language")
-      .eq("id", data.user.id)
-      .single();
+    const profileUser = await resolvePublicUser(supabase, data.user);
 
-    if (!profile) {
-      return NextResponse.json({ error: "Profile not created" }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      user: {
-        id: data.user.id,
-        name: profile.display_name,
-        email: profile.email ?? data.user.email ?? "",
-        role: profile.role,
-        language: profile.language === "bn" ? "bn" : "en",
-      },
-    });
+    return applyAuthCookies(NextResponse.json({ user: profileUser }));
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid input", details: err.flatten() }, { status: 400 });
+    if (err instanceof SyntaxError) {
+      return failJson(400, "Request body must be valid JSON.");
     }
-
-    console.error(err);
-    return NextResponse.json({ error: "Registration failed" }, { status: 500 });
+    return serverErrorJson("auth/register", err);
   }
 }

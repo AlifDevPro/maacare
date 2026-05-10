@@ -1,140 +1,372 @@
 "use client";
-import { useState } from "react";
-import Link from "next/link";
 
-import { Search, MoreHorizontal, ShieldCheck, Ban, Mail } from "lucide-react";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { formatDistanceToNow } from "date-fns";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+  Loader2,
+  MoreHorizontal,
+  ShieldCheck,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 
-type Status = "active" | "banned" | "pending";
-type Role = "user" | "moderator" | "admin";
-interface Row { id: string; name: string; email: string; week: number | null; role: Role; status: Status; joined: string; }
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
-const seed: Row[] = [
-  { id: "u1", name: "Nusrat Ahmed", email: "nusrat@example.com", week: 28, role: "user", status: "active", joined: "Apr 12" },
-  { id: "u2", name: "Sara Khan", email: "sara@example.com", week: null, role: "user", status: "active", joined: "Apr 10" },
-  { id: "u3", name: "Maya Rahman", email: "maya@example.com", week: 14, role: "moderator", status: "active", joined: "Mar 30" },
-  { id: "u4", name: "Riya Saha", email: "riya@example.com", week: 22, role: "user", status: "banned", joined: "Mar 22" },
-  { id: "u5", name: "Tania Islam", email: "tania@example.com", week: 9, role: "user", status: "pending", joined: "Mar 18" },
-  { id: "u6", name: "Dr. Anika Hossain", email: "anika@example.com", week: null, role: "admin", status: "active", joined: "Feb 14" },
-];
+type Role = "user" | "moderator" | "admin";
+
+type AdminUserRow = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  role: Role;
+  created_at: string;
+};
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+
+function initials(name: string | null, email: string | null): string {
+  const n = (name ?? "").trim();
+  if (n)
+    return n
+      .split(/\s+/)
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+  const e = (email ?? "").trim();
+  return e ? e[0]!.toUpperCase() : "?";
+}
 
 export default function UsersPage() {
-  const [rows, setRows] = useState<Row[]>(seed);
+  const [rows, setRows] = useState<AdminUserRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<"all" | Status>("all");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [patchingId, setPatchingId] = useState<string | null>(null);
 
-  const filtered = rows.filter((r) =>
-    (filter === "all" || r.status === filter) &&
-    (r.name.toLowerCase().includes(q.toLowerCase()) || r.email.toLowerCase().includes(q.toLowerCase())),
-  );
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 320);
+    return () => clearTimeout(t);
+  }, [q]);
 
-  const toggleBan = (id: string) => {
-    setRows((rs) => rs.map((r) => r.id === id ? { ...r, status: r.status === "banned" ? "active" : "banned" } : r));
-    toast.success("User status updated");
-  };
-  const setRole = (id: string, role: Role) => {
-    setRows((rs) => rs.map((r) => r.id === id ? { ...r, role } : r));
-    toast.success(`Role set to ${role}`);
-  };
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(1, p), pageCount));
+  }, [pageCount]);
+
+  const offset = (page - 1) * pageSize;
+  const rangeStart = rows.length === 0 ? 0 : offset + 1;
+  const rangeEnd = offset + rows.length;
+
+  const filterRef = useRef({ debouncedQ, roleFilter, pageSize });
+
+  const loadUsers = useCallback(async () => {
+    const prev = filterRef.current;
+    const filtersChanged =
+      prev.debouncedQ !== debouncedQ ||
+      prev.roleFilter !== roleFilter ||
+      prev.pageSize !== pageSize;
+
+    if (filtersChanged) {
+      filterRef.current = { debouncedQ, roleFilter, pageSize };
+      if (page !== 1) {
+        setPage(1);
+        return;
+      }
+    }
+
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (debouncedQ) params.set("q", debouncedQ);
+      params.set("limit", String(pageSize));
+      params.set("offset", String((page - 1) * pageSize));
+      if (roleFilter !== "all") params.set("role", roleFilter);
+
+      const res = await fetch(`/api/admin/users?${params.toString()}`, { credentials: "include" });
+      const j = (await res.json().catch(() => ({}))) as {
+        users?: AdminUserRow[];
+        total?: number;
+        message?: string;
+      };
+      if (res.status === 403) {
+        toast.error("Admin access required.");
+        setRows([]);
+        setTotal(0);
+        return;
+      }
+      if (!res.ok) throw new Error(j.message ?? "Could not load users.");
+      setRows(j.users ?? []);
+      setTotal(typeof j.total === "number" ? j.total : j.users?.length ?? 0);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load users.");
+      setRows([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [debouncedQ, page, pageSize, roleFilter]);
+
+  useEffect(() => {
+    void loadUsers();
+  }, [loadUsers]);
+
+  async function setRole(userId: string, role: Role) {
+    setPatchingId(userId);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      if (res.status === 503) {
+        toast.error(j.message ?? "Set SUPABASE_SERVICE_ROLE_KEY to assign roles from this panel.");
+        return;
+      }
+      if (!res.ok) throw new Error(j.message ?? "Could not update role.");
+      toast.success(`Role updated to ${role}`);
+      await loadUsers();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update role.");
+    } finally {
+      setPatchingId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Users</h1>
-          <p className="text-sm text-muted-foreground">{rows.length} total · {rows.filter((r) => r.status === "active").length} active</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search users…" className="w-64 pl-9" />
-          </div>
-          <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All status</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="banned">Banned</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-            </SelectContent>
-          </Select>
+          <p className="text-sm text-muted-foreground">
+            {loading ? (
+              "Loading…"
+            ) : (
+              <>
+                {total.toLocaleString()} {total === 1 ? "user" : "users"} in directory
+                {" · "}
+                Roles live in Supabase; promoting admins needs the service role key on the server.
+              </>
+            )}
+          </p>
         </div>
       </div>
 
+      <Card className="p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-center">
+          <div className="relative min-w-[min(100%,18rem)] flex-1">
+            <Search
+              className="pointer-events-none absolute left-3.5 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search by name or email…"
+              className="h-10 pl-10 pr-3.5"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <SelectTrigger className="h-10 w-full min-w-[11rem] rounded-sm sm:w-44">
+                <SelectValue placeholder="Role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All roles</SelectItem>
+                <SelectItem value="user">User</SelectItem>
+                <SelectItem value="moderator">Moderator</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+              <SelectTrigger className="h-10 w-full min-w-[7.5rem] rounded-sm sm:w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n} per page
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              className="h-10 rounded-sm"
+              onClick={() => void loadUsers()}
+              disabled={loading}
+            >
+              Refresh
+            </Button>
+          </div>
+        </div>
+      </Card>
+
       <Card className="overflow-hidden p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>User</TableHead>
-              <TableHead>Week</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Joined</TableHead>
-              <TableHead className="w-12" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((r) => (
-              <TableRow key={r.id}>
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-9 w-9">
-                      <AvatarFallback className="bg-primary-soft text-xs font-semibold text-primary">
-                        {r.name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="text-sm font-medium">{r.name}</p>
-                      <p className="text-xs text-muted-foreground">{r.email}</p>
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className="text-sm">{r.week ? `Week ${r.week}` : "—"}</TableCell>
-                <TableCell><Badge variant="secondary" className="capitalize">{r.role}</Badge></TableCell>
-                <TableCell>
-                  <Badge className={
-                    r.status === "active" ? "bg-risk-low text-risk-low-foreground" :
-                    r.status === "banned" ? "bg-risk-high text-risk-high-foreground" :
-                    "bg-risk-medium text-risk-medium-foreground"
-                  }>{r.status}</Badge>
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">{r.joined}</TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="icon" variant="ghost" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => toast.info(`Email sent to ${r.email}`)}><Mail className="mr-2 h-4 w-4" /> Send email</DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => setRole(r.id, "user")}>Set as User</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setRole(r.id, "moderator")}>Set as Moderator</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setRole(r.id, "admin")}><ShieldCheck className="mr-2 h-4 w-4" /> Set as Admin</DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => toggleBan(r.id)} className="text-destructive focus:text-destructive">
-                        <Ban className="mr-2 h-4 w-4" /> {r.status === "banned" ? "Unban user" : "Ban user"}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
+        <div className="border-b border-border/60 px-5 pb-3 pt-5">
+          <h2 className="font-display text-base font-semibold">Directory</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {loading ? "Loading…" : `${total.toLocaleString()} match${total === 1 ? "" : "es"} · scroll below`}
+          </p>
+        </div>
+        <div className="max-h-[min(70vh,32rem)] overflow-y-auto overscroll-contain">
+          <Table>
+            <TableHeader className="sticky top-0 z-10 border-0 bg-card shadow-[inset_0_-1px_0_0_var(--color-border)]">
+              <TableRow className="border-b-0 hover:bg-transparent">
+                <TableHead className="bg-card">User</TableHead>
+                <TableHead className="bg-card">Role</TableHead>
+                <TableHead className="bg-card">Joined</TableHead>
+                <TableHead className="w-12 bg-card" />
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-12 text-center text-muted-foreground">
+                    <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin opacity-60" />
+                    Loading users…
+                  </TableCell>
+                </TableRow>
+              ) : rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                    No users match your filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-10 w-10 rounded-2xl">
+                          <AvatarFallback className="rounded-2xl bg-primary-soft text-xs font-semibold text-primary">
+                            {initials(r.display_name, r.email)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium leading-snug">
+                            {r.display_name?.trim() || "Member"}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">{r.email ?? "—"}</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="capitalize font-normal">
+                        {r.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 rounded-md"
+                            disabled={patchingId === r.id}
+                          >
+                            {patchingId === r.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <MoreHorizontal className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => void setRole(r.id, "user")}>
+                            Set as user
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => void setRole(r.id, "moderator")}>
+                            Set as moderator
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => void setRole(r.id, "admin")}>
+                            <ShieldCheck className="mr-2 h-4 w-4" /> Set as admin
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        {!loading && total > 0 ? (
+          <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              Showing{" "}
+              <span className="font-medium text-foreground">
+                {rangeStart}–{rangeEnd}
+              </span>{" "}
+              of <span className="font-medium text-foreground">{total.toLocaleString()}</span>
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" /> Previous
+              </Button>
+              <span className="tabular-nums text-xs text-muted-foreground">
+                Page {page} / {pageCount}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-sm"
+                disabled={page >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              >
+                Next <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </Card>
     </div>
   );

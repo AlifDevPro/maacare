@@ -17,7 +17,7 @@ export async function GET() {
 
     const { data: docs, error } = await supabase
       .from("rag_documents")
-      .select("id, title, source, category, updated_at, created_at, rag_chunks(count)")
+      .select("id, title, source, category, description, updated_at, created_at, rag_chunks(count)")
       .order("updated_at", { ascending: false });
 
     if (error) {
@@ -33,6 +33,7 @@ export async function GET() {
           title: d.title,
           source: d.source ?? "",
           category: d.category ?? "",
+          description: d.description ?? "",
           chunks: count,
           updated: d.updated_at ?? d.created_at,
         };

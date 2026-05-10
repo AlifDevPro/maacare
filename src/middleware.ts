@@ -2,14 +2,35 @@ import { createServerClient } from "@supabase/ssr";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+/** Paths that do not require a signed-in user (marketing + auth flows + emergency info). */
+const PUBLIC_PATHS = new Set([
+  "/",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-otp",
+  "/emergency",
+]);
+
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.has(pathname);
+}
+
+function isPublicAuthApi(pathname: string): boolean {
+  return pathname.startsWith("/api/auth/");
+}
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+  const pathname = request.nextUrl.pathname;
+
   if (!url || !anon) {
-    if (request.nextUrl.pathname.startsWith("/admin")) {
+    if (pathname.startsWith("/admin")) {
       return NextResponse.redirect(new URL("/", request.url));
     }
     return response;
@@ -36,9 +57,16 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (request.nextUrl.pathname.startsWith("/admin")) {
+  const isAdminArea = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
+
+  if (isAdminArea) {
     if (!user) {
-      return NextResponse.redirect(new URL("/", request.url));
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+      }
+      const login = new URL("/login", request.url);
+      login.searchParams.set("next", pathname + request.nextUrl.search);
+      return NextResponse.redirect(login);
     }
 
     const { data: profile } = await supabase
@@ -48,8 +76,30 @@ export async function middleware(request: NextRequest) {
       .maybeSingle();
 
     if (profile?.role !== "admin") {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+      }
       return NextResponse.redirect(new URL("/", request.url));
     }
+
+    return response;
+  }
+
+  if (isPublicPath(pathname)) {
+    return response;
+  }
+
+  if (!user) {
+    if (pathname.startsWith("/api/")) {
+      if (isPublicAuthApi(pathname)) {
+        return response;
+      }
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
+
+    const login = new URL("/login", request.url);
+    login.searchParams.set("next", pathname + request.nextUrl.search);
+    return NextResponse.redirect(login);
   }
 
   return response;

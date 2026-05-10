@@ -92,7 +92,14 @@ export default function ChatPage() {
         }
       />
 
-      <div ref={scrollRef} className="space-y-3 overflow-y-auto px-4 pt-4 pb-2">
+      <div
+        ref={scrollRef}
+        className="space-y-3 overflow-y-auto px-4 pt-4 pb-2"
+        style={{
+          /* Reserve space above fixed composer so the last messages stay visible */
+          paddingBottom: "calc(6rem + env(safe-area-inset-bottom))",
+        }}
+      >
         <div className="mb-2 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
           <Shield className="h-3 w-3" /> AI guidance — not a substitute for medical care
         </div>
@@ -132,7 +139,7 @@ export default function ChatPage() {
                 type="button"
                 onClick={() => void send(s)}
                 disabled={sending}
-                className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/80 shadow-soft transition-colors hover:bg-primary-soft hover:text-primary disabled:opacity-50"
+                className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-primary-soft hover:text-primary disabled:opacity-50"
               >
                 <Sparkles className="mr-1 inline h-3 w-3" />
                 {s}
@@ -143,15 +150,18 @@ export default function ChatPage() {
       </div>
 
       <div
-        className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md border-t border-border/60 bg-background/95 px-3 pt-2 backdrop-blur-xl"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 70px)" }}
+        className="fixed inset-x-0 z-30 mx-auto max-w-md border-t border-border/60 bg-background/95 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl"
+        style={{
+          /* Sit above BottomNav (z-40); do not overlap — nav stays tappable */
+          bottom: "calc(env(safe-area-inset-bottom) + 5rem)",
+        }}
       >
         <form
           onSubmit={(e) => {
             e.preventDefault();
             void send(input);
           }}
-          className="flex items-end gap-2 rounded-2xl border border-border bg-card p-1.5 shadow-soft"
+          className="flex items-end gap-2 rounded-2xl border border-border bg-card p-1.5"
         >
           <input
             value={input}
@@ -172,7 +182,7 @@ export default function ChatPage() {
           <Button
             type="submit"
             size="icon"
-            className="h-9 w-9 shrink-0 rounded-xl shadow-soft"
+            className="h-9 w-9 shrink-0 rounded-xl"
             aria-label="Send"
             disabled={!input.trim() || sending}
           >

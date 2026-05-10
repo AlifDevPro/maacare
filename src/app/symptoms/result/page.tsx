@@ -105,7 +105,7 @@ function SymptomsResultInner() {
               Chat with AI
             </Link>
           </Button>
-          <Button asChild className="rounded-2xl shadow-soft">
+          <Button asChild className="rounded-2xl">
             <Link href="/emergency">
               <MapPin className="mr-1.5 h-4 w-4" />
               Find hospital

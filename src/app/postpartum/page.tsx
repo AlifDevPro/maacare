@@ -122,7 +122,7 @@ export default function PostpartumPage() {
               <MessageCircle className="mr-1.5 h-4 w-4" /> Talk to AI
             </Link>
           </Button>
-          <Button asChild className="rounded-2xl shadow-soft">
+          <Button asChild className="rounded-2xl">
             <Link href="/emergency">
               <Phone className="mr-1.5 h-4 w-4" /> Contact doctor
             </Link>

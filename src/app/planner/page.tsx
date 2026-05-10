@@ -87,7 +87,7 @@ export default function PlannerPage() {
 
         <Button
           size="lg"
-          className={cn("w-full rounded-2xl shadow-soft", done && "bg-accent text-accent-foreground hover:bg-accent/90")}
+          className={cn("w-full rounded-2xl", done && "bg-accent text-accent-foreground hover:bg-accent/90")}
           onClick={() => setDone(true)}
         >
           {done ? <><Check className="mr-2 h-5 w-5" /> Completed</> : "Mark as completed"}

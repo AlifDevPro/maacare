@@ -109,7 +109,7 @@ export default function EmergencyPage() {
         <Button
           asChild
           size="lg"
-          className="w-full rounded-2xl bg-destructive text-destructive-foreground shadow-card hover:bg-destructive/90"
+          className="w-full rounded-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
         >
           <a href="tel:999">
             <Phone className="mr-2 h-5 w-5" />

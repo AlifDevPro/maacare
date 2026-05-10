@@ -104,6 +104,7 @@ export async function ingestDocumentWithChunks(input: {
   }
 
   const chunkIds: string[] = [];
+  let chunkIndex = 0;
 
   for (let i = 0; i < input.chunks.length; i++) {
     const content = input.chunks[i]!.trim();
@@ -116,7 +117,7 @@ export async function ingestDocumentWithChunks(input: {
       .from("rag_chunks")
       .insert({
         document_id: doc.id,
-        chunk_index: i,
+        chunk_index: chunkIndex,
         title: title ?? null,
         content,
         source: input.source ?? null,
@@ -131,6 +132,7 @@ export async function ingestDocumentWithChunks(input: {
     }
 
     chunkIds.push(chunk.id);
+    chunkIndex += 1;
   }
 
   return { documentId: doc.id, chunkIds };

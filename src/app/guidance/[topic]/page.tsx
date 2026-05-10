@@ -73,7 +73,7 @@ const topic = typeof params.topic === "string" ? params.topic : "hydration";
           <Button variant="outline" className="rounded-2xl">
             <Check className="mr-1.5 h-4 w-4" /> Got it
           </Button>
-          <Button asChild className="rounded-2xl shadow-soft">
+          <Button asChild className="rounded-2xl">
             <Link href="/chat">
               <MessageCircle className="mr-1.5 h-4 w-4" /> Ask AI more
             </Link>

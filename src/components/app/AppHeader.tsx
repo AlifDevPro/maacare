@@ -7,11 +7,14 @@ import type { ReactNode } from "react";
 import { ArrowLeft, Bell, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { NotificationBell } from "./NotificationBell";
 import { ProfileMenu } from "./ProfileMenu";
 
 interface AppHeaderProps {
   title?: ReactNode;
   showBack?: boolean;
+  /** When set, back navigates here instead of browser history. */
+  backHref?: string;
   showNotifications?: boolean;
   showMenu?: boolean;
   right?: ReactNode;
@@ -22,6 +25,7 @@ interface AppHeaderProps {
 export function AppHeader({
   title,
   showBack,
+  backHref,
   showNotifications,
   showMenu,
   right,
@@ -37,17 +41,24 @@ export function AppHeader({
       )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        {showBack && (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-9 w-9 shrink-0"
-            onClick={() => router.back()}
-            aria-label="Back"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        )}
+        {showBack &&
+          (backHref ? (
+            <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" asChild>
+              <Link href={backHref} aria-label="Back">
+                <ArrowLeft className="h-5 w-5" />
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 shrink-0"
+              onClick={() => router.back()}
+              aria-label="Back"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          ))}
         {showMenu && (
           <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" aria-label="Menu">
             <Menu className="h-5 w-5" />
@@ -66,12 +77,7 @@ export function AppHeader({
       </div>
       <div className="flex items-center gap-1.5">
         {right}
-        {showNotifications && (
-          <Button size="icon" variant="ghost" className="relative h-9 w-9" aria-label="Notifications">
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary" />
-          </Button>
-        )}
+        {showNotifications && <NotificationBell />}
         <ProfileMenu />
       </div>
     </header>

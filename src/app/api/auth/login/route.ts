@@ -1,18 +1,31 @@
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  validationJsonResponse,
+  failJson,
+  serverErrorJson,
+  friendlyAuth,
+} from "@/lib/api/error-response";
+import { resolvePublicUser } from "@/lib/auth/profile";
+import { createSupabaseAuthRouteHandler } from "@/lib/supabase/route-handler-client";
 
 const bodySchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1).max(200),
+  email: z.string().email("Enter a valid email address."),
+  password: z.string().min(1, "Password is required.").max(200, "Password is too long."),
 });
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { email, password } = bodySchema.parse(await req.json());
+    const parsed = bodySchema.safeParse(await req.json());
+    if (!parsed.success) {
+      return validationJsonResponse(parsed.error);
+    }
 
-    const supabase = await createSupabaseServerClient();
+    const { email, password } = parsed.data;
+
+    const { supabase, applyAuthCookies } = createSupabaseAuthRouteHandler(req);
 
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email.toLowerCase().trim(),
@@ -20,33 +33,25 @@ export async function POST(req: Request) {
     });
 
     if (error || !data.user) {
-      return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+      const unconfirmed =
+        error?.code === "email_not_confirmed" ||
+        (error?.message?.toLowerCase().includes("confirm") ?? false) ||
+        (error?.message?.toLowerCase().includes("not confirmed") ?? false);
+      if (unconfirmed) {
+        console.warn("[auth/login] email not confirmed:", error?.message);
+        return failJson(401, friendlyAuth.confirmEmailFirst);
+      }
+      console.warn("[auth/login] sign-in rejected:", error?.message ?? "no user");
+      return failJson(401, "That email or password doesn't match our records.");
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("display_name, email, role, language")
-      .eq("id", data.user.id)
-      .single();
+    const profileUser = await resolvePublicUser(supabase, data.user);
 
-    if (!profile) {
-      return NextResponse.json({ error: "Profile not found" }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      user: {
-        id: data.user.id,
-        name: profile.display_name,
-        email: profile.email ?? data.user.email ?? "",
-        role: profile.role,
-        language: profile.language === "bn" ? "bn" : "en",
-      },
-    });
+    return applyAuthCookies(NextResponse.json({ user: profileUser }));
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+    if (err instanceof SyntaxError) {
+      return failJson(400, "Request body must be valid JSON.");
     }
-    console.error(err);
-    return NextResponse.json({ error: "Login failed" }, { status: 500 });
+    return serverErrorJson("auth/login", err);
   }
 }

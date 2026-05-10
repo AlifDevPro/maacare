@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { signOut, useSession } from "@/lib/auth-client";
 import { toast } from "sonner";
 
+import { adminFormFieldClasses } from "./admin-form-styles";
+
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/admin/users", label: "Users", icon: Users },
@@ -99,7 +101,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
               <span className="font-display font-semibold">Admin</span>
             </Link>
           </header>
-          <div className="p-5 md:p-8">{children}</div>
+          <div
+            className={cn(
+              "admin-scope mx-auto w-full max-w-6xl p-5 md:max-w-7xl md:p-8",
+              adminFormFieldClasses,
+            )}
+          >
+            {children}
+          </div>
         </div>
       </div>
     </div>

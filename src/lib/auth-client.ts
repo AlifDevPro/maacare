@@ -88,10 +88,11 @@ export async function loginWithPassword(
   const data = (await res.json().catch(() => ({}))) as {
     user?: AuthUser;
     error?: string;
+    message?: string;
   };
 
   if (!res.ok) {
-    return { ok: false, error: data.error ?? "Login failed" };
+    return { ok: false, error: data.message ?? data.error ?? "Login failed" };
   }
 
   if (!data.user) {
@@ -121,12 +122,12 @@ export async function registerAccount(
   const data = (await res.json().catch(() => ({}))) as {
     user?: AuthUser;
     error?: string;
-    needsEmailConfirmation?: boolean;
     message?: string;
+    needsEmailConfirmation?: boolean;
   };
 
   if (!res.ok) {
-    return { ok: false, error: data.error ?? "Registration failed" };
+    return { ok: false, error: data.message ?? data.error ?? "Registration failed" };
   }
 
   if (data.needsEmailConfirmation) {

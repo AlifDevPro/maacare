@@ -29,7 +29,7 @@ export default function ResetPage() {
       >
         <Field id="password" label="New password" value={password} onChange={setPassword} />
         <Field id="confirm" label="Confirm password" value={confirm} onChange={setConfirm} />
-        <Button className="w-full rounded-full shadow-soft" type="submit">Update password</Button>
+        <Button className="w-full rounded-full" type="submit">Update password</Button>
       </form>
     </AuthShell>
   );
