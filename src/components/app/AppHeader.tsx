@@ -1,0 +1,79 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+import type { ReactNode } from "react";
+import { ArrowLeft, Bell, Menu } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { ProfileMenu } from "./ProfileMenu";
+
+interface AppHeaderProps {
+  title?: ReactNode;
+  showBack?: boolean;
+  showNotifications?: boolean;
+  showMenu?: boolean;
+  right?: ReactNode;
+  brand?: boolean;
+  className?: string;
+}
+
+export function AppHeader({
+  title,
+  showBack,
+  showNotifications,
+  showMenu,
+  right,
+  brand,
+  className,
+}: AppHeaderProps) {
+  const router = useRouter();
+  return (
+    <header
+      className={cn(
+        "sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background/85 px-3 backdrop-blur-xl",
+        className,
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {showBack && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-9 w-9 shrink-0"
+            onClick={() => router.back()}
+            aria-label="Back"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        )}
+        {showMenu && (
+          <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" aria-label="Menu">
+            <Menu className="h-5 w-5" />
+          </Button>
+        )}
+        {brand ? (
+          <Link href="/app" className="flex items-center gap-2 px-1">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-rose text-base shadow-soft">
+              🤍
+            </span>
+            <span className="font-display text-lg font-semibold tracking-tight">MaaCare</span>
+          </Link>
+        ) : (
+          <h1 className="truncate font-display text-base font-semibold">{title}</h1>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5">
+        {right}
+        {showNotifications && (
+          <Button size="icon" variant="ghost" className="relative h-9 w-9" aria-label="Notifications">
+            <Bell className="h-5 w-5" />
+            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary" />
+          </Button>
+        )}
+        <ProfileMenu />
+      </div>
+    </header>
+  );
+}

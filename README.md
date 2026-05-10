@@ -1,3 +1,9 @@
+# MaaCare Platform
+
+**Version 0.1.0** — Next.js app with Supabase (Auth + Postgres + pgvector RAG) and Google Gemini (chat + embeddings). Copy `.env.example` to `.env.local` and apply `supabase/migrations` in your Supabase project.
+
+---
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
