@@ -107,7 +107,10 @@ export async function GET(req: NextRequest) {
     const rows = (posts ?? []) as unknown as Record<string, unknown>[];
     const ids = rows.map((p) => p.id as string);
     if (ids.length === 0) {
-      return Response.json({ posts: [] });
+      return Response.json(
+        { posts: [] },
+        { headers: { "Cache-Control": "private, max-age=20, stale-while-revalidate=40" } },
+      );
     }
 
     const [likeRes, commentRes, myLikeRes] = await Promise.all([
@@ -167,7 +170,10 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return Response.json({ posts: mapped });
+    return Response.json(
+      { posts: mapped },
+      { headers: { "Cache-Control": "private, max-age=20, stale-while-revalidate=40" } },
+    );
   } catch (e) {
     return serverErrorJson("community_posts GET", e);
   }

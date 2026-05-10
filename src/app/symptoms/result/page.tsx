@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
-import { CheckCircle2, MessageCircle, MapPin, Shield } from "lucide-react";
+import { AlertCircle, CheckCircle2, MessageCircle, MapPin, Shield } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
@@ -56,11 +56,46 @@ function SymptomsResultFallback() {
 
 function SymptomsResultInner() {
   const searchParams = useSearchParams();
+  const [logInsight, setLogInsight] = useState<string | null>(null);
+  const [logMeta, setLogMeta] = useState<{ title: string | null; loggedAt: string } | null>(null);
 
   const { level } = useMemo(() => {
     const parsed = search.safeParse(Object.fromEntries(searchParams.entries()));
     return parsed.success ? parsed.data : search.parse({});
   }, [searchParams]);
+  const logId = searchParams.get("logId") ?? "";
+
+  useEffect(() => {
+    let alive = true;
+    if (!logId) {
+      setLogInsight(null);
+      setLogMeta(null);
+      return;
+    }
+    async function loadLog() {
+      try {
+        const res = await fetch(`/api/symptoms/log/${encodeURIComponent(logId)}`, {
+          credentials: "include",
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          insight?: string;
+          log?: { title: string | null; loggedAt: string };
+        };
+        if (!res.ok || !j.insight) return;
+        if (!alive) return;
+        setLogInsight(j.insight);
+        if (j.log) {
+          setLogMeta({ title: j.log.title ?? null, loggedAt: j.log.loggedAt });
+        }
+      } catch {
+        // Keep fallback static copy when detail fetch fails.
+      }
+    }
+    void loadLog();
+    return () => {
+      alive = false;
+    };
+  }, [logId]);
 
   const c = COPY[level as keyof typeof COPY];
 
@@ -97,6 +132,21 @@ function SymptomsResultInner() {
             ))}
           </ul>
         </Card>
+
+        {logInsight ? (
+          <Card className="p-4 shadow-soft">
+            <div className="mb-2 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-accent" />
+              <h2 className="font-display text-sm font-semibold">Latest log insight</h2>
+            </div>
+            {logMeta ? (
+              <p className="mb-1 text-xs text-muted-foreground">
+                {logMeta.title || "Symptom log"} · {new Date(logMeta.loggedAt).toLocaleString()}
+              </p>
+            ) : null}
+            <p className="text-sm leading-relaxed text-foreground/90">{logInsight}</p>
+          </Card>
+        ) : null}
 
         <div className="grid grid-cols-2 gap-3">
           <Button asChild variant="outline" className="rounded-2xl">

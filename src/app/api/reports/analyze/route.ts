@@ -1,0 +1,522 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import path from "node:path";
+import { PDFDocument } from "pdf-lib";
+import { z } from "zod";
+
+import { failJson, serverErrorJson } from "@/lib/api/error-response";
+import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+const findingSchema = z.object({
+  name: z.string().min(1),
+  value: z.string().min(1),
+  range: z.string().optional().default(""),
+  status: z.enum(["normal", "low", "high", "borderline"]).default("borderline"),
+  note: z.string().optional().default(""),
+});
+
+const vitalsSchema = z.object({
+  systolicBp: z.number().int().min(50).max(260).nullable().optional(),
+  diastolicBp: z.number().int().min(30).max(180).nullable().optional(),
+  heartRateBpm: z.number().int().min(20).max(260).nullable().optional(),
+  weightKg: z.number().min(10).max(400).nullable().optional(),
+  temperatureC: z.number().min(30).max(45).nullable().optional(),
+  glucoseMgDl: z.number().min(20).max(700).nullable().optional(),
+  spo2Pct: z.number().int().min(50).max(100).nullable().optional(),
+});
+
+const responseSchema = z.object({
+  summary: z.string().min(1),
+  plainExplanation: z.string().min(1),
+  riskLevel: z.enum(["low", "medium", "high"]).default("low"),
+  findings: z.array(findingSchema).max(30).default([]),
+  recommendations: z.array(z.string().min(1)).max(10).default([]),
+  extractedVitals: vitalsSchema.default({}),
+  extractedProfile: z
+    .object({
+      conditions: z.array(z.string().min(1)).max(20).default([]),
+      allergies: z.array(z.string().min(1)).max(20).default([]),
+      medications: z.array(z.string().min(1)).max(20).default([]),
+      notes: z.string().optional().default(""),
+    })
+    .default({ conditions: [], allergies: [], medications: [], notes: "" }),
+});
+
+function geminiKeys(): string[] {
+  const joined = process.env.GEMINI_API_KEYS?.trim();
+  if (joined) {
+    return joined
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+  const single = process.env.GEMINI_API_KEY?.trim();
+  return single ? [single] : [];
+}
+
+function groqKeys(): string[] {
+  const joined = process.env.GROQ_API_KEYS?.trim();
+  if (joined) {
+    return joined
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+  const single = process.env.GROQ_API_KEY?.trim();
+  return single ? [single] : [];
+}
+
+function toBase64(buf: ArrayBuffer): string {
+  return Buffer.from(buf).toString("base64");
+}
+
+function extractJson(text: string): string | null {
+  const block = text.match(/```json\s*([\s\S]*?)```/i);
+  if (block?.[1]) return block[1].trim();
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  if (first >= 0 && last > first) return text.slice(first, last + 1);
+  return null;
+}
+
+function hasAnyVitals(v: z.infer<typeof vitalsSchema>): boolean {
+  return (
+    v.systolicBp != null ||
+    v.diastolicBp != null ||
+    v.heartRateBpm != null ||
+    v.weightKg != null ||
+    v.temperatureC != null ||
+    v.glucoseMgDl != null ||
+    v.spo2Pct != null
+  );
+}
+
+const MIN_LOCAL_TEXT_CHARS = 40;
+const MAX_REPORT_TEXT_FOR_AI = 24_000;
+type PdfParseFn = (dataBuffer: Buffer) => Promise<{ text?: string }>;
+
+async function loadPdfParse(): Promise<PdfParseFn> {
+  const mod = (await import("pdf-parse")) as unknown;
+  if (typeof mod === "function") return mod as PdfParseFn;
+  if (
+    mod &&
+    typeof mod === "object" &&
+    "default" in mod &&
+    typeof (mod as { default?: unknown }).default === "function"
+  ) {
+    return (mod as { default: PdfParseFn }).default;
+  }
+  throw new Error("pdf-parse loader is not a function");
+}
+
+function clipText(text: string, maxChars: number): string {
+  const t = text.trim();
+  if (t.length <= maxChars) return t;
+  return `${t.slice(0, maxChars)}\n\n[Truncated for processing]`;
+}
+
+async function imageToPdfBase64(file: File): Promise<string | null> {
+  try {
+    const bytes = await file.arrayBuffer();
+    const pdf = await PDFDocument.create();
+
+    const mime = (file.type || "").toLowerCase();
+    let image:
+      | Awaited<ReturnType<PDFDocument["embedPng"]>>
+      | Awaited<ReturnType<PDFDocument["embedJpg"]>>;
+
+    if (mime.includes("png")) {
+      image = await pdf.embedPng(bytes);
+    } else {
+      image = await pdf.embedJpg(bytes);
+    }
+
+    const { width, height } = image.scale(1);
+    const page = pdf.addPage([width, height]);
+    page.drawImage(image, { x: 0, y: 0, width, height });
+
+    const out = await pdf.save();
+    return Buffer.from(out).toString("base64");
+  } catch {
+    return null;
+  }
+}
+
+function isRateLimitError(raw: string): boolean {
+  const msg = raw.toLowerCase();
+  return (
+    msg.includes("resource_exhausted") ||
+    msg.includes("quota") ||
+    msg.includes("rate limit") ||
+    msg.includes("429")
+  );
+}
+
+async function extractTextFromFileLocally(
+  file: File,
+): Promise<{ text: string; mode: "pdf_local" | "ocr_local" | "text_local" | "none" }> {
+  const mime = (file.type || "").toLowerCase();
+  const name = file.name.toLowerCase();
+  const bytes = await file.arrayBuffer();
+  const buf = Buffer.from(bytes);
+
+  if (
+    mime.startsWith("text/") ||
+    name.endsWith(".txt") ||
+    name.endsWith(".csv") ||
+    name.endsWith(".json")
+  ) {
+    return { text: buf.toString("utf8"), mode: "text_local" };
+  }
+
+  if (mime.includes("pdf") || name.endsWith(".pdf")) {
+    try {
+      const pdfParse = await loadPdfParse();
+      const parsed = await pdfParse(buf);
+      return { text: parsed.text?.trim() ?? "", mode: "pdf_local" };
+    } catch {
+      return { text: "", mode: "none" };
+    }
+  }
+
+  if (mime.startsWith("image/") || /\.(png|jpe?g|webp|bmp|gif)$/i.test(name)) {
+    try {
+      const tesseractMod = await import("tesseract.js");
+      const createWorker = tesseractMod.createWorker;
+      const workerPath = path.resolve(
+        process.cwd(),
+        "node_modules",
+        "tesseract.js",
+        "src",
+        "worker-script",
+        "node",
+        "index.js",
+      );
+
+      const worker = await createWorker("eng", 1, {
+        workerPath,
+      });
+      const out = await worker.recognize(buf);
+      await worker.terminate();
+      return { text: out.data.text?.trim() ?? "", mode: "ocr_local" };
+    } catch {
+      return { text: "", mode: "none" };
+    }
+  }
+
+  return { text: "", mode: "none" };
+}
+
+async function generateWithGroq(
+  apiKey: string,
+  systemInstruction: string,
+  userText: string,
+): Promise<string> {
+  const model = process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.1-8b-instant";
+
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: userText },
+      ],
+    }),
+  });
+
+  const payload = (await res.json().catch(() => ({}))) as {
+    error?: { message?: string };
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  if (!res.ok) throw new Error(payload.error?.message ?? `groq_http_${res.status}`);
+  const text = payload.choices?.[0]?.message?.content?.trim();
+  if (!text) throw new Error("groq_empty_response");
+  return text;
+}
+
+export async function POST(req: Request) {
+  try {
+    const session = await getSessionFromCookies();
+    if (!session) return failJson(401, "Sign in.");
+
+    const form = await req.formData();
+    const reportTitle = String(form.get("reportTitle") ?? "").trim();
+    const reportTextInput = String(form.get("reportText") ?? "").trim();
+    const saveVitals = String(form.get("saveVitals") ?? "true") === "true";
+    const saveProfileInsights = String(form.get("saveProfileInsights") ?? "true") === "true";
+    const reportFile = form.get("file");
+    const isImageUpload =
+      reportFile instanceof File &&
+      (((reportFile.type || "").toLowerCase().startsWith("image/")) ||
+        /\.(png|jpe?g|webp|bmp|gif)$/i.test(reportFile.name.toLowerCase()));
+
+    if (!reportTextInput && !(reportFile instanceof File)) {
+      return failJson(400, "Add report text or upload a file.");
+    }
+    if (reportFile instanceof File && reportFile.size > 10 * 1024 * 1024) {
+      return failJson(400, "File is too large (max 10MB).");
+    }
+
+    const keys = geminiKeys();
+    const gKeys = groqKeys();
+    if (keys.length === 0 && gKeys.length === 0) {
+      return failJson(503, "AI service is not configured.");
+    }
+
+    const systemInstruction = [
+      "You are MaaCare clinical report simplifier for maternity care support.",
+      "Extract key lab/vital values and explain in plain patient-friendly language.",
+      "Never diagnose. Be conservative and suggest clinician follow-up when uncertain.",
+      "Make summary detailed: 5-8 sentences covering important abnormalities, reassuring normal findings, and clinical context.",
+      "Make plainExplanation practical: 2 short paragraphs with what it may mean and what to do next.",
+      "Return STRICT JSON only (no markdown) with this shape:",
+      '{ "summary": string, "plainExplanation": string, "riskLevel": "low"|"medium"|"high", "findings": [{ "name": string, "value": string, "range": string, "status": "normal"|"low"|"high"|"borderline", "note": string }], "recommendations": string[], "extractedVitals": { "systolicBp": number|null, "diastolicBp": number|null, "heartRateBpm": number|null, "weightKg": number|null, "temperatureC": number|null, "glucoseMgDl": number|null, "spo2Pct": number|null }, "extractedProfile": { "conditions": string[], "allergies": string[], "medications": string[], "notes": string } }',
+      "If a value is not present, keep it null/empty.",
+    ].join("\n");
+
+    let extractedText = reportTextInput;
+    let extractionMode: "provided_text" | "pdf_local" | "ocr_local" | "text_local" | "gemini_file" =
+      "provided_text";
+    let includeRawFileForGemini = false;
+
+    let fallbackPdfBase64: string | null = null;
+    if (!extractedText && reportFile instanceof File) {
+      const local = await extractTextFromFileLocally(reportFile);
+      if ((local.text ?? "").trim().length >= MIN_LOCAL_TEXT_CHARS) {
+        extractedText = local.text;
+        extractionMode = local.mode === "none" ? "text_local" : local.mode;
+      } else {
+        if (isImageUpload) {
+          fallbackPdfBase64 = await imageToPdfBase64(reportFile);
+          if (!fallbackPdfBase64) {
+            return failJson(
+              400,
+              "Could not read enough text from image locally. Please upload a clearer image or paste report text.",
+            );
+          }
+          includeRawFileForGemini = true;
+          extractionMode = "gemini_file";
+        } else {
+          includeRawFileForGemini = true;
+          extractionMode = "gemini_file";
+        }
+      }
+    }
+
+    const userParts: Array<
+      { text: string } | { inlineData: { mimeType: string; data: string } }
+    > = [];
+    userParts.push({
+      text: `Report title: ${reportTitle || "Untitled medical report"}\nUser: ${session.name}\n`,
+    });
+    if (extractedText) {
+      userParts.push({
+        text: `Report text (may be extracted from file):\n${clipText(extractedText, MAX_REPORT_TEXT_FOR_AI)}`,
+      });
+    }
+    if (includeRawFileForGemini && reportFile instanceof File) {
+      if (isImageUpload && fallbackPdfBase64) {
+        userParts.push({
+          inlineData: {
+            mimeType: "application/pdf",
+            data: fallbackPdfBase64,
+          },
+        });
+      } else {
+        const bytes = await reportFile.arrayBuffer();
+        userParts.push({
+          inlineData: {
+            mimeType: reportFile.type || "application/octet-stream",
+            data: toBase64(bytes),
+          },
+        });
+      }
+    }
+
+    let rawText = "";
+    let provider: "gemini" | "groq" = "gemini";
+    const errors: string[] = [];
+
+    for (const key of keys) {
+      try {
+        const model = new GoogleGenerativeAI(key).getGenerativeModel({
+          model: process.env.GEMINI_CHAT_MODEL ?? "gemini-2.5-flash",
+          systemInstruction,
+        });
+        const result = await model.generateContent({
+          contents: [{ role: "user", parts: userParts }],
+        });
+        rawText = result.response.text().trim();
+        if (rawText) break;
+      } catch (e) {
+        errors.push(`gemini: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (!rawText && extractedText) {
+      for (const key of gKeys) {
+        try {
+          rawText = await generateWithGroq(
+            key,
+            systemInstruction,
+            `Report title: ${reportTitle || "Untitled medical report"}\nUser: ${session.name}\n\nReport text:\n${clipText(extractedText, MAX_REPORT_TEXT_FOR_AI)}`,
+          );
+          provider = "groq";
+          break;
+        } catch (e) {
+          errors.push(`groq: ${e instanceof Error ? e.message : String(e)}`);
+          if (!isRateLimitError(String(e))) break;
+        }
+      }
+    }
+
+    if (!rawText) {
+      if (errors.length > 0 && errors.every((e) => isRateLimitError(e))) {
+        return Response.json(
+          {
+            error: "AI usage limit reached. Please wait about 1 minute and try again.",
+            retryAfterSeconds: 60,
+          },
+          { status: 429 },
+        );
+      }
+      return failJson(500, "Could not analyze report right now.");
+    }
+
+    const jsonText = extractJson(rawText);
+    if (!jsonText) return failJson(500, "Could not parse AI report analysis.");
+
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(jsonText);
+    } catch {
+      return failJson(500, "Could not parse AI report analysis.");
+    }
+
+    const parsed = responseSchema.safeParse(parsedJson);
+    if (!parsed.success) return failJson(500, "AI response format was invalid.");
+
+    const analysis = parsed.data;
+    let savedVitalId: string | null = null;
+    let savedConditions = 0;
+    let savedAllergies = 0;
+    let savedMedications = 0;
+    let profileNotesUpdated = false;
+    const supabase = await createSupabaseServerClient();
+
+    if (saveVitals && hasAnyVitals(analysis.extractedVitals)) {
+      const { data: inserted, error: vitErr } = await supabase
+        .from("vital_signs")
+        .insert({
+          user_id: session.id,
+          recorded_at: new Date().toISOString(),
+          systolic_bp: analysis.extractedVitals.systolicBp ?? null,
+          diastolic_bp: analysis.extractedVitals.diastolicBp ?? null,
+          heart_rate_bpm: analysis.extractedVitals.heartRateBpm ?? null,
+          weight_kg: analysis.extractedVitals.weightKg ?? null,
+          temperature_c: analysis.extractedVitals.temperatureC ?? null,
+          glucose_mg_dl: analysis.extractedVitals.glucoseMgDl ?? null,
+          spo2_pct: analysis.extractedVitals.spo2Pct ?? null,
+          notes: `Auto-extracted from report: ${reportTitle || "Untitled report"}`,
+          source: "report_ai",
+        })
+        .select("id")
+        .single();
+      if (!vitErr && inserted?.id) savedVitalId = String(inserted.id);
+    }
+
+    if (saveProfileInsights) {
+      const conditions = Array.from(
+        new Set(
+          (analysis.extractedProfile.conditions ?? [])
+            .map((x) => x.trim())
+            .filter(Boolean),
+        ),
+      ).slice(0, 20);
+      const allergies = Array.from(
+        new Set(
+          (analysis.extractedProfile.allergies ?? [])
+            .map((x) => x.trim())
+            .filter(Boolean),
+        ),
+      ).slice(0, 20);
+      const medications = Array.from(
+        new Set(
+          (analysis.extractedProfile.medications ?? [])
+            .map((x) => x.trim())
+            .filter(Boolean),
+        ),
+      ).slice(0, 20);
+
+      if (conditions.length) {
+        const { error } = await supabase.from("medical_conditions").insert(
+          conditions.map((conditionName) => ({
+            user_id: session.id,
+            condition_name: conditionName,
+            status: "active",
+            notes: `Extracted from report: ${reportTitle || "Untitled report"}`,
+          })),
+        );
+        if (!error) savedConditions = conditions.length;
+      }
+
+      if (allergies.length) {
+        const { error } = await supabase.from("allergies").insert(
+          allergies.map((name) => ({
+            user_id: session.id,
+            allergen_type: "other",
+            name,
+            notes: `Extracted from report: ${reportTitle || "Untitled report"}`,
+          })),
+        );
+        if (!error) savedAllergies = allergies.length;
+      }
+
+      if (medications.length) {
+        const { error } = await supabase.from("medications").insert(
+          medications.map((name) => ({
+            user_id: session.id,
+            name,
+            is_active: true,
+            notes: `Extracted from report: ${reportTitle || "Untitled report"}`,
+          })),
+        );
+        if (!error) savedMedications = medications.length;
+      }
+
+      const notes = analysis.extractedProfile.notes?.trim();
+      if (notes) {
+        const { error } = await supabase.from("user_health_profiles").upsert(
+          {
+            user_id: session.id,
+            notes,
+          },
+          { onConflict: "user_id" },
+        );
+        if (!error) profileNotesUpdated = true;
+      }
+    }
+
+    return Response.json({
+      ...analysis,
+      provider,
+      extractionMode,
+      extractedTextPreview: extractedText ? clipText(extractedText, 800) : "",
+      savedVitalId,
+      savedVitals: !!savedVitalId,
+      savedProfile: {
+        conditions: savedConditions,
+        allergies: savedAllergies,
+        medications: savedMedications,
+        notesUpdated: profileNotesUpdated,
+      },
+    });
+  } catch (e) {
+    return serverErrorJson("reports_analyze POST", e);
+  }
+}

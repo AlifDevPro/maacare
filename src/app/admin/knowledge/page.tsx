@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -66,6 +67,8 @@ type Doc = {
   updated: string;
 };
 
+type DeleteMode = "ids" | "filtered" | "all";
+
 export default function KnowledgePage() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,6 +84,7 @@ export default function KnowledgePage() {
 
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvChunkMode, setCsvChunkMode] = useState<"per_column" | "merge_then_split">("per_column");
+  const [csvCategory, setCsvCategory] = useState("");
   const [batchImporting, setBatchImporting] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -94,6 +98,12 @@ export default function KnowledgePage() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteMode, setDeleteMode] = useState<DeleteMode>("ids");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteTargetIds, setDeleteTargetIds] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,8 +122,24 @@ export default function KnowledgePage() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+    void (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/admin/knowledge/documents", { credentials: "include" });
+        const data = (await res.json()) as { documents?: Doc[]; error?: string };
+        if (!res.ok) throw new Error(data.error ?? "Failed to load");
+        if (active) setDocs(data.documents ?? []);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not load knowledge base");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const cats = useMemo(
     () => Array.from(new Set(docs.map((d) => d.category).filter(Boolean))),
@@ -130,22 +156,16 @@ export default function KnowledgePage() {
   );
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-
-  useEffect(() => {
-    setPage(1);
-  }, [q, cat, pageSize]);
-
-  useEffect(() => {
-    setPage((p) => Math.min(Math.max(1, p), pageCount));
-  }, [pageCount]);
+  const safePage = Math.min(Math.max(1, page), pageCount);
 
   const paginated = useMemo(
-    () => filtered.slice((page - 1) * pageSize, page * pageSize),
-    [filtered, page, pageSize],
+    () => filtered.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filtered, safePage, pageSize],
   );
 
-  const rangeStart = filtered.length === 0 ? 0 : (page - 1) * pageSize + 1;
-  const rangeEnd = Math.min(page * pageSize, filtered.length);
+  const rangeStart = filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safePage * pageSize, filtered.length);
+  const allOnPageSelected = paginated.length > 0 && paginated.every((d) => selectedIds.includes(d.id));
 
   async function submitImport() {
     if (!formTitle.trim() || !formText.trim()) {
@@ -193,6 +213,7 @@ export default function KnowledgePage() {
       const fd = new FormData();
       fd.append("file", csvFile);
       fd.append("chunkMode", csvChunkMode);
+      if (csvCategory.trim()) fd.append("category", csvCategory.trim());
       const res = await fetch("/api/admin/knowledge/documents/batch", {
         method: "POST",
         credentials: "include",
@@ -225,6 +246,7 @@ export default function KnowledgePage() {
       }
       setUploadOpen(false);
       setCsvFile(null);
+      setCsvCategory("");
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Batch import failed");
@@ -295,21 +317,65 @@ export default function KnowledgePage() {
     }
   }
 
-  async function removeDoc(id: string) {
-    if (!confirm("Delete this document and all its chunks?")) return;
-    try {
-      const res = await fetch(`/api/admin/knowledge/documents/${id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        throw new Error(data.error ?? "Delete failed");
+  function openDeleteDialog(mode: DeleteMode, ids: string[] = []) {
+    setDeleteMode(mode);
+    setDeleteTargetIds(ids);
+    setDeletePassword("");
+    setDeleteOpen(true);
+  }
+
+  function toggleSelected(id: string, checked: boolean) {
+    setSelectedIds((prev) => {
+      if (checked) return prev.includes(id) ? prev : [...prev, id];
+      return prev.filter((x) => x !== id);
+    });
+  }
+
+  function setPageSelection(checked: boolean) {
+    setSelectedIds((prev) => {
+      if (checked) {
+        const merged = new Set([...prev, ...paginated.map((d) => d.id)]);
+        return Array.from(merged);
       }
-      toast.success("Document removed");
-      setDocs((xs) => xs.filter((x) => x.id !== id));
+      const pageIds = new Set(paginated.map((d) => d.id));
+      return prev.filter((id) => !pageIds.has(id));
+    });
+  }
+
+  async function confirmDelete() {
+    const trimmedPassword = deletePassword.trim();
+    if (!trimmedPassword) {
+      toast.error("Please enter your admin password");
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/admin/knowledge/documents/delete", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: deleteMode,
+          ids: deleteTargetIds,
+          q,
+          category: cat,
+          password: trimmedPassword,
+        }),
+      });
+      const data = (await res.json()) as { error?: string; message?: string; deleted?: number };
+      if (!res.ok) {
+        throw new Error(data.message ?? data.error ?? "Delete failed");
+      }
+      const deleted = data.deleted ?? 0;
+      toast.success(`Deleted ${deleted} document${deleted === 1 ? "" : "s"}`);
+      setSelectedIds([]);
+      setDeleteOpen(false);
+      await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -347,13 +413,22 @@ export default function KnowledgePage() {
             />
             <Input
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
               placeholder="Search titles…"
               className="h-10 pl-10 pr-3.5"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={cat} onValueChange={setCat}>
+            <Select
+              value={cat}
+              onValueChange={(v) => {
+                setCat(v);
+                setPage(1);
+              }}
+            >
               <SelectTrigger className="h-10 w-full min-w-[11rem] rounded-sm sm:w-44">
                 <SelectValue placeholder="Category" />
               </SelectTrigger>
@@ -368,7 +443,10 @@ export default function KnowledgePage() {
             </Select>
             <Select
               value={String(pageSize)}
-              onValueChange={(v) => setPageSize(Number(v))}
+              onValueChange={(v) => {
+                setPageSize(Number(v));
+                setPage(1);
+              }}
             >
               <SelectTrigger className="h-10 w-full min-w-[7.5rem] rounded-sm sm:w-36">
                 <SelectValue />
@@ -389,6 +467,30 @@ export default function KnowledgePage() {
             >
               Refresh
             </Button>
+            <Button
+              variant="destructive"
+              className="h-10 rounded-sm"
+              disabled={selectedIds.length === 0 || loading}
+              onClick={() => openDeleteDialog("ids", selectedIds)}
+            >
+              Delete selected ({selectedIds.length})
+            </Button>
+            <Button
+              variant="destructive"
+              className="h-10 rounded-sm"
+              disabled={filtered.length === 0 || loading}
+              onClick={() => openDeleteDialog("filtered")}
+            >
+              Delete filtered ({filtered.length})
+            </Button>
+            <Button
+              variant="destructive"
+              className="h-10 rounded-sm"
+              disabled={docs.length === 0 || loading}
+              onClick={() => openDeleteDialog("all")}
+            >
+              Delete all ({docs.length})
+            </Button>
           </div>
         </div>
       </Card>
@@ -404,6 +506,13 @@ export default function KnowledgePage() {
           <Table>
             <TableHeader className="sticky top-0 z-10 border-0 bg-card shadow-[inset_0_-1px_0_0_var(--color-border)]">
               <TableRow className="border-b-0 hover:bg-transparent">
+                <TableHead className="w-10 bg-card">
+                  <Checkbox
+                    checked={allOnPageSelected}
+                    onCheckedChange={(v) => setPageSelection(Boolean(v))}
+                    aria-label="Select all on this page"
+                  />
+                </TableHead>
                 <TableHead className="bg-card">Document</TableHead>
                 <TableHead className="bg-card">Source</TableHead>
                 <TableHead className="bg-card">Category</TableHead>
@@ -415,20 +524,27 @@ export default function KnowledgePage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
                     <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin opacity-60" />
                     Loading documents…
                   </TableCell>
                 </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                     No documents yet. Import clinical guidelines or internal articles as text.
                   </TableCell>
                 </TableRow>
               ) : (
                 paginated.map((d) => (
                   <TableRow key={d.id}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedIds.includes(d.id)}
+                        onCheckedChange={(v) => toggleSelected(d.id, Boolean(v))}
+                        aria-label={`Select ${d.title}`}
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-accent-soft text-accent">
@@ -469,7 +585,7 @@ export default function KnowledgePage() {
                         variant="ghost"
                         className="h-8 w-8 rounded-md text-destructive"
                         type="button"
-                        onClick={() => void removeDoc(d.id)}
+                        onClick={() => openDeleteDialog("ids", [d.id])}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -495,20 +611,20 @@ export default function KnowledgePage() {
                 variant="outline"
                 size="sm"
                 className="h-9 rounded-sm"
-                disabled={page <= 1}
+                disabled={safePage <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
                 <ChevronLeft className="mr-1 h-4 w-4" /> Previous
               </Button>
               <span className="tabular-nums text-xs text-muted-foreground">
-                Page {page} / {pageCount}
+                Page {safePage} / {pageCount}
               </span>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className="h-9 rounded-sm"
-                disabled={page >= pageCount}
+                disabled={safePage >= pageCount}
                 onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
               >
                 Next <ChevronRight className="ml-1 h-4 w-4" />
@@ -517,6 +633,53 @@ export default function KnowledgePage() {
           </div>
         ) : null}
       </Card>
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(o) => {
+          if (deleting && !o) return;
+          setDeleteOpen(o);
+          if (!o) setDeletePassword("");
+        }}
+      >
+        <DialogContent className={cn("sm:max-w-md", adminFormFieldClasses)}>
+          <DialogHeader>
+            <DialogTitle>Confirm delete with admin password</DialogTitle>
+            <DialogDescription>
+              {deleteMode === "ids"
+                ? `You are deleting ${deleteTargetIds.length} selected document(s) and all related chunks.`
+                : deleteMode === "filtered"
+                  ? `You are deleting all ${filtered.length} currently filtered document(s) and their chunks.`
+                  : `You are deleting all ${docs.length} RAG documents and chunks.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-1.5 py-2">
+            <Label htmlFor="admin-delete-password">Admin password</Label>
+            <Input
+              id="admin-delete-password"
+              type="password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder="Enter your account password"
+              autoComplete="current-password"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => void confirmDelete()} disabled={deleting}>
+              {deleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Deleting…
+                </>
+              ) : (
+                "Confirm delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={editOpen}
@@ -727,6 +890,18 @@ export default function KnowledgePage() {
                     </SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="csv-category">Apply one category to all rows (optional)</Label>
+                <Input
+                  id="csv-category"
+                  value={csvCategory}
+                  onChange={(e) => setCsvCategory(e.target.value)}
+                  placeholder="e.g. nutrition, qna, risk_rules"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  If filled, this overrides row category values from the CSV.
+                </p>
               </div>
               <p className="text-[11px] text-muted-foreground">
                 Large batches call Gemini once per chunk and may take several minutes (max 120 rows

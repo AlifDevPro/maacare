@@ -39,16 +39,37 @@ export default function SymptomsPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [other, setOther] = useState("");
   const [severity, setSeverity] = useState(2);
+  const [saving, setSaving] = useState(false);
   const router = useRouter();
 
   function toggle(s: string) {
     setSelected((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]));
   }
 
-  function analyze() {
+  async function analyze() {
     const level = severity >= 7 ? "high" : severity >= 4 ? "medium" : "low";
+    const title = selected.length > 0 ? selected.slice(0, 2).join(", ") : "Symptom check";
+    setSaving(true);
+    let logId: string | null = null;
+    try {
+      const res = await fetch("/api/symptoms/log", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symptomCodes: selected,
+          title,
+          description: other.trim() || undefined,
+          severity,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { id?: string; message?: string; error?: string };
+      if (res.ok && j.id) logId = j.id;
+    } finally {
+      setSaving(false);
+    }
     router.push(
-      `/symptoms/result?level=${level}&count=${selected.length}&severity=${severity}`,
+      `/symptoms/result?level=${level}&count=${selected.length}&severity=${severity}${logId ? `&logId=${encodeURIComponent(logId)}` : ""}`,
     );
   }
 
@@ -142,10 +163,10 @@ export default function SymptomsPage() {
         <Button
           size="lg"
           className="w-full rounded-2xl"
-          disabled={selected.length === 0}
-          onClick={analyze}
+          disabled={selected.length === 0 || saving}
+          onClick={() => void analyze()}
         >
-          Analyze risk
+          {saving ? "Saving..." : "Analyze risk"}
         </Button>
       </div>
     </AppShell>

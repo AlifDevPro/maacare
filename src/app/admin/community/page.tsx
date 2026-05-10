@@ -36,6 +36,24 @@ type AdminPostRow = {
   isPinned: boolean;
 };
 
+type AdminReportRow = {
+  id: string;
+  postId: string;
+  reason: string;
+  details: string | null;
+  status: string;
+  adminNote: string | null;
+  createdAt: string;
+  reporterDisplayName: string;
+  reporterEmail: string | null;
+  post: {
+    id: string;
+    title: string | null;
+    body: string;
+    moderationStatus: string;
+  } | null;
+};
+
 function kindLabel(kind: string): string {
   if (kind === "question") return "Question";
   if (kind === "tip") return "Tip";
@@ -48,6 +66,8 @@ export default function CommunityModeration() {
   const [deleteTarget, setDeleteTarget] = useState<AdminPostRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [patchingId, setPatchingId] = useState<string | null>(null);
+  const [reports, setReports] = useState<AdminReportRow[]>([]);
+  const [reportActionId, setReportActionId] = useState<string | null>(null);
 
   const loadPosts = useCallback(async () => {
     setLoading(true);
@@ -69,9 +89,33 @@ export default function CommunityModeration() {
     }
   }, []);
 
+  const loadReports = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/community/reports?status=all&limit=200", {
+        credentials: "include",
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        reports?: AdminReportRow[];
+        message?: string;
+      };
+      if (res.status === 403) {
+        setReports([]);
+        return;
+      }
+      if (!res.ok) throw new Error(j.message ?? "Could not load reports.");
+      setReports(j.reports ?? []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load reports.");
+      setReports([]);
+    }
+  }, []);
+
   useEffect(() => {
-    void loadPosts();
-  }, [loadPosts]);
+    const t = window.setTimeout(() => {
+      void Promise.all([loadPosts(), loadReports()]);
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [loadPosts, loadReports]);
 
   async function setModeration(postId: string, moderationStatus: ModerationStatus) {
     setPatchingId(postId);
@@ -115,7 +159,33 @@ export default function CommunityModeration() {
     }
   }
 
+  async function actOnReport(
+    reportId: string,
+    payload: { status: "resolved" | "rejected"; hidePost?: boolean },
+  ) {
+    setReportActionId(reportId);
+    try {
+      const res = await fetch(`/api/admin/community/reports/${reportId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(j.message ?? "Could not update report.");
+      toast.success(
+        payload.hidePost ? "Report resolved and post hidden." : "Report updated.",
+      );
+      await Promise.all([loadPosts(), loadReports()]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update report.");
+    } finally {
+      setReportActionId(null);
+    }
+  }
+
   const queue = posts.filter((p) => p.moderationStatus === "pending");
+  const openReports = reports.filter((r) => r.status === "open");
 
   function PostAdminCard({ p }: { p: AdminPostRow }) {
     const busy = patchingId === p.id;
@@ -229,6 +299,7 @@ export default function CommunityModeration() {
             Pending ({loading ? "…" : queue.length})
           </TabsTrigger>
           <TabsTrigger value="all">All posts</TabsTrigger>
+          <TabsTrigger value="reports">Reports ({loading ? "…" : openReports.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="queue" className="mt-5 space-y-3">
@@ -254,6 +325,101 @@ export default function CommunityModeration() {
             <Card className="p-10 text-center text-sm text-muted-foreground">No community posts yet.</Card>
           ) : (
             posts.map((p) => <PostAdminCard key={p.id} p={p} />)
+          )}
+        </TabsContent>
+
+        <TabsContent value="reports" className="mt-5 space-y-3">
+          {loading ? (
+            <Card className="flex justify-center p-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </Card>
+          ) : reports.length === 0 ? (
+            <Card className="p-10 text-center text-sm text-muted-foreground">
+              No reports yet.
+            </Card>
+          ) : (
+            reports.map((r) => {
+              const busy = reportActionId === r.id;
+              return (
+                <Card key={r.id} className="p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="capitalize">
+                          {r.reason}
+                        </Badge>
+                        <Badge
+                          variant={
+                            r.status === "open"
+                              ? "destructive"
+                              : r.status === "resolved"
+                                ? "secondary"
+                                : "outline"
+                          }
+                          className="capitalize"
+                        >
+                          {r.status}
+                        </Badge>
+                      </div>
+                      <p className="text-sm">
+                        Reported by <span className="font-medium">{r.reporterDisplayName}</span>
+                        {r.reporterEmail ? ` (${r.reporterEmail})` : ""}
+                      </p>
+                      {r.details ? <p className="text-sm text-foreground/90">{r.details}</p> : null}
+                      {r.post ? (
+                        <div className="rounded-xl border border-border bg-muted/40 p-3">
+                          {r.post.title ? (
+                            <p className="text-sm font-semibold">{r.post.title}</p>
+                          ) : null}
+                          <p className="line-clamp-3 text-sm text-muted-foreground">{r.post.body}</p>
+                          <Link
+                            href={`/community/${r.post.id}`}
+                            className="mt-1 inline-block text-xs font-medium text-primary hover:underline"
+                          >
+                            Open post
+                          </Link>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Post no longer exists.
+                        </p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground">
+                        {formatDistanceToNow(new Date(r.createdAt), { addSuffix: true })}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || r.status !== "open"}
+                        onClick={() => void actOnReport(r.id, { status: "resolved" })}
+                      >
+                        Resolve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || r.status !== "open"}
+                        onClick={() =>
+                          void actOnReport(r.id, { status: "resolved", hidePost: true })
+                        }
+                      >
+                        Hide + Resolve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || r.status !== "open"}
+                        onClick={() => void actOnReport(r.id, { status: "rejected" })}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })
           )}
         </TabsContent>
       </Tabs>

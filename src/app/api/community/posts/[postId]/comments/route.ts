@@ -10,6 +10,7 @@ const uuid = z.string().uuid();
 
 const commentSchema = z.object({
   body: z.string().min(1).max(5000),
+  parentCommentId: z.string().uuid().optional().nullable(),
 });
 
 export async function GET(
@@ -35,6 +36,7 @@ export async function GET(
         id,
         body,
         created_at,
+        parent_comment_id,
         author_id,
         moderation_status,
         profiles!author_id (
@@ -60,6 +62,7 @@ export async function GET(
         id: row.id as string,
         body: row.body as string,
         createdAt: row.created_at as string,
+        parentCommentId: (row.parent_comment_id as string | null) ?? null,
         authorId: row.author_id as string,
         authorDisplayName: profile?.display_name ?? "Member",
         authorRole: profile?.role ?? "user",
@@ -97,6 +100,20 @@ export async function POST(
     const supabase = await createSupabaseServerClient();
     const uid = session.id;
     const postId = parsedId.data;
+    const parentCommentId = parsed.data.parentCommentId ?? null;
+
+    if (parentCommentId) {
+      const { data: parentRow, error: parentErr } = await supabase
+        .from("community_comments")
+        .select("id")
+        .eq("id", parentCommentId)
+        .eq("post_id", postId)
+        .eq("moderation_status", "visible")
+        .maybeSingle();
+      if (parentErr || !parentRow) {
+        return failJson(400, "Invalid parent comment.");
+      }
+    }
 
     const { error: ensureErr } = await supabase.rpc("ensure_profile_for_current_user");
     if (ensureErr) {
@@ -105,6 +122,7 @@ export async function POST(
 
     const { error } = await supabase.from("community_comments").insert({
       post_id: postId,
+      parent_comment_id: parentCommentId,
       author_id: uid,
       body: parsed.data.body.trim(),
       moderation_status: "visible",

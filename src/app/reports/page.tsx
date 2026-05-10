@@ -1,80 +1,572 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 
-import { Upload, FileText, Sparkles, Save, MessageCircle, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  Upload,
+  FileText,
+  Sparkles,
+  MessageCircle,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  HeartPulse,
+} from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+
+type Finding = {
+  name: string;
+  value: string;
+  range: string;
+  status: "normal" | "low" | "high" | "borderline";
+  note: string;
+};
+
+type AnalysisResult = {
+  summary: string;
+  plainExplanation: string;
+  riskLevel: "low" | "medium" | "high";
+  findings: Finding[];
+  recommendations: string[];
+  extractedVitals: {
+    systolicBp?: number | null;
+    diastolicBp?: number | null;
+    heartRateBpm?: number | null;
+    weightKg?: number | null;
+    temperatureC?: number | null;
+    glucoseMgDl?: number | null;
+    spo2Pct?: number | null;
+  };
+  provider?: "gemini" | "groq";
+  extractionMode?: "provided_text" | "pdf_local" | "ocr_local" | "text_local" | "gemini_file";
+  extractedTextPreview?: string;
+  savedVitalId?: string | null;
+  savedVitals?: boolean;
+  extractedProfile: {
+    conditions: string[];
+    allergies: string[];
+    medications: string[];
+    notes?: string;
+  };
+  savedProfile?: {
+    conditions: number;
+    allergies: number;
+    medications: number;
+    notesUpdated: boolean;
+  };
+};
 
 export default function ReportsPage() {
-  const [analyzed, setAnalyzed] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [stage, setStage] = useState<"input" | "loading" | "result">("input");
+  const [inputMode, setInputMode] = useState<"file" | "text">("file");
+  const [reportTitle, setReportTitle] = useState("");
+  const [reportText, setReportText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [saveVitals, setSaveVitals] = useState(true);
+  const [saveProfileInsights, setSaveProfileInsights] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [limitMessage, setLimitMessage] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [uiError, setUiError] = useState<string | null>(null);
+  const [loadingStep, setLoadingStep] = useState(0);
+  const [loadingProgress, setLoadingProgress] = useState(12);
+
+  const loadingSteps = [
+    "Extracting text from your report...",
+    "Detecting key clinical markers...",
+    "Analyzing risk and generating summary...",
+  ];
+
+  function resetToFreshInput() {
+    setStage("input");
+    setAnalysis(null);
+    setReportTitle("");
+    setReportText("");
+    setFile(null);
+    setInputMode("file");
+    setCooldownSeconds(0);
+    setLimitMessage(null);
+    setLoadingStep(0);
+    setLoadingProgress(12);
+    setUiError(null);
+  }
+
+  useEffect(() => {
+    if (stage !== "loading") return;
+
+    setLoadingStep(0);
+    setLoadingProgress(18);
+
+    const t1 = window.setTimeout(() => {
+      setLoadingStep(1);
+      setLoadingProgress(54);
+    }, 900);
+    const t2 = window.setTimeout(() => {
+      setLoadingStep(2);
+      setLoadingProgress(82);
+    }, 2000);
+    const t3 = window.setTimeout(() => {
+      setLoadingProgress(94);
+    }, 3200);
+
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+    };
+  }, [stage]);
+
+  function startCooldown(seconds: number, message?: string) {
+    const retry = Math.max(1, Number(seconds || 60));
+    setCooldownSeconds(retry);
+    setLimitMessage(message ?? "AI usage limit reached. Please wait and try again.");
+    const t = window.setInterval(() => {
+      setCooldownSeconds((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(t);
+          setLimitMessage(null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }
+
+  async function analyzeReport() {
+    if (inputMode === "text" && !reportText.trim()) {
+      setUiError("Paste report text first, then tap Analyze report.");
+      return;
+    }
+    if (inputMode === "file" && !file) {
+      setUiError("Upload a report file first, then tap Analyze report.");
+      return;
+    }
+
+    setUiError(null);
+    setAnalyzing(true);
+    setStage("loading");
+    setLoadingStep(0);
+    setLoadingProgress(12);
+    try {
+      // Always verify local extraction first so OCR failures are shown clearly.
+      if (inputMode === "file" && file) {
+        const previewFd = new FormData();
+        previewFd.append("file", file);
+        const previewRes = await fetch("/api/reports/extract-local", {
+          method: "POST",
+          credentials: "include",
+          body: previewFd,
+        });
+        const previewData = (await previewRes.json().catch(() => ({}))) as {
+          ok?: boolean;
+          mode?: string;
+          chars?: number;
+          preview?: string;
+          message?: string;
+        };
+        if (!previewRes.ok || !previewData.ok) {
+          throw new Error(
+            previewData.message ??
+              "Local extraction failed. Please upload a clearer image or switch to Paste text.",
+          );
+        }
+      }
+
+      const fd = new FormData();
+      fd.append("reportTitle", reportTitle.trim());
+      fd.append("reportText", inputMode === "text" ? reportText.trim() : "");
+      fd.append("saveVitals", String(saveVitals));
+      fd.append("saveProfileInsights", String(saveProfileInsights));
+      if (inputMode === "file" && file) fd.append("file", file);
+
+      const res = await fetch("/api/reports/analyze", {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      const data = (await res.json().catch(() => ({}))) as
+        | (AnalysisResult & { error?: string; retryAfterSeconds?: number })
+        | { error?: string; retryAfterSeconds?: number };
+
+      const errText = (data as { error?: string }).error ?? "";
+      const looksLikeLimit =
+        res.status === 429 || /limit|quota|resource_exhausted|rate/i.test(errText);
+      if (looksLikeLimit) {
+        startCooldown(
+          Number((data as { retryAfterSeconds?: number }).retryAfterSeconds ?? 60),
+          errText || undefined,
+        );
+        setStage("input");
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error((data as { error?: string }).error ?? "Could not analyze report.");
+      }
+
+      setAnalysis(data as AnalysisResult);
+      setLoadingProgress(100);
+      setStage("result");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not analyze report.";
+      if (/limit|quota|resource_exhausted|rate/i.test(msg)) {
+        startCooldown(60, "AI usage limit reached. Please wait and try again.");
+        setStage("input");
+        return;
+      }
+      setStage("input");
+      setUiError(msg);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   return (
     <AppShell>
       <AppHeader title="Understand your report" showBack />
       <div className="space-y-5 px-4 pt-4">
-        {!analyzed ? (
-          <>
-            <Card className="border-2 border-dashed border-border bg-muted/40 p-8 text-center shadow-soft">
-              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-soft text-primary">
-                <Upload className="h-6 w-6" />
-              </div>
-              <h2 className="font-display text-base font-semibold">Upload your medical report</h2>
-              <p className="mt-1 text-xs text-muted-foreground">PDF or image, up to 10 MB</p>
-              <Button onClick={() => setAnalyzed(true)} className="mt-4 rounded-2xl">
-                <FileText className="mr-1.5 h-4 w-4" /> Choose file
-              </Button>
-            </Card>
-            <p className="px-2 text-center text-[11px] text-muted-foreground">
-              Your reports are encrypted and visible only to you.
-            </p>
-          </>
-        ) : (
-          <>
-            <Card className="overflow-hidden border-0 bg-gradient-warm p-5 shadow-card">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary/80">
-                <Sparkles className="h-3.5 w-3.5" /> AI summary
-              </div>
-              <p className="mt-2 text-sm leading-relaxed">
-                Your hemoglobin level is <strong>slightly low</strong> for this stage. Other values
-                look normal. Discuss iron supplementation with your doctor.
-              </p>
-            </Card>
+        <AnimatePresence mode="wait">
+          {stage === "input" ? (
+            <motion.div
+              key="input"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+            >
+              <Card className="p-4">
+                <div className="grid gap-3">
+                  <div className="rounded-xl border border-border/70 bg-muted/30 p-1">
+                    <div className="grid grid-cols-2 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setInputMode("file")}
+                        className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                          inputMode === "file"
+                            ? "bg-card text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Upload file
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInputMode("text")}
+                        className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                          inputMode === "text"
+                            ? "bg-card text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Paste text
+                      </button>
+                    </div>
+                  </div>
 
-            <div>
-              <h2 className="mb-2 font-display text-sm font-semibold">Key values</h2>
-              <div className="space-y-2">
-                <ValueRow name="Hemoglobin" value="10.2 g/dL" range="11.0–14.0" status="low" />
-                <ValueRow name="Blood pressure" value="118/76" range="< 130/85" status="normal" />
-                <ValueRow name="Glucose" value="92 mg/dL" range="< 95" status="normal" />
-                <ValueRow name="Iron" value="55 µg/dL" range="60–170" status="low" />
+                  <div className="rounded-2xl border border-border bg-card p-2">
+                    <Input
+                      value={reportTitle}
+                      onChange={(e) => setReportTitle(e.target.value)}
+                      placeholder="Report title (optional) — e.g. CBC panel"
+                      className="mb-2 border-0 shadow-none focus-visible:ring-0"
+                    />
+                    {inputMode === "text" ? (
+                      <Textarea
+                        value={reportText}
+                        onChange={(e) => setReportText(e.target.value)}
+                        placeholder="Paste full report text here..."
+                        className="min-h-[180px] border-0 shadow-none focus-visible:ring-0"
+                      />
+                    ) : (
+                      <p className="px-3 pb-2 pt-1 text-xs text-muted-foreground">
+                        Upload your report file below. For best accuracy, switch to <strong>Paste text</strong> when possible.
+                      </p>
+                    )}
+                  </div>
+
+                  {inputMode === "file" ? (
+                    <div className="rounded-2xl border-2 border-dashed border-border bg-muted/25 p-4">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex w-full flex-col items-center justify-center rounded-xl border border-border/60 bg-background/70 px-4 py-6 text-center transition-colors hover:bg-muted"
+                      >
+                        <span className="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary-soft text-primary">
+                          <Upload className="h-5 w-5" />
+                        </span>
+                        <p className="text-sm font-semibold">Upload file</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          PDF, image, text, CSV, or JSON (max 10MB)
+                        </p>
+                      </button>
+                      <Input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,image/*,.txt,.csv,.json"
+                        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                        className="hidden"
+                      />
+                      {file ? (
+                        <div className="mt-2 flex w-full min-w-0 max-w-full items-start gap-1.5 overflow-hidden rounded-xl bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent">
+                          <FileText className="h-3.5 w-3.5 shrink-0" />
+                          <span
+                            className="min-w-0 flex-1 break-all whitespace-normal leading-relaxed"
+                            title={file.name}
+                          >
+                            {file.name}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-[11px] text-muted-foreground">
+                          Tip: switch to <strong>Paste text</strong> for highest extraction accuracy.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-emerald-300/50 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                      Pasted text usually gives the best extraction quality and saves AI usage.
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 rounded-xl bg-accent-soft/40 px-3 py-2">
+                    <Checkbox
+                      id="save-vitals"
+                      checked={saveVitals}
+                      onCheckedChange={(v) => setSaveVitals(Boolean(v))}
+                    />
+                    <label htmlFor="save-vitals" className="text-sm">
+                      Save extracted vitals (heart rate, BP, glucose, SpO2, temperature, weight) to my tracker
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl bg-primary-soft/40 px-3 py-2">
+                    <Checkbox
+                      id="save-profile-insights"
+                      checked={saveProfileInsights}
+                      onCheckedChange={(v) => setSaveProfileInsights(Boolean(v))}
+                    />
+                    <label htmlFor="save-profile-insights" className="text-sm">
+                      Save extracted conditions, allergies, medications, and insights to profile for personalization
+                    </label>
+                  </div>
+
+                  {cooldownSeconds > 0 ? (
+                    <div className="rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      {limitMessage ?? "AI usage limit reached."} Try again in {cooldownSeconds}s.
+                    </div>
+                  ) : null}
+                  {uiError ? (
+                    <div className="rounded-xl border border-red-300/60 bg-red-50 px-3 py-2">
+                      <p className="text-xs font-semibold text-red-800">Could not analyze this report</p>
+                      <p className="mt-0.5 text-xs text-red-700">{uiError}</p>
+                    </div>
+                  ) : null}
+
+                  <Button
+                    className="rounded-2xl"
+                    disabled={analyzing || cooldownSeconds > 0}
+                    onClick={() => void analyzeReport()}
+                  >
+                    <Sparkles className="mr-1.5 h-4 w-4" /> Analyze report
+                  </Button>
+                </div>
+              </Card>
+            </motion.div>
+          ) : null}
+
+          {stage === "loading" ? (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+            >
+              <Card className="p-6">
+                <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-soft text-primary">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  </span>
+                  <p className="text-base font-semibold">Analyzing your report...</p>
+                  <p className="max-w-sm text-sm text-muted-foreground">{loadingSteps[loadingStep]}</p>
+                  <div className="mt-2 w-full max-w-sm">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all duration-700 ease-out"
+                        style={{ width: `${loadingProgress}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{loadingProgress}% complete</p>
+                  </div>
+                </div>
+              </Card>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
+        {stage === "result" && analysis ? (
+          <>
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }}>
+            <Card className="overflow-hidden border-0 bg-gradient-warm p-5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary/80">
+                  <Sparkles className="h-3.5 w-3.5" /> AI report summary
+                </span>
+                <span className="text-muted-foreground">
+                  Generated by {analysis.provider === "groq" ? "Groq" : "Gemini"}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                    analysis.riskLevel === "high"
+                      ? "bg-risk-high text-risk-high-foreground"
+                      : analysis.riskLevel === "medium"
+                        ? "bg-risk-medium text-risk-medium-foreground"
+                        : "bg-risk-low text-risk-low-foreground"
+                  }`}
+                >
+                  {analysis.riskLevel} risk
+                </span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {analysis.findings.length} key markers
+                </span>
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-foreground/95">{analysis.summary}</p>
+            </Card>
+            </motion.div>
+
+            {analysis.savedVitals ? (
+              <Card className="flex items-center gap-2 bg-accent-soft/40 p-3">
+                <HeartPulse className="h-4 w-4 text-accent" />
+                <p className="text-sm">
+                  Extracted vitals saved to tracker{analysis.savedVitalId ? ` (ID: ${analysis.savedVitalId})` : ""}.
+                </p>
+              </Card>
+            ) : null}
+            {analysis.savedProfile &&
+            (analysis.savedProfile.conditions > 0 ||
+              analysis.savedProfile.allergies > 0 ||
+              analysis.savedProfile.medications > 0 ||
+              analysis.savedProfile.notesUpdated) ? (
+              <Card className="p-3">
+                <p className="text-sm font-medium">Clinical insights saved to your profile</p>
+                <p className="text-xs text-muted-foreground">
+                  Conditions: {analysis.savedProfile.conditions} · Allergies: {analysis.savedProfile.allergies} ·
+                  Medications: {analysis.savedProfile.medications}
+                  {analysis.savedProfile.notesUpdated ? " · Notes updated" : ""}
+                </p>
+              </Card>
+            ) : null}
+
+            <div className="space-y-2">
+              <h2 className="font-display text-sm font-semibold">Key information</h2>
+              <div className="grid gap-2">
+                {analysis.findings.length === 0 ? (
+                  <Card className="p-3 text-sm text-muted-foreground">
+                    No structured values were detected.
+                  </Card>
+                ) : (
+                  analysis.findings.map((f, idx) => (
+                    <ValueRow
+                      key={`${f.name}-${idx}`}
+                      name={f.name}
+                      value={f.value}
+                      range={f.range || "—"}
+                      status={f.status === "borderline" ? "high" : f.status}
+                    />
+                  ))
+                )}
               </div>
             </div>
 
-            <Card className="p-4 shadow-soft">
-              <h3 className="font-display text-sm font-semibold">Plain-language explanation</h3>
-              <p className="mt-1 text-sm text-foreground/90">
-                Mild anemia is common in pregnancy. Iron-rich foods (spinach, lentils, lean meat)
-                and a doctor-approved supplement usually correct it.
-              </p>
+            <Card className="p-4">
+              <h3 className="font-display text-sm font-semibold">What this means</h3>
+              <p className="mt-1 text-sm text-foreground/90">{analysis.plainExplanation}</p>
             </Card>
 
-            <div className="grid grid-cols-2 gap-3">
+            <Card className="p-4">
+              <h3 className="font-display text-sm font-semibold">Recommended next steps</h3>
+              <ul className="mt-2 space-y-1.5 text-sm">
+                {analysis.recommendations.length ? (
+                  analysis.recommendations.map((r) => (
+                    <li key={r} className="flex items-start gap-2">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 text-accent" />
+                      <span>{r}</span>
+                    </li>
+                  ))
+                ) : (
+                  <li className="text-muted-foreground">No recommendations generated.</li>
+                )}
+              </ul>
+            </Card>
+            <Card className="p-4">
+              <h3 className="font-display text-sm font-semibold">Extracted profile insights</h3>
+              <div className="mt-2 space-y-2 text-sm">
+                <InsightList title="Conditions" items={analysis.extractedProfile.conditions} />
+                <InsightList title="Allergies" items={analysis.extractedProfile.allergies} />
+                <InsightList title="Medications" items={analysis.extractedProfile.medications} />
+              </div>
+              {analysis.extractedProfile.notes ? (
+                <p className="mt-2 text-xs text-muted-foreground">{analysis.extractedProfile.notes}</p>
+              ) : null}
+            </Card>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Button asChild variant="outline" className="rounded-2xl">
-                <Link href="/chat">
+                <Link
+                  href={`/chat?reportContext=${encodeURIComponent(
+                    JSON.stringify({
+                      title: reportTitle || "Medical report",
+                      summary: analysis.summary,
+                      plainExplanation: analysis.plainExplanation,
+                      findings: analysis.findings,
+                      recommendations: analysis.recommendations,
+                    }),
+                  )}`}
+                >
                   <MessageCircle className="mr-1.5 h-4 w-4" /> Ask AI
                 </Link>
               </Button>
-              <Button className="rounded-2xl">
-                <Save className="mr-1.5 h-4 w-4" /> Save report
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={resetToFreshInput}>
+                <FileText className="mr-1.5 h-4 w-4" /> Simplify another
               </Button>
             </div>
           </>
-        )}
+        ) : null}
+        <p className="px-2 text-center text-[11px] text-muted-foreground">
+          AI guidance only — not diagnosis. Always review critical findings with your clinician.
+        </p>
       </div>
     </AppShell>
+  );
+}
+
+function InsightList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+      {items.length ? (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {items.map((item) => (
+            <span key={item} className="rounded-full bg-muted px-2 py-0.5 text-xs">
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 text-xs text-muted-foreground">None detected</p>
+      )}
+    </div>
   );
 }
 
@@ -96,7 +588,7 @@ function ValueRow({
   } as const;
   const s = map[status];
   return (
-    <Card className="flex items-center justify-between p-3 shadow-soft">
+    <Card className="flex items-center justify-between p-3">
       <div>
         <p className="text-sm font-semibold">{name}</p>
         <p className="text-xs text-muted-foreground">Normal: {range}</p>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
@@ -42,6 +42,28 @@ function FieldLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?
   );
 }
 
+const SECTION_ORDER = ["personal", "pregnancy", "health", "care"] as const;
+type SectionKey = (typeof SECTION_ORDER)[number];
+
+const SECTION_META: Record<SectionKey, { title: string; subtitle: string }> = {
+  personal: {
+    title: "Personal",
+    subtitle: "Identity and contact basics",
+  },
+  pregnancy: {
+    title: "Pregnancy",
+    subtitle: "Journey status and due-date context",
+  },
+  health: {
+    title: "Health",
+    subtitle: "Medical snapshot and notes",
+  },
+  care: {
+    title: "Care & safety",
+    subtitle: "Emergency + care team details",
+  },
+};
+
 export default function ProfileEditPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useSession();
@@ -71,6 +93,9 @@ export default function ProfileEditPage() {
   const [healthNotes, setHealthNotes] = useState("");
   const [allergiesText, setAllergiesText] = useState("");
   const [conditionsText, setConditionsText] = useState("");
+  const [activeSection, setActiveSection] = useState<SectionKey>("personal");
+
+  const fieldClass = "rounded-sm shadow-none";
 
   const fetchBundle = useCallback(async () => {
     setLoading(true);
@@ -132,6 +157,14 @@ export default function ProfileEditPage() {
       router.replace("/login?next=/profile/edit");
     }
   }, [authLoading, user, router]);
+
+  const activeIdx = SECTION_ORDER.indexOf(activeSection);
+  const progress = ((activeIdx + 1) / SECTION_ORDER.length) * 100;
+
+  function goSection(step: number) {
+    const idx = Math.max(0, Math.min(SECTION_ORDER.length - 1, step));
+    setActiveSection(SECTION_ORDER[idx]!);
+  }
 
   async function save() {
     if (!displayName.trim()) {
@@ -250,30 +283,62 @@ export default function ProfileEditPage() {
           accurate. Nothing here replaces medical advice from your clinician.
         </p>
 
+        <Card className="rounded-sm border-border/80 shadow-none">
+          <CardContent className="space-y-3 p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground">
+                Guided setup • Step {activeIdx + 1} of {SECTION_ORDER.length}
+              </p>
+              <p className="text-xs font-semibold text-foreground">
+                {SECTION_META[activeSection].title}
+              </p>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-muted">
+              <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="flex gap-1 overflow-x-auto pb-0.5">
+              {SECTION_ORDER.map((key, idx) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => goSection(idx)}
+                  className={`shrink-0 rounded-sm border px-2.5 py-1 text-xs transition-colors ${
+                    key === activeSection
+                      ? "border-primary bg-primary-soft text-primary"
+                      : "border-border text-muted-foreground"
+                  }`}
+                >
+                  {SECTION_META[key].title}
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
         {loading ? (
           <div className="space-y-3">
             <Skeleton className="h-12 w-full rounded-2xl" />
             <Skeleton className="h-72 w-full rounded-2xl" />
           </div>
         ) : (
-          <Tabs defaultValue="personal" className="w-full">
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl bg-muted/70 p-1.5 sm:grid-cols-4">
-              <TabsTrigger value="personal" className="rounded-xl text-xs sm:text-sm">
+          <Tabs value={activeSection} onValueChange={(v) => setActiveSection(v as SectionKey)} className="w-full">
+            <TabsList className="flex h-auto w-full gap-1 overflow-x-auto rounded-sm bg-muted/70 p-1.5">
+              <TabsTrigger value="personal" className="rounded-sm text-xs sm:text-sm">
                 Personal
               </TabsTrigger>
-              <TabsTrigger value="pregnancy" className="rounded-xl text-xs sm:text-sm">
+              <TabsTrigger value="pregnancy" className="rounded-sm text-xs sm:text-sm">
                 Pregnancy
               </TabsTrigger>
-              <TabsTrigger value="health" className="rounded-xl text-xs sm:text-sm">
+              <TabsTrigger value="health" className="rounded-sm text-xs sm:text-sm">
                 Health
               </TabsTrigger>
-              <TabsTrigger value="care" className="rounded-xl text-xs sm:text-sm">
+              <TabsTrigger value="care" className="rounded-sm text-xs sm:text-sm">
                 Care & safety
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="personal" className="mt-4 space-y-4 focus-visible:outline-none">
-              <Card className="overflow-hidden rounded-2xl border-border/80 shadow-none">
+              <Card className="overflow-hidden rounded-sm border-border/80 shadow-none">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">About you</CardTitle>
                   <CardDescription>Basic identity used across MaaCare.</CardDescription>
@@ -283,7 +348,7 @@ export default function ProfileEditPage() {
                     <FieldLabel htmlFor="dn">Full name</FieldLabel>
                     <Input
                       id="dn"
-                      className="rounded-xl"
+                      className={fieldClass}
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       autoComplete="name"
@@ -294,7 +359,7 @@ export default function ProfileEditPage() {
                     <Input
                       id="ph"
                       type="tel"
-                      className="rounded-xl"
+                      className={fieldClass}
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       autoComplete="tel"
@@ -305,7 +370,7 @@ export default function ProfileEditPage() {
                     <Input
                       id="dob"
                       type="date"
-                      className="rounded-xl"
+                      className={fieldClass}
                       value={dateOfBirth}
                       onChange={(e) => setDateOfBirth(e.target.value)}
                     />
@@ -313,7 +378,7 @@ export default function ProfileEditPage() {
                   <div className="grid gap-2">
                     <FieldLabel>Sex</FieldLabel>
                     <Select value={sex || "__"} onValueChange={(v) => setSex(v === "__" ? "" : v)}>
-                      <SelectTrigger className="rounded-xl">
+                      <SelectTrigger className={fieldClass}>
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
                       <SelectContent>
@@ -331,7 +396,7 @@ export default function ProfileEditPage() {
             </TabsContent>
 
             <TabsContent value="pregnancy" className="mt-4 space-y-4 focus-visible:outline-none">
-              <Card className="overflow-hidden rounded-2xl border-border/80 shadow-none">
+              <Card className="overflow-hidden rounded-sm border-border/80 shadow-none">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">Pregnancy journey</CardTitle>
                   <CardDescription>
@@ -354,13 +419,13 @@ export default function ProfileEditPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-4">
                     <div className="grid gap-2">
                       <FieldLabel htmlFor="lmp">Last menstrual period (LMP)</FieldLabel>
                       <Input
                         id="lmp"
                         type="date"
-                        className="rounded-xl"
+                        className={fieldClass}
                         value={lmpDate}
                         onChange={(e) => setLmpDate(e.target.value)}
                       />
@@ -370,7 +435,7 @@ export default function ProfileEditPage() {
                       <Input
                         id="edd"
                         type="date"
-                        className="rounded-xl"
+                        className={fieldClass}
                         value={eddDate}
                         onChange={(e) => setEddDate(e.target.value)}
                       />
@@ -382,7 +447,7 @@ export default function ProfileEditPage() {
                       id="gw"
                       inputMode="numeric"
                       placeholder="Optional — we can derive from LMP when set"
-                      className="rounded-xl"
+                      className={fieldClass}
                       value={gestationalAgeWeeks}
                       onChange={(e) => setGestationalAgeWeeks(e.target.value)}
                     />
@@ -390,14 +455,14 @@ export default function ProfileEditPage() {
                       Override only if your clinician gave a different week than LMP suggests.
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div className="grid gap-2">
                       <FieldLabel htmlFor="g">Gravida</FieldLabel>
                       <Input
                         id="g"
                         inputMode="numeric"
                         placeholder="Pregnancies"
-                        className="rounded-xl"
+                        className={fieldClass}
                         value={gravida}
                         onChange={(e) => setGravida(e.target.value)}
                       />
@@ -408,7 +473,7 @@ export default function ProfileEditPage() {
                         id="pa"
                         inputMode="numeric"
                         placeholder="Births ≥20 wk"
-                        className="rounded-xl"
+                        className={fieldClass}
                         value={para}
                         onChange={(e) => setPara(e.target.value)}
                       />
@@ -419,7 +484,7 @@ export default function ProfileEditPage() {
             </TabsContent>
 
             <TabsContent value="health" className="mt-4 space-y-4 focus-visible:outline-none">
-              <Card className="overflow-hidden rounded-2xl border-border/80 shadow-none">
+              <Card className="overflow-hidden rounded-sm border-border/80 shadow-none">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">Health snapshot</CardTitle>
                   <CardDescription>
@@ -431,7 +496,7 @@ export default function ProfileEditPage() {
                   <div className="grid gap-2">
                     <FieldLabel>Blood group</FieldLabel>
                     <Select value={bloodType || "__"} onValueChange={(v) => setBloodType(v === "__" ? "" : v)}>
-                      <SelectTrigger className="rounded-xl">
+                      <SelectTrigger className={fieldClass}>
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
                       <SelectContent>
@@ -444,13 +509,13 @@ export default function ProfileEditPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div className="grid gap-2">
                       <FieldLabel htmlFor="h">Height (cm)</FieldLabel>
                       <Input
                         id="h"
                         inputMode="decimal"
-                        className="rounded-xl"
+                        className={fieldClass}
                         value={heightCm}
                         onChange={(e) => setHeightCm(e.target.value)}
                       />
@@ -460,7 +525,7 @@ export default function ProfileEditPage() {
                       <Input
                         id="w"
                         inputMode="decimal"
-                        className="rounded-xl"
+                        className={fieldClass}
                         value={weightKg}
                         onChange={(e) => setWeightKg(e.target.value)}
                       />
@@ -472,7 +537,7 @@ export default function ProfileEditPage() {
                       id="al"
                       rows={3}
                       placeholder="e.g. penicillin, latex"
-                      className="min-h-[88px] rounded-xl"
+                      className="min-h-[88px] rounded-sm shadow-none"
                       value={allergiesText}
                       onChange={(e) => setAllergiesText(e.target.value)}
                     />
@@ -483,7 +548,7 @@ export default function ProfileEditPage() {
                       id="co"
                       rows={3}
                       placeholder="e.g. gestational diabetes, hypertension"
-                      className="min-h-[88px] rounded-xl"
+                      className="min-h-[88px] rounded-sm shadow-none"
                       value={conditionsText}
                       onChange={(e) => setConditionsText(e.target.value)}
                     />
@@ -494,7 +559,7 @@ export default function ProfileEditPage() {
                       id="hn"
                       rows={4}
                       placeholder="Medications, supplements, or anything else your clinician should know."
-                      className="min-h-[100px] rounded-xl"
+                      className="min-h-[100px] rounded-sm shadow-none"
                       value={healthNotes}
                       onChange={(e) => setHealthNotes(e.target.value)}
                     />
@@ -504,7 +569,7 @@ export default function ProfileEditPage() {
             </TabsContent>
 
             <TabsContent value="care" className="mt-4 space-y-4 focus-visible:outline-none">
-              <Card className="overflow-hidden rounded-2xl border-border/80 shadow-none">
+              <Card className="overflow-hidden rounded-sm border-border/80 shadow-none">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">Emergency & care team</CardTitle>
                   <CardDescription>
@@ -516,7 +581,7 @@ export default function ProfileEditPage() {
                     <FieldLabel htmlFor="en">Emergency contact name</FieldLabel>
                     <Input
                       id="en"
-                      className="rounded-xl"
+                      className={fieldClass}
                       value={emergencyName}
                       onChange={(e) => setEmergencyName(e.target.value)}
                     />
@@ -526,7 +591,7 @@ export default function ProfileEditPage() {
                     <Input
                       id="ep"
                       type="tel"
-                      className="rounded-xl"
+                      className={fieldClass}
                       value={emergencyPhone}
                       onChange={(e) => setEmergencyPhone(e.target.value)}
                       autoComplete="tel"
@@ -536,7 +601,7 @@ export default function ProfileEditPage() {
                     <FieldLabel htmlFor="er">Relationship to you</FieldLabel>
                     <Input
                       id="er"
-                      className="rounded-xl"
+                      className={fieldClass}
                       placeholder="e.g. partner, parent"
                       value={emergencyRelation}
                       onChange={(e) => setEmergencyRelation(e.target.value)}
@@ -546,7 +611,7 @@ export default function ProfileEditPage() {
                     <FieldLabel htmlFor="pc">Primary care provider / midwife</FieldLabel>
                     <Input
                       id="pc"
-                      className="rounded-xl"
+                      className={fieldClass}
                       value={provider}
                       onChange={(e) => setProvider(e.target.value)}
                     />
@@ -555,7 +620,7 @@ export default function ProfileEditPage() {
                     <FieldLabel htmlFor="ins">Insurance plan</FieldLabel>
                     <Input
                       id="ins"
-                      className="rounded-xl"
+                      className={fieldClass}
                       value={insurance}
                       onChange={(e) => setInsurance(e.target.value)}
                     />
@@ -564,7 +629,7 @@ export default function ProfileEditPage() {
                     <FieldLabel htmlFor="mid">Member / policy ID</FieldLabel>
                     <Input
                       id="mid"
-                      className="rounded-xl"
+                      className={fieldClass}
                       value={memberId}
                       onChange={(e) => setMemberId(e.target.value)}
                     />
@@ -578,12 +643,30 @@ export default function ProfileEditPage() {
 
       <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-md supports-[padding:env(safe-area-inset-bottom)]:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-md gap-2">
-          <Button variant="outline" className="flex-1 rounded-2xl" asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-sm px-3"
+            onClick={() => goSection(activeIdx - 1)}
+            disabled={activeIdx === 0}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" className="flex-1 rounded-sm" asChild>
             <Link href="/profile">Cancel</Link>
           </Button>
           <Button
             type="button"
-            className="flex-1 rounded-2xl"
+            variant="outline"
+            className="rounded-sm px-3"
+            onClick={() => goSection(activeIdx + 1)}
+            disabled={activeIdx === SECTION_ORDER.length - 1}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            className="flex-1 rounded-sm"
             onClick={() => void save()}
             disabled={saving || loading}
           >

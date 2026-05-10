@@ -13,11 +13,18 @@ import {
   Settings as SettingsIcon,
   Home,
   LogOut,
+  Menu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { signOut, useSession } from "@/lib/auth-client";
 import { toast } from "sonner";
+import {
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 import { adminFormFieldClasses } from "./admin-form-styles";
 
@@ -100,6 +107,54 @@ export function AdminShell({ children }: { children: ReactNode }) {
               </span>
               <span className="font-display font-semibold">Admin</span>
             </Link>
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button type="button" size="icon" variant="ghost" className="h-9 w-9" aria-label="Open admin navigation">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-72 p-4">
+                <SheetTitle className="mb-4">Admin navigation</SheetTitle>
+                <nav className="space-y-1">
+                  {nav.map((item) => {
+                    const active =
+                      "exact" in item && item.exact ? pathname === item.to : pathname.startsWith(item.to);
+                    return (
+                      <Link
+                        key={item.to}
+                        href={item.to}
+                        className={cn(
+                          "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                          active
+                            ? "bg-primary-soft text-primary"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        )}
+                      >
+                        <item.icon className="h-4 w-4" />
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </nav>
+                <div className="mt-4 space-y-1 border-t border-border/60 pt-3">
+                  <Button asChild variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
+                    <Link href="/app">
+                      <Home className="h-4 w-4" /> Back to app
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start gap-3 text-muted-foreground"
+                    onClick={async () => {
+                      await signOut();
+                      router.push("/");
+                    }}
+                  >
+                    <LogOut className="h-4 w-4" /> Sign out
+                  </Button>
+                </div>
+              </SheetContent>
+            </Sheet>
           </header>
           <div
             className={cn(

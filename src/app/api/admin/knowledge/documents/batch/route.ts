@@ -28,6 +28,7 @@ export async function POST(req: Request) {
     const form = await req.formData();
     const file = form.get("file");
     const modeRaw = form.get("chunkMode");
+    const categoryRaw = form.get("category");
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Missing file" }, { status: 400 });
@@ -49,6 +50,10 @@ export async function POST(req: Request) {
       typeof modeRaw === "string" ? modeRaw : "per_column",
     );
     const chunkMode: CsvChunkMode = modeParsed.success ? modeParsed.data : "per_column";
+    const fixedCategory =
+      typeof categoryRaw === "string" && categoryRaw.trim().length > 0
+        ? categoryRaw.trim()
+        : undefined;
 
     const csvText = await file.text();
     const { rows, parseErrors } = parseKnowledgeCsv(csvText, chunkMode);
@@ -75,7 +80,7 @@ export async function POST(req: Request) {
         const result = await ingestDocumentWithChunks({
           documentTitle: row.documentTitle,
           source: row.source,
-          category: row.category,
+          category: fixedCategory ?? row.category,
           chunks: row.chunks,
           userId: session.id,
         });

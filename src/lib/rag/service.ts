@@ -12,6 +12,12 @@ export type RagSearchHit = {
   chunkIndex?: number;
 };
 
+type SearchKnowledgeOptions = {
+  limit?: number;
+  categories?: string[];
+  minSimilarity?: number;
+};
+
 type MatchRow = {
   chunk_id: string;
   document_id: string;
@@ -138,14 +144,23 @@ export async function ingestDocumentWithChunks(input: {
   return { documentId: doc.id, chunkIds };
 }
 
-export async function searchKnowledge(query: string, limit = 5): Promise<RagSearchHit[]> {
+export async function searchKnowledge(
+  query: string,
+  options?: SearchKnowledgeOptions,
+): Promise<RagSearchHit[]> {
   const supabase = await createSupabaseServerClient();
   const vector = await embedText(query);
+  const limit = Math.max(1, Math.min(20, options?.limit ?? 5));
+  const categories = (options?.categories ?? [])
+    .map((c) => c.trim().toLowerCase())
+    .filter(Boolean);
+  const minSimilarity = options?.minSimilarity ?? 0.05;
 
   const { data, error } = await supabase.rpc("match_rag_chunks_for_user", {
     query_embedding: vector,
     match_count: limit,
-    min_similarity: 0.05,
+    min_similarity: minSimilarity,
+    filter_categories: categories.length > 0 ? categories : null,
   });
 
   if (error) {

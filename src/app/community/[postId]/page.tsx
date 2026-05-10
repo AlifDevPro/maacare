@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { formatDistanceToNow } from "date-fns";
-import { Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Trash2 } from "lucide-react";
+import { CornerDownRight, Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
@@ -67,18 +67,18 @@ type CommentRow = {
   id: string;
   body: string;
   createdAt: string;
+  parentCommentId: string | null;
+  authorId?: string;
   authorDisplayName: string;
   authorRole: string;
 };
+
+type CommentNode = CommentRow & { children: CommentNode[] };
 
 function kindLabel(kind: string): string {
   if (kind === "question") return "Question";
   if (kind === "tip") return "Tip";
   return "Post";
-}
-
-function verified(role: string): boolean {
-  return role === "moderator" || role === "admin";
 }
 
 function avatarLetter(name: string): string {
@@ -99,6 +99,7 @@ export default function PostDetailPage() {
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [reply, setReply] = useState("");
+  const [replyToCommentId, setReplyToCommentId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -108,6 +109,12 @@ export default function PostDetailPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState<
+    "spam" | "abuse" | "harassment" | "misinformation" | "other"
+  >("spam");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reporting, setReporting] = useState(false);
 
   const validId = UUID_RE.test(rawId);
 
@@ -153,16 +160,11 @@ export default function PostDetailPage() {
   }, [rawId, validId, router]);
 
   useEffect(() => {
-    void loadAll();
+    const t = window.setTimeout(() => {
+      void loadAll();
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [loadAll]);
-
-  useEffect(() => {
-    if (!post || !editOpen) return;
-    setEditTitle(post.title ?? "");
-    setEditBody(post.body);
-    const k = post.postKind;
-    setEditKind(k === "question" || k === "tip" ? k : "post");
-  }, [post, editOpen]);
 
   async function toggleLike() {
     if (!post) return;
@@ -202,11 +204,12 @@ export default function PostDetailPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: t }),
+        body: JSON.stringify({ body: t, parentCommentId: replyToCommentId }),
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not send reply");
       setReply("");
+      setReplyToCommentId(null);
       await loadAll();
       dispatchNotificationsUpdated();
       toast.success("Reply posted");
@@ -266,6 +269,38 @@ export default function PostDetailPage() {
     }
   }
 
+  async function submitReport() {
+    if (!post) return;
+    setReporting(true);
+    try {
+      const res = await fetch(`/api/community/posts/${post.id}/report`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reportReason, details: reportDetails.trim() || undefined }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(j.message ?? "Could not submit report");
+      toast.success("Report submitted. Admin will review it.");
+      setReportOpen(false);
+      setReportReason("spam");
+      setReportDetails("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not submit report");
+    } finally {
+      setReporting(false);
+    }
+  }
+
+  function openEditDialog() {
+    if (!post) return;
+    setEditTitle(post.title ?? "");
+    setEditBody(post.body);
+    const k = post.postKind;
+    setEditKind(k === "question" || k === "tip" ? k : "post");
+    setEditOpen(true);
+  }
+
   if (!validId) {
     return (
       <AppShell>
@@ -314,6 +349,20 @@ export default function PostDetailPage() {
     .join(" · ");
 
   const isOwner = user?.id === post.authorId;
+  const commentById = new Map(comments.map((c) => [c.id, c]));
+  const roots: CommentNode[] = [];
+  const nodeById = new Map<string, CommentNode>();
+  for (const c of comments) {
+    nodeById.set(c.id, { ...c, children: [] });
+  }
+  for (const c of comments) {
+    const node = nodeById.get(c.id)!;
+    if (c.parentCommentId && nodeById.has(c.parentCommentId)) {
+      nodeById.get(c.parentCommentId)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
 
   return (
     <AppShell>
@@ -411,6 +460,56 @@ export default function PostDetailPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog open={reportOpen} onOpenChange={(o) => !reporting && setReportOpen(o)}>
+        <DialogContent className="max-h-[90vh] gap-4 overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">Report post</DialogTitle>
+          </DialogHeader>
+          <form
+            className="grid gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitReport();
+            }}
+          >
+            <div className="grid gap-2">
+              <Label>Reason</Label>
+              <Select value={reportReason} onValueChange={(v) => setReportReason(v as typeof reportReason)}>
+                <SelectTrigger className="rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper" className="z-[100]">
+                  <SelectItem value="spam">Spam</SelectItem>
+                  <SelectItem value="abuse">Abuse</SelectItem>
+                  <SelectItem value="harassment">Harassment</SelectItem>
+                  <SelectItem value="misinformation">Misinformation</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="post-report-details">Details (optional)</Label>
+              <Textarea
+                id="post-report-details"
+                rows={4}
+                value={reportDetails}
+                onChange={(e) => setReportDetails(e.target.value)}
+                placeholder="Add context for admins..."
+                className="rounded-xl"
+              />
+            </div>
+            <DialogFooter className="gap-2 pt-2 sm:gap-0">
+              <Button type="button" variant="outline" className="rounded-xl" onClick={() => setReportOpen(false)} disabled={reporting}>
+                Cancel
+              </Button>
+              <Button type="submit" className="rounded-xl" disabled={reporting}>
+                {reporting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting...</> : "Submit report"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <div
         className="space-y-4 px-4 pt-4"
         style={{ paddingBottom: "calc(6rem + env(safe-area-inset-bottom))" }}
@@ -425,7 +524,7 @@ export default function PostDetailPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="z-[100]">
-                  <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                  <DropdownMenuItem onClick={() => openEditDialog()}>
                     <Pencil className="mr-2 h-4 w-4" /> Edit
                   </DropdownMenuItem>
                   <DropdownMenuItem className="text-destructive" onClick={() => setDeleteOpen(true)}>
@@ -442,11 +541,6 @@ export default function PostDetailPage() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
                 <p className="text-sm font-semibold">{post.authorDisplayName}</p>
-                {verified(post.authorRole) && (
-                  <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
-                    ✓ Verified
-                  </span>
-                )}
               </div>
               <p className="text-[11px] text-muted-foreground">{meta}</p>
             </div>
@@ -464,36 +558,30 @@ export default function PostDetailPage() {
             <span className="flex items-center gap-1.5">
               <MessageCircle className="h-4 w-4" /> {post.commentCount}
             </span>
+            {!isOwner ? (
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-lg px-1 py-0.5 transition-colors hover:text-destructive"
+                onClick={() => setReportOpen(true)}
+              >
+                <Flag className="h-4 w-4" /> Report
+              </button>
+            ) : null}
           </div>
         </Card>
 
         <h2 className="font-display text-sm font-semibold">Replies</h2>
-        <div className="space-y-2.5">
+        <div className="space-y-2">
           {comments.length === 0 ? (
             <p className="text-sm text-muted-foreground">No replies yet — add a kind note below.</p>
           ) : (
-            comments.map((c) => (
-              <Card key={c.id} className="flex gap-2.5 p-3 shadow-soft">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-xs font-semibold text-accent">
-                  {avatarLetter(c.authorDisplayName)}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <p className="text-sm font-semibold">{c.authorDisplayName}</p>
-                      {verified(c.authorRole) && (
-                        <span className="rounded-full bg-accent/15 px-1 py-0 text-[9px] font-semibold text-accent">
-                          ✓
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[11px] text-muted-foreground">
-                      {formatDistanceToNow(new Date(c.createdAt), { addSuffix: true })}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-sm text-foreground/90 whitespace-pre-wrap">{c.body}</p>
-                </div>
-              </Card>
+            roots.map((node) => (
+              <CommentTree
+                key={node.id}
+                node={node}
+                depth={0}
+                onReply={(id) => setReplyToCommentId(id)}
+              />
             ))
           )}
         </div>
@@ -502,13 +590,33 @@ export default function PostDetailPage() {
       <div
         className="fixed inset-x-0 z-30 mx-auto max-w-md border-t border-border/60 bg-background/95 px-3 pt-2 backdrop-blur-xl"
         style={{
-          bottom: "calc(env(safe-area-inset-bottom) + 5rem)",
+          bottom: "calc(env(safe-area-inset-bottom) + 5.75rem)",
         }}
       >
-        <form onSubmit={(e) => void sendReply(e)} className="flex items-center gap-2 rounded-2xl border border-border bg-card p-1.5">
+        {replyToCommentId ? (
+          <div className="mb-2 flex items-center justify-between rounded-xl border border-border bg-muted/40 px-3 py-1.5 text-xs">
+            <span className="truncate text-muted-foreground">
+              Replying to {commentById.get(replyToCommentId)?.authorDisplayName ?? "comment"}
+            </span>
+            <button
+              type="button"
+              className="text-primary"
+              onClick={() => setReplyToCommentId(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : null}
+        <form
+          onSubmit={(e) => void sendReply(e)}
+          className="flex items-center gap-2 rounded-2xl border border-border bg-card px-2 py-1.5"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft font-display text-xs font-semibold text-primary">
+            {avatarLetter(user?.name ?? user?.email ?? "You")}
+          </span>
           <input
-            placeholder="Add a kind reply…"
-            className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+            placeholder={replyToCommentId ? "Write a reply…" : "Add a kind comment…"}
+            className="h-9 flex-1 rounded-full bg-muted px-3 text-sm outline-none placeholder:text-muted-foreground"
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             disabled={sending}
@@ -516,7 +624,7 @@ export default function PostDetailPage() {
           <Button
             type="submit"
             size="icon"
-            className="h-9 w-9 rounded-xl"
+            className="h-9 w-9 rounded-full"
             aria-label="Send"
             disabled={!reply.trim() || sending}
           >
@@ -525,5 +633,56 @@ export default function PostDetailPage() {
         </form>
       </div>
     </AppShell>
+  );
+}
+
+function CommentTree({
+  node,
+  depth,
+  onReply,
+}: {
+  node: CommentNode;
+  depth: number;
+  onReply: (id: string) => void;
+}) {
+  const safeDepth = Math.min(depth, 4);
+  return (
+    <div className={safeDepth > 0 ? "ml-5 border-l-2 border-border/80 pl-3" : ""}>
+      <div className="flex items-start gap-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-xs font-semibold text-accent">
+          {avatarLetter(node.authorDisplayName)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="rounded-2xl bg-muted px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <p className="text-sm font-semibold">{node.authorDisplayName}</p>
+              </div>
+              <span className="text-[11px] text-muted-foreground">
+                {formatDistanceToNow(new Date(node.createdAt), { addSuffix: true })}
+              </span>
+            </div>
+            <p className="mt-0.5 text-sm whitespace-pre-wrap text-foreground/90">{node.body}</p>
+          </div>
+          <div className="mt-1 flex items-center gap-3 pl-2">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
+              onClick={() => onReply(node.id)}
+            >
+              <CornerDownRight className="h-3.5 w-3.5" /> Reply
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {node.children.length ? (
+        <div className="mt-1.5 space-y-1.5">
+          {node.children.map((child) => (
+            <CommentTree key={child.id} node={child} depth={safeDepth + 1} onReply={onReply} />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
