@@ -147,13 +147,14 @@ function ChatPageContent() {
           if (!res.ok || !data.reply) {
             throw new Error(data.error ?? "Request failed");
           }
+          const replyBody: string = data.reply;
 
           setRateLimitMessage(null);
           if (data.provider) setProviderLabel(data.provider);
           setChatUserLocation(coords);
           locationCloseSkipAppendRef.current = true;
           setLocationDialogBody(null);
-          setMessages([...msgs, { role: "assistant", content: data.reply }]);
+          setMessages([...msgs, { role: "assistant", content: replyBody }]);
           locationRetryMessagesRef.current = null;
           setLocationPromptOpen(false);
         } catch (e) {
@@ -218,6 +219,7 @@ function ChatPageContent() {
       if (!res.ok || !data.reply) {
         throw new Error(data.error ?? "Request failed");
       }
+      const replyBody: string = data.reply;
 
       setRateLimitMessage(null);
       if (data.provider) setProviderLabel(data.provider);
@@ -225,13 +227,13 @@ function ChatPageContent() {
       if (data.needsClientLocation) {
         locationRetryMessagesRef.current = withUser;
         locationCloseSkipAppendRef.current = false;
-        setLocationDialogBody(data.reply);
+        setLocationDialogBody(replyBody);
         setMessages(withUser);
         setLocationPromptOpen(true);
         return;
       }
 
-      setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
+      setMessages((m) => [...m, { role: "assistant", content: replyBody }]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not get a reply");
       setMessages((m) => m.slice(0, -1));
