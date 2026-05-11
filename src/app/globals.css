@@ -161,6 +161,10 @@
   --risk-medium-foreground: oklch(0.9 0.1 70);
   --risk-high: oklch(0.34 0.1 25);
   --risk-high-foreground: oklch(0.9 0.12 25);
+  --gradient-warm: linear-gradient(135deg, oklch(0.24 0.03 25) 0%, oklch(0.2 0.035 40) 100%);
+  --gradient-rose: linear-gradient(135deg, oklch(0.28 0.045 20) 0%, oklch(0.22 0.05 12) 100%);
+  --gradient-sage: linear-gradient(135deg, oklch(0.24 0.03 140) 0%, oklch(0.2 0.04 145) 100%);
+  --gradient-hero: linear-gradient(160deg, oklch(0.2 0.02 25) 0%, oklch(0.17 0.03 18) 50%, oklch(0.2 0.03 145) 100%);
   --shadow-soft: none;
   --shadow-card: none;
   --shadow-glow: none;
@@ -365,6 +369,19 @@
   .bg-gradient-warm { background-image: var(--gradient-warm); }
   .bg-gradient-rose { background-image: var(--gradient-rose); }
   .bg-gradient-sage { background-image: var(--gradient-sage); }
+  /* Hard override in dark mode so all gradient utility users switch consistently. */
+  .dark .bg-gradient-hero {
+    background-image: linear-gradient(160deg, oklch(0.2 0.02 25) 0%, oklch(0.17 0.03 18) 50%, oklch(0.2 0.03 145) 100%) !important;
+  }
+  .dark .bg-gradient-warm {
+    background-image: linear-gradient(135deg, oklch(0.24 0.03 25) 0%, oklch(0.2 0.035 40) 100%) !important;
+  }
+  .dark .bg-gradient-rose {
+    background-image: linear-gradient(135deg, oklch(0.28 0.045 20) 0%, oklch(0.22 0.05 12) 100%) !important;
+  }
+  .dark .bg-gradient-sage {
+    background-image: linear-gradient(135deg, oklch(0.24 0.03 140) 0%, oklch(0.2 0.04 145) 100%) !important;
+  }
   .shadow-soft { box-shadow: var(--shadow-soft); }
   .shadow-card { box-shadow: var(--shadow-card); }
   .shadow-glow { box-shadow: var(--shadow-glow); }
