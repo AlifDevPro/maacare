@@ -531,7 +531,7 @@ function ChatPageContent() {
           />
           {!voice.supported ? (
             <div className="fixed inset-x-0 top-16 z-[60] mx-auto max-w-md px-4">
-              <div className="rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-xs text-amber-800 shadow-soft">
+              <div className="rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-xs text-amber-800 shadow-soft dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">
                 Voice is not available on this browser (common on iPhone Safari). Text chat still works.
               </div>
             </div>
@@ -549,7 +549,7 @@ function ChatPageContent() {
           }}
         >
           {cooldownSeconds > 0 ? (
-            <div className="mb-2 rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <div className="mb-2 rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">
               {rateLimitMessage ?? "AI usage limit reached."} Try again in {cooldownSeconds}s.
             </div>
           ) : null}
