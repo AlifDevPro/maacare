@@ -33,6 +33,46 @@ const bodySchema = z.object({
 
 const MAX_TRANSCRIPT_TOKENS = 2600;
 const MAX_MESSAGE_CHARS_IN_TRANSCRIPT = 1200;
+const BANGLA_CHAR_RE = /[\u0980-\u09FF]/;
+const BANGLISH_HINT_WORDS = new Set([
+  "ami",
+  "apni",
+  "tumi",
+  "amar",
+  "tomar",
+  "ki",
+  "kemon",
+  "kibhabe",
+  "kivabe",
+  "keno",
+  "hobe",
+  "hoy",
+  "hocche",
+  "korbo",
+  "korchi",
+  "korle",
+  "khabo",
+  "khawa",
+  "ghum",
+  "pani",
+  "pete",
+  "byatha",
+  "matha",
+  "baccha",
+  "bacha",
+  "soptaho",
+  "mas",
+  "jonno",
+  "valo",
+  "bhalo",
+  "nai",
+  "ache",
+  "ase",
+  "nibo",
+  "parbo",
+  "dorkar",
+  "doctor",
+]);
 
 function line(label: string, value: string | null | undefined): string {
   return `${label}: ${value && value.trim() ? value.trim() : "n/a"}`;
@@ -41,6 +81,76 @@ function line(label: string, value: string | null | undefined): string {
 function estimateTokens(text: string): number {
   // Practical heuristic for LLM budgeting.
   return Math.ceil(text.length / 4);
+}
+
+function detectPreferredReplyLanguage(text: string): "bn" | "en" {
+  return BANGLA_CHAR_RE.test(text) || isLikelyBanglish(text) ? "bn" : "en";
+}
+
+function normalizeForIntent(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isAskMyName(text: string): boolean {
+  const t = normalizeForIntent(text);
+  return (
+    /\bwhat is my name\b/.test(t) ||
+    /\bmy name\b/.test(t) ||
+    /\bamar nam\b/.test(t) ||
+    /আমার নাম/.test(text)
+  );
+}
+
+function isAskWhatYouKnowAboutMe(text: string): boolean {
+  const t = normalizeForIntent(text);
+  return (
+    /\bwhat do you know about me\b/.test(t) ||
+    /\babout me\b/.test(t) ||
+    /\bamar bisoy\b/.test(t) ||
+    /\bamar bishoy\b/.test(t) ||
+    /\bamar somporke\b/.test(t) ||
+    /আমার\s*(বিষ|বিস|সম্পর্কে)/.test(text)
+  );
+}
+
+function isLikelyBanglish(text: string): boolean {
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  // If native Bangla is present, this detector is not needed.
+  if (BANGLA_CHAR_RE.test(normalized)) return false;
+
+  const tokens = normalized.match(/[a-z]+/g) ?? [];
+  if (tokens.length < 3) return false;
+  let hits = 0;
+  for (const t of tokens) {
+    if (BANGLISH_HINT_WORDS.has(t)) hits += 1;
+  }
+  // Require at least 2 strong hints to reduce false positives.
+  return hits >= 2;
+}
+
+async function normalizeQueryForEnglishRetrieval(
+  query: string,
+  opts?: { forceTranslate?: boolean },
+): Promise<string> {
+  const trimmed = query.trim();
+  if (!trimmed) return trimmed;
+  const shouldTranslate = opts?.forceTranslate ?? BANGLA_CHAR_RE.test(trimmed);
+  if (!shouldTranslate) return trimmed;
+
+  const out = await generateTextWithGeminiGroqFailover({
+    systemInstruction: [
+      "You translate Bangla user questions into concise English for semantic retrieval.",
+      "Return only the translated English query text.",
+      "Do not answer the question and do not add extra explanation.",
+    ].join("\n"),
+    userMessage: trimmed,
+  });
+  return out.text.trim() || trimmed;
 }
 
 function buildBudgetedTranscript(
@@ -120,7 +230,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No user message" }, { status: 400 });
     }
 
-    const hits = await searchKnowledge(lastUser.content, {
+    const preferredReplyLanguage = detectPreferredReplyLanguage(lastUser.content);
+    const retrievalQuery = await normalizeQueryForEnglishRetrieval(lastUser.content, {
+      forceTranslate: preferredReplyLanguage === "bn",
+    });
+    const latestUserOriginal = lastUser.content.trim();
+    const latestUserEnglish = retrievalQuery.trim();
+
+    const hits = await searchKnowledge(retrievalQuery, {
       limit: 8,
     });
     const context =
@@ -260,6 +377,49 @@ export async function POST(req: Request) {
       line("Health notes", (healthRes.data?.notes as string | null) ?? null),
     ].join("\n");
 
+    const displayName = session.name?.trim() || "Member";
+    const pregStatus = (pregnancyRes.data?.pregnancy_status as string | null) ?? null;
+    const pregWeek =
+      pregnancyRes.data?.gestational_age_weeks != null
+        ? String(pregnancyRes.data.gestational_age_weeks)
+        : null;
+
+    if (isAskMyName(lastUser.content)) {
+      const reply =
+        preferredReplyLanguage === "bn"
+          ? `আপনার নাম ${displayName}।`
+          : `Your name is ${displayName}.`;
+      return NextResponse.json({
+        reply,
+        provider: "gemini" as const,
+        needsClientLocation: false,
+        citations: [],
+      });
+    }
+
+    if (isAskWhatYouKnowAboutMe(lastUser.content)) {
+      const statusBn =
+        pregStatus === "pregnant"
+          ? "আপনি এখন pregnant স্টেজে আছেন"
+          : pregStatus === "planning"
+            ? "আপনি এখন planning স্টেজে আছেন"
+            : pregStatus === "postpartum"
+              ? "আপনি এখন postpartum স্টেজে আছেন"
+              : "আপনার স্টেজ তথ্য পুরোপুরি আপডেট নেই";
+      const weekBn = pregWeek ? `, এবং আপনার গর্ভকাল প্রায় ${pregWeek} সপ্তাহ` : "";
+      const weekEn = pregWeek ? ` and your gestational week is about ${pregWeek}` : "";
+      const reply =
+        preferredReplyLanguage === "bn"
+          ? `আমি আপনার প্রোফাইল থেকে যা জানি: আপনার নাম ${displayName}, ${statusBn}${weekBn}।`
+          : `From your profile, I know: your name is ${displayName}, your stage is ${pregStatus ?? "not fully set"}${weekEn}.`;
+      return NextResponse.json({
+        reply,
+        provider: "gemini" as const,
+        needsClientLocation: false,
+        citations: [],
+      });
+    }
+
     const transcript = buildBudgetedTranscript(messages);
     const nearbyIntent = detectNearbyFacilitiesIntent(lastUser.content);
     let nearbyFacilitiesText = "";
@@ -320,7 +480,14 @@ export async function POST(req: Request) {
       "Personalize guidance using PERSONAL HEALTH CONTEXT when relevant to the user question.",
       "Address the user by first name naturally when appropriate (not every sentence).",
       "If personal context is missing for a needed decision, ask a brief clarifying question.",
-      "Use clear, compassionate language. Prefer short paragraphs. format in a para so user understand bette",
+      "Use clear, compassionate language. Prefer short paragraphs.",
+      ...(preferredReplyLanguage === "bn"
+        ? [
+            "Reply in natural conversational Bangla (বাংলা), not literal translated English.",
+            "Match the user's tone and phrasing style when appropriate.",
+            "Keep important medical terms bilingual when useful, e.g., রক্তচাপ (blood pressure).",
+          ]
+        : ["Reply in clear English."]),
       "",
       personalContext,
       "",
@@ -331,10 +498,18 @@ export async function POST(req: Request) {
     ].join("\n");
 
     const userMessage = [
+      "LATEST USER TURN (original):",
+      latestUserOriginal || "(empty)",
+      "",
+      "LATEST USER TURN (English-normalized for retrieval semantics):",
+      latestUserEnglish || "(empty)",
+      "",
       "Conversation so far:",
       transcript,
       "",
-      "Reply to the latest user turn helpfully.",
+      "Use BOTH latest-turn versions to understand intent.",
+      "Generate one final answer in the user's preferred language naturally.",
+      "Do not mention translation steps.",
     ].join("\n");
 
     const out = await generateTextWithGeminiGroqFailover({

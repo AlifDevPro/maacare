@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 import { Home, MessageCircle, Stethoscope, Phone, Users } from "lucide-react";
 
@@ -17,6 +18,15 @@ const items = [
 
 export function BottomNav() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    for (const item of items) {
+      if (item.to !== pathname) {
+        router.prefetch(item.to);
+      }
+    }
+  }, [pathname, router]);
 
   return (
     <nav
@@ -32,6 +42,7 @@ export function BottomNav() {
             <li key={to} className="flex-1">
               <Link
                 href={to}
+                prefetch
                 className={cn(
                   "flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition-colors",
                   active ? "text-primary" : "text-muted-foreground hover:text-foreground",

@@ -115,6 +115,7 @@ export default function PostDetailPage() {
   >("spam");
   const [reportDetails, setReportDetails] = useState("");
   const [reporting, setReporting] = useState(false);
+  const [pendingLike, setPendingLike] = useState(false);
 
   const validId = UUID_RE.test(rawId);
 
@@ -167,7 +168,16 @@ export default function PostDetailPage() {
   }, [loadAll]);
 
   async function toggleLike() {
-    if (!post) return;
+    if (!post || pendingLike) return;
+    const prevLiked = post.likedByMe;
+    const prevCount = post.likeCount;
+    const nextLiked = !prevLiked;
+    setPendingLike(true);
+    setPost((prev) =>
+      prev
+        ? { ...prev, likedByMe: nextLiked, likeCount: Math.max(0, prev.likeCount + (nextLiked ? 1 : -1)) }
+        : prev,
+    );
     try {
       const res = await fetch(`/api/community/posts/${post.id}/like`, {
         method: "POST",
@@ -190,7 +200,10 @@ export default function PostDetailPage() {
       );
       dispatchNotificationsUpdated();
     } catch (e) {
+      setPost((prev) => (prev ? { ...prev, likedByMe: prevLiked, likeCount: prevCount } : prev));
       toast.error(e instanceof Error ? e.message : "Could not update like");
+    } finally {
+      setPendingLike(false);
     }
   }
 
@@ -199,6 +212,20 @@ export default function PostDetailPage() {
     const t = reply.trim();
     if (!t || !post || sending) return;
     setSending(true);
+    const optimisticId = `temp-${Date.now()}`;
+    const optimisticComment: CommentRow = {
+      id: optimisticId,
+      body: t,
+      createdAt: new Date().toISOString(),
+      parentCommentId: replyToCommentId,
+      authorId: user?.id,
+      authorDisplayName: user?.name ?? "You",
+      authorRole: user?.role ?? "user",
+    };
+    setComments((prev) => [...prev, optimisticComment]);
+    setPost((prev) => (prev ? { ...prev, commentCount: prev.commentCount + 1 } : prev));
+    setReply("");
+    setReplyToCommentId(null);
     try {
       const res = await fetch(`/api/community/posts/${post.id}/comments`, {
         method: "POST",
@@ -208,12 +235,12 @@ export default function PostDetailPage() {
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not send reply");
-      setReply("");
-      setReplyToCommentId(null);
-      await loadAll();
+      void loadAll();
       dispatchNotificationsUpdated();
       toast.success("Reply posted");
     } catch (err) {
+      setComments((prev) => prev.filter((c) => c.id !== optimisticId));
+      setPost((prev) => (prev ? { ...prev, commentCount: Math.max(0, prev.commentCount - 1) } : prev));
       toast.error(err instanceof Error ? err.message : "Could not send reply");
     } finally {
       setSending(false);
@@ -550,8 +577,9 @@ export default function PostDetailPage() {
           <div className="mt-3 flex items-center gap-4 text-sm text-muted-foreground">
             <button
               type="button"
-              className={`flex items-center gap-1.5 rounded-lg px-1 py-0.5 transition-colors hover:text-primary ${post.likedByMe ? "text-primary" : ""}`}
+              className={`flex items-center gap-1.5 rounded-lg px-1 py-0.5 transition-colors hover:text-primary disabled:opacity-60 ${post.likedByMe ? "text-primary" : ""}`}
               onClick={() => void toggleLike()}
+              disabled={pendingLike}
             >
               <Heart className={`h-4 w-4 ${post.likedByMe ? "fill-current" : ""}`} /> {post.likeCount}
             </button>

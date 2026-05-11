@@ -111,6 +111,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
   >("spam");
   const [reportDetails, setReportDetails] = useState("");
   const [reporting, setReporting] = useState(false);
+  const [pendingLikeIds, setPendingLikeIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 320);
@@ -164,6 +165,15 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
   }, [loadPosts, tab, debouncedSearch]);
 
   async function toggleLike(postId: string) {
+    if (pendingLikeIds.has(postId)) return;
+    const target = posts.find((p) => p.id === postId);
+    if (!target) return;
+    const nextLiked = !target.likedByMe;
+    const optimisticCount = Math.max(0, target.likeCount + (nextLiked ? 1 : -1));
+    setPendingLikeIds((prev) => new Set(prev).add(postId));
+    setPosts((prev) =>
+      prev.map((p) => (p.id === postId ? { ...p, likedByMe: nextLiked, likeCount: optimisticCount } : p)),
+    );
     try {
       const res = await fetch(`/api/community/posts/${postId}/like`, {
         method: "POST",
@@ -188,7 +198,18 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
       );
       dispatchNotificationsUpdated();
     } catch (err) {
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId ? { ...p, likedByMe: target.likedByMe, likeCount: target.likeCount } : p,
+        ),
+      );
       toast.error(err instanceof Error ? err.message : "Could not update like");
+    } finally {
+      setPendingLikeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(postId);
+        return next;
+      });
     }
   }
 
@@ -198,6 +219,26 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
       return;
     }
     setSaving(true);
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: FeedPost = {
+      id: tempId,
+      authorId: user?.id ?? "me",
+      title: newTitle.trim() || null,
+      body: newBody.trim(),
+      postKind: newKind,
+      gestationalWeekSnapshot: null,
+      createdAt: new Date().toISOString(),
+      authorDisplayName: user?.name ?? "You",
+      authorRole: user?.role ?? "user",
+      likeCount: 0,
+      commentCount: 0,
+      likedByMe: false,
+    };
+    setPosts((prev) => [optimistic, ...prev]);
+    setComposeOpen(false);
+    setNewTitle("");
+    setNewBody("");
+    setNewKind("post");
     try {
       const res = await fetch("/api/community/posts", {
         method: "POST",
@@ -212,12 +253,9 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not publish");
       toast.success("Posted");
-      setComposeOpen(false);
-      setNewTitle("");
-      setNewBody("");
-      setNewKind("post");
-      await loadPosts({ showLoader: false });
+      void loadPosts({ showLoader: false });
     } catch (e) {
+      setPosts((prev) => prev.filter((p) => p.id !== tempId));
       toast.error(e instanceof Error ? e.message : "Could not publish");
     } finally {
       setSaving(false);
@@ -577,8 +615,12 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                   <div className="flex items-center gap-4 px-4 pb-4 pt-1 text-xs text-muted-foreground">
                     <button
                       type="button"
-                      className={cn("flex items-center gap-1 rounded-lg px-1 py-0.5 transition-colors hover:text-primary", p.likedByMe && "text-primary")}
+                      className={cn(
+                        "flex items-center gap-1 rounded-lg px-1 py-0.5 transition-colors hover:text-primary disabled:opacity-60",
+                        p.likedByMe && "text-primary",
+                      )}
                       onClick={() => void toggleLike(p.id)}
+                      disabled={pendingLikeIds.has(p.id)}
                     >
                       <Heart className={cn("h-3.5 w-3.5", p.likedByMe && "fill-current")} /> {p.likeCount}
                     </button>

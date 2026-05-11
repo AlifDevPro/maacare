@@ -21,7 +21,11 @@ function isPublicAuthApi(pathname: string): boolean {
   return pathname.startsWith("/api/auth/");
 }
 
-export async function middleware(request: NextRequest) {
+function shouldRedirectAuthedToApp(pathname: string): boolean {
+  return pathname === "/" || pathname === "/login";
+}
+
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -86,6 +90,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isPublicPath(pathname)) {
+    if (user && shouldRedirectAuthedToApp(pathname)) {
+      return NextResponse.redirect(new URL("/app", request.url));
+    }
     return response;
   }
 

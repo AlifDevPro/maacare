@@ -17,6 +17,31 @@ const bodySchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters.").max(200),
 });
 
+function resolvePublicOrigin(req: NextRequest): string {
+  const envUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.SITE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+  if (envUrl) {
+    return envUrl.replace(/\/+$/, "");
+  }
+
+  const xfProto = req.headers.get("x-forwarded-proto");
+  const xfHost = req.headers.get("x-forwarded-host");
+  if (xfProto && xfHost) {
+    return `${xfProto}://${xfHost}`.replace(/\/+$/, "");
+  }
+
+  const host = req.headers.get("host");
+  if (host) {
+    const proto = host.includes("localhost") ? "http" : "https";
+    return `${proto}://${host}`.replace(/\/+$/, "");
+  }
+
+  return new URL(req.url).origin.replace(/\/+$/, "");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const parsed = bodySchema.safeParse(await req.json());
@@ -25,6 +50,8 @@ export async function POST(req: NextRequest) {
     }
 
     const { name, email, password } = parsed.data;
+    const origin = resolvePublicOrigin(req);
+    const emailRedirectTo = `${origin}/login`;
 
     const { supabase, applyAuthCookies } = createSupabaseAuthRouteHandler(req);
 
@@ -32,6 +59,7 @@ export async function POST(req: NextRequest) {
       email: email.toLowerCase().trim(),
       password,
       options: {
+        emailRedirectTo,
         data: {
           display_name: name.trim(),
           name: name.trim(),

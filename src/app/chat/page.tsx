@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 import { motion } from "framer-motion";
-import { Loader2, MapPinned, Mic, Send, Sparkles, Shield } from "lucide-react";
+import { Loader2, MapPinned, Mic, Send, Sparkles, Shield, PhoneCall } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -20,6 +20,9 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { VoiceCallPanel } from "@/app/chat/voice-call-panel";
+import { speakText, stopSpeaking } from "@/lib/voice/speech";
+import { useVoiceCall } from "@/lib/voice/useVoiceCall";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -51,6 +54,11 @@ function ChatPageContent() {
   const [messages, setMessages] = useState<Msg[]>(SEED);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [voiceMuted, setVoiceMuted] = useState(false);
+  const [voiceMicMuted, setVoiceMicMuted] = useState(false);
+  const [voiceIntroPending, setVoiceIntroPending] = useState(false);
+  const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const [providerLabel, setProviderLabel] = useState<"gemini" | "groq" | null>("gemini");
   const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
@@ -68,6 +76,7 @@ function ChatPageContent() {
   /** When true, closing the location dialog must not append the short reply into chat. */
   const locationCloseSkipAppendRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastVoiceErrorRef = useRef<string | null>(null);
   const sendBlocked = sending || cooldownSeconds > 0;
   const reportContextRaw = searchParams.get("reportContext");
   const reportContextTitle = (() => {
@@ -83,6 +92,10 @@ function ChatPageContent() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!voiceMode) stopSpeaking();
+  }, [voiceMode]);
 
   useEffect(() => {
     if (cooldownSeconds <= 0) return;
@@ -172,9 +185,9 @@ function ChatPageContent() {
     );
   }
 
-  async function send(text: string) {
+  async function send(text: string): Promise<string | null> {
     const t = text.trim();
-    if (!t || sendBlocked) return;
+    if (!t || sendBlocked) return null;
 
     const withUser: Msg[] = [...messages, { role: "user", content: t }];
     setMessages(withUser);
@@ -204,7 +217,7 @@ function ChatPageContent() {
       if (res.status === 401) {
         toast.error("Please log in to use the assistant");
         setMessages((m) => m.slice(0, -1));
-        return;
+        return null;
       }
 
       if (res.status === 429) {
@@ -213,7 +226,7 @@ function ChatPageContent() {
         setRateLimitMessage(
           data.error ?? "AI usage limit reached. Please wait a moment before sending again.",
         );
-        return;
+        return null;
       }
 
       if (!res.ok || !data.reply) {
@@ -230,17 +243,99 @@ function ChatPageContent() {
         setLocationDialogBody(replyBody);
         setMessages(withUser);
         setLocationPromptOpen(true);
-        return;
+        return null;
       }
 
       setMessages((m) => [...m, { role: "assistant", content: replyBody }]);
+      return replyBody;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not get a reply");
       setMessages((m) => m.slice(0, -1));
+      return null;
     } finally {
       setSending(false);
     }
   }
+
+  const voice = useVoiceCall({
+    lang: "en-US",
+    enabled: voiceMode && !voiceIntroPending && !voiceMicMuted && cooldownSeconds <= 0 && !sending,
+    muted: voiceMuted,
+    autoRestart: true,
+    onUnsupported: () => {
+      toast.error("Voice call is not supported on this browser. Please use text chat.");
+    },
+    onTurn: async (finalText) => send(finalText),
+    onSpeak: async (assistantText) => {
+      await speakText({ text: assistantText, lang: "en-US", rate: 1, pitch: 1, volume: 1 });
+    },
+  });
+  const voiceStart = voice.start;
+  const voiceState = voice.state;
+  const voiceSupported = voice.supported;
+  const voiceLastError = voice.lastError;
+
+  useEffect(() => {
+    if (!voiceMode || !voiceIntroPending) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        if (!voiceMuted) {
+          await speakText({
+            text: "Hi, I'm MaaCare AI. What topic would you like to talk about today?",
+            lang: "en-US",
+            rate: 1,
+            pitch: 1,
+            volume: 1,
+          });
+        }
+      } catch {
+        // If TTS fails, still proceed to listening.
+      } finally {
+        if (!cancelled) setVoiceIntroPending(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [voiceMode, voiceIntroPending, voiceMuted]);
+
+  useEffect(() => {
+    // Start mic only after state updates are applied, otherwise start() can run with enabled=false.
+    const canStart = voiceMode && !voiceMicMuted && cooldownSeconds <= 0 && !sending && voiceSupported;
+    if (!canStart) return;
+    if (voiceState !== "idle" && voiceState !== "error") return;
+    voiceStart();
+  }, [voiceMode, voiceMicMuted, cooldownSeconds, sending, voiceSupported, voiceState, voiceStart]);
+
+  useEffect(() => {
+    if (!voiceMode) {
+      lastVoiceErrorRef.current = null;
+      return;
+    }
+    if (!voiceLastError) return;
+    if (lastVoiceErrorRef.current === voiceLastError) return;
+    lastVoiceErrorRef.current = voiceLastError;
+
+    const err = voiceLastError.toLowerCase();
+    if (
+      err.includes("not-allowed") ||
+      err.includes("permission") ||
+      err.includes("service-not-allowed")
+    ) {
+      setVoiceMicMuted(true);
+      toast.error("Microphone permission denied. Enable mic access in browser settings.");
+      return;
+    }
+    if (err.includes("audio-capture") || err.includes("not-found")) {
+      setVoiceMicMuted(true);
+      toast.error("No microphone found. Connect a mic and try again.");
+      return;
+    }
+    toast.error(voiceLastError);
+  }, [voiceMode, voiceLastError]);
 
   return (
     <>
@@ -322,7 +417,10 @@ function ChatPageContent() {
 
       <div
         ref={scrollRef}
-        className="space-y-4 overflow-y-auto px-4 pt-4 pb-2"
+        className={cn(
+          "space-y-4 overflow-y-auto px-4 pt-4 pb-2",
+          voiceMode && !showVoiceTranscript && "hidden",
+        )}
         style={{
           /* Reserve space above fixed composer so the last messages stay visible */
           paddingBottom: "calc(6rem + env(safe-area-inset-bottom))",
@@ -403,58 +501,105 @@ function ChatPageContent() {
         )}
       </div>
 
-      <div
-        className="fixed inset-x-0 z-30 mx-auto max-w-md border-t border-border/60 bg-background/95 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl"
-        style={{
-          /* Sit above BottomNav (z-40); do not overlap — nav stays tappable */
-          bottom: "calc(env(safe-area-inset-bottom) + 5rem)",
-        }}
-      >
-        {cooldownSeconds > 0 ? (
-          <div className="mb-2 rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            {rateLimitMessage ?? "AI usage limit reached."} Try again in {cooldownSeconds}s.
-          </div>
-        ) : null}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send(input);
-          }}
-          className="flex items-end gap-2 rounded-2xl border border-border bg-card p-1.5"
-        >
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              sending
-                ? "MaaCare AI is generating a reply..."
-                : cooldownSeconds > 0
-                  ? `Please wait ${cooldownSeconds}s before sending again...`
-                  : "Ask anything…"
-            }
-            className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
-            disabled={sending}
+      {/* Voice call overlay */}
+      {voiceMode ? (
+        <>
+          <VoiceCallPanel
+            state={voice.state}
+            partial={voice.partial}
+            muted={voiceMuted}
+            micMuted={voiceMicMuted}
+            onToggleMuted={() => setVoiceMuted((v) => !v)}
+            onToggleMicMuted={() => {
+              setVoiceMicMuted((m) => !m);
+            }}
+            onStartCall={() => {
+              setVoiceMicMuted(false);
+            }}
+            onEnd={() => {
+              voice.stop();
+              setVoiceMode(false);
+              setVoiceIntroPending(false);
+            }}
+            showTranscript={showVoiceTranscript}
+            onToggleTranscript={() => setShowVoiceTranscript((s) => !s)}
+            disabled={!voice.supported}
           />
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-9 w-9 shrink-0 rounded-xl"
-            aria-label="Voice input"
+          {!voice.supported ? (
+            <div className="fixed inset-x-0 top-16 z-[60] mx-auto max-w-md px-4">
+              <div className="rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-xs text-amber-800 shadow-soft">
+                Voice is not available on this browser (common on iPhone Safari). Text chat still works.
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* Text composer (hidden during call mode) */}
+      {!voiceMode ? (
+        <div
+          className="fixed inset-x-0 z-30 mx-auto max-w-md border-t border-border/60 bg-background/95 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl"
+          style={{
+            /* Sit above BottomNav (z-40); do not overlap — nav stays tappable */
+            bottom: "calc(env(safe-area-inset-bottom) + 5rem)",
+          }}
+        >
+          {cooldownSeconds > 0 ? (
+            <div className="mb-2 rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {rateLimitMessage ?? "AI usage limit reached."} Try again in {cooldownSeconds}s.
+            </div>
+          ) : null}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send(input);
+            }}
+            className="flex items-end gap-2 rounded-2xl border border-border bg-card p-1.5"
           >
-            <Mic className="h-4 w-4" />
-          </Button>
-          <Button
-            type="submit"
-            size="icon"
-            className="h-9 w-9 shrink-0 rounded-xl"
-            aria-label="Send"
-            disabled={!input.trim() || sendBlocked}
-          >
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
-        </form>
-      </div>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={
+                sending
+                  ? "MaaCare AI is generating a reply..."
+                  : cooldownSeconds > 0
+                    ? `Please wait ${cooldownSeconds}s before sending again...`
+                    : "Ask anything…"
+              }
+              className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+              disabled={sending}
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 shrink-0 rounded-xl"
+              aria-label="Voice call"
+              onClick={() => {
+                if (!voice.supported) {
+                  toast.error("Voice call is not supported on this browser. Please use text chat.");
+                  return;
+                }
+                setShowVoiceTranscript(false);
+                setVoiceMicMuted(false);
+                setVoiceIntroPending(true);
+                setVoiceMode(true);
+              }}
+            >
+              <PhoneCall className="h-4 w-4" />
+            </Button>
+            <Button
+              type="submit"
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-xl"
+              aria-label="Send"
+              disabled={!input.trim() || sendBlocked}
+            >
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+          </form>
+        </div>
+      ) : null}
       </AppShell>
     </>
   );

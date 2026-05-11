@@ -103,6 +103,19 @@ const InteractiveEmergencyMap = dynamic(
   { ssr: false },
 );
 
+function distanceMeters(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const r = 6371000;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLng = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const x =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * r * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
 function hasCallablePhone(phone: string | null | undefined): boolean {
   return Boolean(phone && String(phone).trim());
 }
@@ -136,10 +149,12 @@ export default function EmergencyClient() {
   } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locRetrySeed, setLocRetrySeed] = useState(0);
+  const [hasLoadedNearby, setHasLoadedNearby] = useState(false);
 
   const locationFetchKey = useMemo(() => {
     if (!currentLocation) return null;
-    return emergencyGeoBucketKey(currentLocation.latitude, currentLocation.longitude, 4);
+    // 3 decimals (~110m) avoids noisy re-fetch from small GPS jitter.
+    return emergencyGeoBucketKey(currentLocation.latitude, currentLocation.longitude, 3);
   }, [currentLocation?.latitude, currentLocation?.longitude]);
 
   useEffect(() => {
@@ -159,9 +174,15 @@ export default function EmergencyClient() {
         (pos) => {
           if (!active) return;
           setLocationError(null);
-          setCurrentLocation({
+          const next = {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
+          };
+          setCurrentLocation((prev) => {
+            if (!prev) return next;
+            // Ignore tiny movement updates to prevent unnecessary reload flicker.
+            if (distanceMeters(prev, next) < 80) return prev;
+            return next;
           });
         },
         () => {
@@ -198,7 +219,9 @@ export default function EmergencyClient() {
     }
 
     async function fetchNearby() {
-      setLoading(true);
+      if (!hasLoadedNearby) {
+        setLoading(true);
+      }
       const kinds = ["clinic", "hospital", "pharmacy"] as const;
 
       async function fetchCategory(category: FacilityKind): Promise<Hospital[]> {
@@ -229,13 +252,16 @@ export default function EmergencyClient() {
         const total = settled[0].length + settled[1].length + settled[2].length;
         if (total === 0) {
           setByKind(splitFallbackByKind());
+          setHasLoadedNearby(true);
         } else {
           setByKind(next);
           writeEmergencyByKindCache(cacheKey, next);
+          setHasLoadedNearby(true);
         }
       } catch {
         if (!active) return;
         setByKind(splitFallbackByKind());
+        setHasLoadedNearby(true);
       } finally {
         if (active) setLoading(false);
       }
@@ -244,7 +270,7 @@ export default function EmergencyClient() {
     return () => {
       active = false;
     };
-  }, [locationFetchKey]);
+  }, [locationFetchKey, hasLoadedNearby]);
 
   const kindCounts = useMemo(
     () => ({
