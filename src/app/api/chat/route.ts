@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
 
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
+import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 import { searchKnowledge } from "@/lib/rag/service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -86,126 +87,6 @@ function toFriendlyChatError(err: unknown): {
   };
 }
 
-function isRateLimitError(raw: string): boolean {
-  const msg = raw.toLowerCase();
-  return (
-    msg.includes("resource_exhausted") ||
-    msg.includes("quota") ||
-    msg.includes("rate limit") ||
-    msg.includes("429")
-  );
-}
-
-function geminiKeys(): string[] {
-  const joined = process.env.GEMINI_API_KEYS?.trim();
-  if (joined) {
-    return joined
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
-  }
-  const single = process.env.GEMINI_API_KEY?.trim();
-  return single ? [single] : [];
-}
-
-function groqKeys(): string[] {
-  const joined = process.env.GROQ_API_KEYS?.trim();
-  if (joined) {
-    return joined
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
-  }
-  const single = process.env.GROQ_API_KEY?.trim();
-  return single ? [single] : [];
-}
-
-async function generateWithGemini(
-  apiKey: string,
-  systemInstruction: string,
-  userMessage: string,
-): Promise<string> {
-  const modelName = process.env.GEMINI_CHAT_MODEL ?? "gemini-2.5-flash";
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: modelName,
-    systemInstruction,
-  });
-  const result = await model.generateContent(userMessage);
-  return result.response.text().trim();
-}
-
-async function generateWithGroq(
-  apiKey: string,
-  systemInstruction: string,
-  userMessage: string,
-): Promise<string> {
-  const model = process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.1-8b-instant";
-
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.4,
-      messages: [
-        { role: "system", content: systemInstruction },
-        { role: "user", content: userMessage },
-      ],
-    }),
-  });
-
-  const payload = (await res.json().catch(() => ({}))) as {
-    error?: { message?: string };
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  if (!res.ok) {
-    throw new Error(payload.error?.message ?? `groq_http_${res.status}`);
-  }
-  const text = payload.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error("groq_empty_response");
-  return text;
-}
-
-async function generateWithFailover(input: {
-  systemInstruction: string;
-  userMessage: string;
-}): Promise<{ reply: string; provider: "gemini" | "groq" }> {
-  const errors: string[] = [];
-
-  for (const key of geminiKeys()) {
-    try {
-      const reply = await generateWithGemini(key, input.systemInstruction, input.userMessage);
-      if (reply) return { reply, provider: "gemini" };
-      errors.push("gemini: empty response");
-    } catch (e) {
-      const m = e instanceof Error ? e.message : String(e);
-      errors.push(`gemini: ${m}`);
-      if (!isRateLimitError(m)) break;
-    }
-  }
-
-  for (const key of groqKeys()) {
-    try {
-      const reply = await generateWithGroq(key, input.systemInstruction, input.userMessage);
-      if (reply) return { reply, provider: "groq" };
-      errors.push("groq: empty response");
-    } catch (e) {
-      const m = e instanceof Error ? e.message : String(e);
-      errors.push(`groq: ${m}`);
-      if (!isRateLimitError(m)) break;
-    }
-  }
-
-  if (errors.length > 0 && errors.every((e) => isRateLimitError(e))) {
-    throw new Error("all_providers_rate_limited");
-  }
-  throw new Error(`all_providers_failed: ${errors.join(" | ")}`);
-}
-
 export async function POST(req: Request) {
   try {
     const session = await getSessionFromCookies();
@@ -215,6 +96,13 @@ export async function POST(req: Request) {
 
     const { messages, reportContext } = bodySchema.parse(await req.json());
     const supabase = await createSupabaseServerClient();
+
+    if (getGeminiApiKeys().length === 0 && getGroqApiKeys().length === 0) {
+      return NextResponse.json(
+        { error: "AI service is not configured. Set GEMINI_API_KEY or GROQ_API_KEY." },
+        { status: 503 },
+      );
+    }
 
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     if (!lastUser) {
@@ -419,13 +307,13 @@ export async function POST(req: Request) {
       "Reply to the latest user turn helpfully.",
     ].join("\n");
 
-    const out = await generateWithFailover({
+    const out = await generateTextWithGeminiGroqFailover({
       systemInstruction,
       userMessage,
     });
 
     return NextResponse.json({
-      reply: out.reply,
+      reply: out.text,
       provider: out.provider,
       citations: hits.map((h) => ({
         id: h.id,

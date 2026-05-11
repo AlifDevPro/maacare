@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
+import { generateWithGroq, isRateLimitError } from "@/lib/gemini/text-failover";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const findingSchema = z.object({
@@ -41,30 +43,6 @@ const responseSchema = z.object({
     })
     .default({ conditions: [], allergies: [], medications: [], notes: "" }),
 });
-
-function geminiKeys(): string[] {
-  const joined = process.env.GEMINI_API_KEYS?.trim();
-  if (joined) {
-    return joined
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
-  }
-  const single = process.env.GEMINI_API_KEY?.trim();
-  return single ? [single] : [];
-}
-
-function groqKeys(): string[] {
-  const joined = process.env.GROQ_API_KEYS?.trim();
-  if (joined) {
-    return joined
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
-  }
-  const single = process.env.GROQ_API_KEY?.trim();
-  return single ? [single] : [];
-}
 
 function toBase64(buf: ArrayBuffer): string {
   return Buffer.from(buf).toString("base64");
@@ -142,16 +120,6 @@ async function imageToPdfBase64(file: File): Promise<string | null> {
   }
 }
 
-function isRateLimitError(raw: string): boolean {
-  const msg = raw.toLowerCase();
-  return (
-    msg.includes("resource_exhausted") ||
-    msg.includes("quota") ||
-    msg.includes("rate limit") ||
-    msg.includes("429")
-  );
-}
-
 async function extractTextFromFileLocally(
   file: File,
 ): Promise<{ text: string; mode: "pdf_local" | "ocr_local" | "text_local" | "none" }> {
@@ -207,39 +175,6 @@ async function extractTextFromFileLocally(
   return { text: "", mode: "none" };
 }
 
-async function generateWithGroq(
-  apiKey: string,
-  systemInstruction: string,
-  userText: string,
-): Promise<string> {
-  const model = process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.1-8b-instant";
-
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: systemInstruction },
-        { role: "user", content: userText },
-      ],
-    }),
-  });
-
-  const payload = (await res.json().catch(() => ({}))) as {
-    error?: { message?: string };
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  if (!res.ok) throw new Error(payload.error?.message ?? `groq_http_${res.status}`);
-  const text = payload.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error("groq_empty_response");
-  return text;
-}
-
 export async function POST(req: Request) {
   try {
     const session = await getSessionFromCookies();
@@ -263,8 +198,8 @@ export async function POST(req: Request) {
       return failJson(400, "File is too large (max 10MB).");
     }
 
-    const keys = geminiKeys();
-    const gKeys = groqKeys();
+    const keys = getGeminiApiKeys();
+    const gKeys = getGroqApiKeys();
     if (keys.length === 0 && gKeys.length === 0) {
       return failJson(503, "AI service is not configured.");
     }
@@ -365,6 +300,7 @@ export async function POST(req: Request) {
             key,
             systemInstruction,
             `Report title: ${reportTitle || "Untitled medical report"}\nUser: ${session.name}\n\nReport text:\n${clipText(extractedText, MAX_REPORT_TEXT_FOR_AI)}`,
+            { temperature: 0.2 },
           );
           provider = "groq";
           break;

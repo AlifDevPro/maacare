@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { getGeminiApiKeys } from "@/lib/gemini/keys";
 
 const bodySchema = z.object({
   latitude: z.number().gte(-90).lte(90),
@@ -18,18 +19,6 @@ type HospitalHit = {
   latitude: number | null;
   longitude: number | null;
 };
-
-function geminiKeys(): string[] {
-  const joined = process.env.GEMINI_API_KEYS?.trim();
-  if (joined) {
-    return joined
-      .split(",")
-      .map((k) => k.trim())
-      .filter(Boolean);
-  }
-  const single = process.env.GEMINI_API_KEY?.trim();
-  return single ? [single] : [];
-}
 
 function extractFirstJsonArray(text: string): unknown[] | null {
   const start = text.indexOf("[");
@@ -91,7 +80,7 @@ export async function POST(req: Request) {
     const payload = bodySchema.safeParse(await req.json().catch(() => ({})));
     if (!payload.success) return failJson(400, "Invalid location.");
 
-    const keys = geminiKeys();
+    const keys = getGeminiApiKeys();
     if (keys.length === 0) return failJson(500, "Gemini API key is missing.");
 
     const model = process.env.GEMINI_CHAT_MODEL ?? "gemini-2.5-flash";
