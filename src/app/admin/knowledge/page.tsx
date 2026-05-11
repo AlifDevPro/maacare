@@ -418,7 +418,7 @@ export default function KnowledgePage() {
                 setPage(1);
               }}
               placeholder="Search titles…"
-              className="h-10 pl-10 pr-3.5"
+              className="h-10 pl-14 pr-3.5"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">

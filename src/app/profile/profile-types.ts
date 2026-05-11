@@ -32,6 +32,7 @@ export type ProfileBundle = {
     gestational_age_weeks: number | null;
     gravida: number | null;
     para: number | null;
+    baby_birth_date?: string | null;
   } | null;
   allergies: string[];
   conditions: string[];

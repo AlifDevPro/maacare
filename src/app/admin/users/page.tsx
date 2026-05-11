@@ -12,6 +12,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { fetchJsonCached, invalidateByPrefix } from "@/lib/client/request-cache";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -117,19 +118,13 @@ export default function UsersPage() {
       params.set("offset", String((page - 1) * pageSize));
       if (roleFilter !== "all") params.set("role", roleFilter);
 
-      const res = await fetch(`/api/admin/users?${params.toString()}`, { credentials: "include" });
-      const j = (await res.json().catch(() => ({}))) as {
+      const qs = params.toString();
+      const key = `admin:users?${qs}`;
+      const { data: j } = await fetchJsonCached<{
         users?: AdminUserRow[];
         total?: number;
         message?: string;
-      };
-      if (res.status === 403) {
-        toast.error("Admin access required.");
-        setRows([]);
-        setTotal(0);
-        return;
-      }
-      if (!res.ok) throw new Error(j.message ?? "Could not load users.");
+      }>(key, `/api/admin/users?${qs}`, { credentials: "include" }, 20_000);
       setRows(j.users ?? []);
       setTotal(typeof j.total === "number" ? j.total : j.users?.length ?? 0);
     } catch (e) {
@@ -160,6 +155,7 @@ export default function UsersPage() {
         return;
       }
       if (!res.ok) throw new Error(j.message ?? "Could not update role.");
+      invalidateByPrefix("admin:users?");
       toast.success(`Role updated to ${role}`);
       await loadUsers();
     } catch (e) {
@@ -199,7 +195,7 @@ export default function UsersPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search by name or email…"
-              className="h-10 pl-10 pr-3.5"
+              className="h-10 pl-14 pr-3.5"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">

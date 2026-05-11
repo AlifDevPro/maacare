@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
+import { loadVitalsList } from "@/lib/app/user-lists-data";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -25,34 +26,13 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? "30") || 30, 100);
     const supabase = await createSupabaseServerClient();
 
-    const { data, error } = await supabase
-      .from("vital_signs")
-      .select(
-        "id, recorded_at, systolic_bp, diastolic_bp, heart_rate_bpm, weight_kg, temperature_c, glucose_mg_dl, spo2_pct, notes",
-      )
-      .eq("user_id", session.id)
-      .order("recorded_at", { ascending: false })
-      .limit(limit);
-
-    if (error) {
-      console.error("[vitals] GET:", error);
+    try {
+      const vitals = await loadVitalsList(supabase, session.id, limit);
+      return Response.json({ vitals });
+    } catch (e) {
+      console.error("[vitals] GET:", e);
       return failJson(500, "Could not load vitals.");
     }
-
-    return Response.json({
-      vitals: (data ?? []).map((r) => ({
-        id: r.id as string,
-        recordedAt: r.recorded_at as string,
-        systolicBp: (r.systolic_bp as number | null) ?? null,
-        diastolicBp: (r.diastolic_bp as number | null) ?? null,
-        heartRateBpm: (r.heart_rate_bpm as number | null) ?? null,
-        weightKg: (r.weight_kg as number | null) ?? null,
-        temperatureC: (r.temperature_c as number | null) ?? null,
-        glucoseMgDl: (r.glucose_mg_dl as number | null) ?? null,
-        spo2Pct: (r.spo2_pct as number | null) ?? null,
-        notes: (r.notes as string | null) ?? null,
-      })),
-    });
   } catch (e) {
     return serverErrorJson("vitals GET", e);
   }

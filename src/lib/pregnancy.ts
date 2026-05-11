@@ -51,3 +51,19 @@ export function trimesterOf(week: number): 1 | 2 | 3 {
   if (week <= 27) return 2;
   return 3;
 }
+
+/** Whole weeks since birth (1-based), capped at 52; null if unknown or future date. */
+export function postpartumWeekFromBirth(birthDateIso: string | null | undefined): number | null {
+  if (!birthDateIso) return null;
+  const d = new Date(birthDateIso.slice(0, 10));
+  if (Number.isNaN(d.getTime())) return null;
+  const start = new Date(d);
+  start.setHours(0, 0, 0, 0);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const diffMs = now.getTime() - start.getTime();
+  if (diffMs < 0) return null;
+  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  const week = Math.floor(days / 7) + 1;
+  return Math.min(52, Math.max(1, week));
+}

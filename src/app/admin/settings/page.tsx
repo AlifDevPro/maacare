@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { fetchJsonCached, invalidateCached } from "@/lib/client/request-cache";
 
 type FlagKey = "ai_chat" | "community" | "reports" | "emergency";
 type Flags = Record<FlagKey, boolean>;
@@ -34,9 +35,13 @@ export default function AdminSettings() {
     void (async () => {
       setLoading(true);
       try {
-        const res = await fetch("/api/admin/settings", { credentials: "include" });
-        const j = (await res.json().catch(() => ({}))) as { flags?: Flags; message?: string };
-        if (!res.ok) throw new Error(j.message ?? "Could not load settings.");
+        const key = "admin:settings";
+        const { data: j } = await fetchJsonCached<{ flags?: Flags }>(
+          key,
+          "/api/admin/settings",
+          { credentials: "include" },
+          60_000,
+        );
         if (active) setFlags({ ...defaultFlags, ...(j.flags ?? {}) });
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not load settings.");
@@ -63,6 +68,7 @@ export default function AdminSettings() {
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not update setting.");
+      invalidateCached("admin:settings");
       toast.success("Setting updated");
     } catch (e) {
       setFlags((old) => ({ ...old, [key]: prev }));

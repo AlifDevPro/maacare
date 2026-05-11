@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { gestationalWeekFromLmp, estimatedDueDateFromLmp } from "@/lib/profile/computed";
+import { estimatedDueDateFromLmp, resolveGestationalWeek } from "@/lib/profile/computed";
 import type { HomeData } from "@/lib/app/home-types";
+import { postpartumWeekFromBirth } from "@/lib/pregnancy";
 
 export async function getHomeData(
   supabase: SupabaseClient,
@@ -15,7 +16,7 @@ export async function getHomeData(
       supabase.from("profiles").select("display_name").eq("id", uid).maybeSingle(),
       supabase
         .from("pregnancy_profiles")
-        .select("pregnancy_status, lmp_date, edd_date, gestational_age_weeks")
+        .select("pregnancy_status, lmp_date, edd_date, gestational_age_weeks, baby_birth_date")
         .eq("user_id", uid)
         .maybeSingle(),
       supabase
@@ -66,11 +67,12 @@ export async function getHomeData(
 
   const pregnancy = pregnancyRes.data ?? null;
   const lmp = pregnancy?.lmp_date ?? null;
-  const weeksFromLmp = gestationalWeekFromLmp(lmp ?? undefined);
   const eddFromLmp = lmp ? estimatedDueDateFromLmp(lmp) : null;
 
-  const gestationalWeek =
-    pregnancy?.gestational_age_weeks != null ? pregnancy.gestational_age_weeks : weeksFromLmp;
+  const gestationalWeek = resolveGestationalWeek(pregnancy);
+
+  const babyBirthDate = (pregnancy as { baby_birth_date?: string | null } | null)?.baby_birth_date ?? null;
+  const postpartumWeek = postpartumWeekFromBirth(babyBirthDate);
 
   return {
     profile: {
@@ -81,11 +83,15 @@ export async function getHomeData(
           status: pregnancy.pregnancy_status,
           gestationalWeek,
           displayEdd: pregnancy.edd_date ?? eddFromLmp ?? null,
+          babyBirthDate,
+          postpartumWeek,
         }
       : {
           status: null,
           gestationalWeek: null,
           displayEdd: null,
+          babyBirthDate: null,
+          postpartumWeek: null,
         },
     vitals: (vitalsRes.data as HomeData["vitals"]) ?? null,
     latestSymptom: (symptomRes.data as HomeData["latestSymptom"]) ?? null,

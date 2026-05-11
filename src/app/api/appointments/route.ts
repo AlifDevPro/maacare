@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { failJson, validationJsonResponse, serverErrorJson } from "@/lib/api/error-response";
+import { loadAppointmentsList } from "@/lib/app/user-lists-data";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { tryCreateSupabaseServiceClient } from "@/lib/supabase/service";
@@ -24,56 +25,22 @@ export async function GET(req: NextRequest) {
     const status = req.nextUrl.searchParams.get("status");
     const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? "30") || 30, 100);
 
-    let query = supabase
-      .from("appointments")
-      .select("id, title, scheduled_at, provider_name, location, appointment_type, status, notes")
-      .eq("user_id", session.id)
-      .order("scheduled_at", { ascending: true })
-      .limit(limit);
-
-    if (status === "scheduled" || status === "completed" || status === "cancelled" || status === "no_show") {
-      query = query.eq("status", status);
-    }
-
-    let { data, error } = await query;
-    if (error && (error.code === "42501" || error.code === "23503")) {
-      const svc = tryCreateSupabaseServiceClient();
-      if (svc) {
-        const retry = await svc
-          .from("appointments")
-          .select("id, title, scheduled_at, provider_name, location, appointment_type, status, notes")
-          .eq("user_id", session.id)
-          .order("scheduled_at", { ascending: true })
-          .limit(limit);
-        data = retry.data ?? null;
-        error = retry.error ?? null;
-      }
-    }
-    if (error) {
+    try {
+      const appointments = await loadAppointmentsList(supabase, session.id, { status, limit });
+      return Response.json({ appointments });
+    } catch (error: unknown) {
       console.error("[appointments] GET:", error);
+      const err = error as { code?: string; message?: string };
       const hint =
-        error.code === "42P01"
+        err.code === "42P01"
           ? "Appointments table is missing. Run latest Supabase migrations."
-          : error.code === "42501"
+          : err.code === "42501"
             ? "Appointment permission policy is missing. Run latest Supabase migrations."
-          : process.env.NODE_ENV === "development"
-            ? error.message
-            : "Could not load appointments.";
+            : process.env.NODE_ENV === "development"
+              ? (err.message ?? "Could not load appointments.")
+              : "Could not load appointments.";
       return failJson(500, hint);
     }
-
-    return Response.json({
-      appointments: (data ?? []).map((r) => ({
-        id: r.id as string,
-        title: r.title as string,
-        scheduledAt: r.scheduled_at as string,
-        providerName: (r.provider_name as string | null) ?? null,
-        location: (r.location as string | null) ?? null,
-        appointmentType: (r.appointment_type as string | null) ?? null,
-        status: r.status as string,
-        notes: (r.notes as string | null) ?? null,
-      })),
-    });
   } catch (e) {
     return serverErrorJson("appointments GET", e);
   }

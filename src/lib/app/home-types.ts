@@ -25,12 +25,16 @@ export type LatestSymptom = {
   severity: number | null;
 };
 
+export type JourneyStage = "planning" | "pregnant" | "postpartum";
+
 export type HomeData = {
   profile: { displayName: string };
   pregnancy: {
     status: string | null;
     gestationalWeek: number | null;
     displayEdd: string | null;
+    babyBirthDate: string | null;
+    postpartumWeek: number | null;
   };
   vitals: LatestVitals | null;
   latestSymptom: LatestSymptom | null;

@@ -8,6 +8,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, CartesianGrid,
 } from "recharts";
 import { toast } from "sonner";
+import { fetchJsonCached } from "@/lib/client/request-cache";
 
 type DashboardData = {
   totals: {
@@ -33,9 +34,13 @@ export default function AdminDashboard() {
     void (async () => {
       setLoading(true);
       try {
-        const res = await fetch("/api/admin/dashboard", { credentials: "include" });
-        const j = (await res.json().catch(() => ({}))) as DashboardData & { message?: string };
-        if (!res.ok) throw new Error(j.message ?? "Could not load dashboard");
+        const key = "admin:dashboard";
+        const { data: j } = await fetchJsonCached<DashboardData>(
+          key,
+          "/api/admin/dashboard",
+          { credentials: "include" },
+          30_000,
+        );
         if (active) setData(j);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not load dashboard");

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { validationJsonResponse, failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
-import { gestationalWeekFromLmp, estimatedDueDateFromLmp } from "@/lib/profile/computed";
+import { loadProfileBundle } from "@/lib/app/profile-bundle-data";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const bloodEnum = z.enum(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"]).nullable().optional();
@@ -20,6 +20,7 @@ const patchSchema = z.object({
   lmpDate: z.string().max(32).nullable().optional(),
   eddDate: z.string().max(32).nullable().optional(),
   gestationalAgeWeeks: z.number().int().min(0).max(45).nullable().optional(),
+  babyBirthDate: z.string().max(32).nullable().optional(),
   gravida: z.number().int().min(0).max(30).nullable().optional(),
   para: z.number().int().min(0).max(30).nullable().optional(),
   bloodType: bloodEnum,
@@ -48,55 +49,12 @@ export async function GET() {
     const supabase = await createSupabaseServerClient();
     const uid = session.id;
 
-    const [
-      profileRes,
-      healthRes,
-      pregRes,
-      allergyRes,
-      conditionRes,
-    ] = await Promise.all([
-      supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
-      supabase.from("user_health_profiles").select("*").eq("user_id", uid).maybeSingle(),
-      supabase.from("pregnancy_profiles").select("*").eq("user_id", uid).maybeSingle(),
-      supabase.from("allergies").select("id, name, allergen_type").eq("user_id", uid),
-      supabase
-        .from("medical_conditions")
-        .select("condition_name")
-        .eq("user_id", uid)
-        .eq("status", "active"),
-    ]);
-
-    if (profileRes.error) {
+    try {
+      const bundle = await loadProfileBundle(supabase, uid);
+      return NextResponse.json(bundle);
+    } catch {
       return failJson(500, "Could not load profile.");
     }
-
-    const profile = profileRes.data;
-    const health = healthRes.data ?? null;
-    const pregnancy = pregRes.data ?? null;
-
-    const allergies = (allergyRes.data ?? []).map((a) => a.name);
-    const conditions = (conditionRes.data ?? []).map((c) => c.condition_name);
-
-    const lmp = pregnancy?.lmp_date ?? null;
-    const weeksFromLmp = gestationalWeekFromLmp(lmp ?? undefined);
-    const eddFromLmp = lmp ? estimatedDueDateFromLmp(lmp) : null;
-
-    const gestationalWeek =
-      pregnancy?.gestational_age_weeks != null
-        ? pregnancy.gestational_age_weeks
-        : weeksFromLmp;
-
-    return NextResponse.json({
-      profile,
-      health,
-      pregnancy,
-      allergies,
-      conditions,
-      computed: {
-        gestationalWeek,
-        displayEdd: pregnancy?.edd_date ?? eddFromLmp ?? null,
-      },
-    });
   } catch (err) {
     return serverErrorJson("profile/get", err);
   }
@@ -198,6 +156,10 @@ export async function PATCH(req: Request) {
     }
     if (body.gestationalAgeWeeks !== undefined) {
       pregPayload.gestational_age_weeks = body.gestationalAgeWeeks;
+      hasPreg = true;
+    }
+    if (body.babyBirthDate !== undefined) {
+      pregPayload.baby_birth_date = body.babyBirthDate || null;
       hasPreg = true;
     }
     if (body.gravida !== undefined) {

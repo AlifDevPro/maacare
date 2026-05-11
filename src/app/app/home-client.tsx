@@ -16,6 +16,9 @@ import {
   Stethoscope,
   Thermometer,
   Wind,
+  Flower2,
+  Baby,
+  CalendarDays,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,21 +28,41 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Card } from "@/components/ui/card";
 import { babyAt, trimesterOf } from "@/lib/pregnancy";
-import type { HomeData } from "@/lib/app/home-types";
+import type { HomeData, JourneyStage } from "@/lib/app/home-types";
+import { coerceGestationalWeek } from "@/lib/profile/computed";
 import { cn } from "@/lib/utils";
+
+/** Hero journey: match profile semantics — week can come from LMP/weeks even if status is still "planning". */
+function homeJourneyStage(p: HomeData["pregnancy"]): JourneyStage {
+  if (p.status === "postpartum") return "postpartum";
+  if (p.status === "not_applicable") return "planning";
+  if (p.status === "pregnant") return "pregnant";
+  if (p.status === "planning") return "planning";
+  const w = coerceGestationalWeek(p.gestationalWeek);
+  if (w != null && w >= 1 && w <= 42) return "pregnant";
+  return "planning";
+}
 
 export function HomeClient({ initial }: { initial: HomeData }) {
   const router = useRouter();
   const [home, setHome] = useState(initial);
   const [refreshing, setRefreshing] = useState(false);
-  const [week, setWeek] = useState(
-    typeof home.pregnancy.gestationalWeek === "number"
-      ? Math.max(1, Math.min(40, Math.round(home.pregnancy.gestationalWeek)))
-      : 20,
-  );
+  const [week, setWeek] = useState(() => {
+    const w = coerceGestationalWeek(initial.pregnancy.gestationalWeek);
+    return w != null && w >= 1 ? Math.max(1, Math.min(40, Math.round(w))) : 20;
+  });
 
+  const stage = useMemo(() => homeJourneyStage(home.pregnancy), [home.pregnancy]);
   const baby = useMemo(() => babyAt(week), [week]);
   const trimester = useMemo(() => trimesterOf(week), [week]);
+  const ppWeek = home.pregnancy.postpartumWeek;
+
+  useEffect(() => {
+    const w = coerceGestationalWeek(home.pregnancy.gestationalWeek);
+    if (w != null && w >= 1) {
+      setWeek(Math.max(1, Math.min(40, Math.round(w))));
+    }
+  }, [home.pregnancy.gestationalWeek, home.pregnancy.status]);
 
   async function persistWeek(nextWeek: number) {
     try {
@@ -63,8 +86,9 @@ export function HomeClient({ initial }: { initial: HomeData }) {
       const j = (await res.json().catch(() => ({}))) as HomeData & { message?: string; error?: string };
       if (!res.ok) throw new Error(j.message ?? j.error ?? "Could not refresh updates");
       setHome(j);
-      if (typeof j.pregnancy?.gestationalWeek === "number" && j.pregnancy.gestationalWeek >= 1) {
-        setWeek(Math.max(1, Math.min(40, Math.round(j.pregnancy.gestationalWeek))));
+      const w = coerceGestationalWeek(j.pregnancy?.gestationalWeek);
+      if (w != null && w >= 1) {
+        setWeek(Math.max(1, Math.min(40, Math.round(w))));
       }
       router.refresh();
     } catch (e) {
@@ -102,52 +126,173 @@ export function HomeClient({ initial }: { initial: HomeData }) {
           </h1>
         </motion.div>
 
-        <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-card">
-          <div className="space-y-5 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">
-                  Pregnancy week
-                </p>
-                <p className="font-display text-4xl font-semibold leading-none tracking-tight">
-                  {week}
-                  <span className="text-lg font-medium text-muted-foreground">/40</span>
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Trimester {trimester} · {Math.max(0, 40 - week)} weeks to go
-                  {home.pregnancy.displayEdd
-                    ? ` · Due ${new Date(home.pregnancy.displayEdd).toLocaleDateString()}`
-                    : ""}
-                </p>
+        {stage === "planning" ? (
+          <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-card">
+            <div className="space-y-5 p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">Planning journey</p>
+                  <p className="font-display text-4xl font-semibold leading-none tracking-tight">Get ready</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Build healthy routines before pregnancy — quick wins you can repeat daily.
+                  </p>
+                </div>
+                <motion.div
+                  initial={false}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl bg-card text-5xl shadow-soft animate-float"
+                >
+                  <Flower2 className="h-10 w-10 text-primary" aria-hidden />
+                </motion.div>
               </div>
-              <motion.div
-                key={baby.emoji}
-                initial={false}
-                animate={{ scale: 1, opacity: 1 }}
-                className="flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl bg-card text-5xl shadow-soft animate-float"
-              >
-                {baby.emoji}
-              </motion.div>
+              <div className="flex gap-1.5">
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <div key={i} className={cn("h-2 flex-1 rounded-full", i < 4 ? "bg-primary" : "bg-card")} />
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-2xl border border-border/60 bg-card/70 p-3 shadow-soft">
+                  <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                    <Droplets className="h-5 w-5" />
+                  </span>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Hydration</p>
+                  <p className="mt-0.5 font-display text-base font-semibold leading-none">8</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">glasses/day</p>
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-card/70 p-3 shadow-soft">
+                  <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                    <Activity className="h-5 w-5" />
+                  </span>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Movement</p>
+                  <p className="mt-0.5 font-display text-base font-semibold leading-none">20</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">mins/day</p>
+                </div>
+                <div className="rounded-2xl border border-border/60 bg-card/70 p-3 shadow-soft">
+                  <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                    <CalendarClock className="h-5 w-5" />
+                  </span>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Check-up</p>
+                  <p className="mt-0.5 font-display text-base font-semibold leading-none">Plan</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">when ready</p>
+                </div>
+              </div>
+              <Button asChild className="w-full rounded-2xl">
+                <Link href="/planner">
+                  Open your planner
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
             </div>
+          </Card>
+        ) : stage === "postpartum" ? (
+          <Card className="overflow-hidden border-0 bg-gradient-warm p-0 shadow-card">
+            <div className="space-y-5 p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">
+                    Postpartum week
+                  </p>
+                  <p className="font-display text-4xl font-semibold leading-none tracking-tight">
+                    {ppWeek != null ? (
+                      <>
+                        Week {ppWeek}
+                        <span className="text-lg font-medium text-muted-foreground"> /52</span>
+                      </>
+                    ) : (
+                      <span className="text-2xl">Set birth date</span>
+                    )}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {ppWeek != null
+                      ? "Fourth trimester — rest, nourish, and reach out when you need help."
+                      : "Add your baby’s birth date under Profile → Pregnancy to see your week here."}
+                  </p>
+                </div>
+                <motion.div
+                  initial={false}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl bg-card text-5xl shadow-soft animate-float"
+                >
+                  <Baby className="h-10 w-10 text-primary" aria-hidden />
+                </motion.div>
+              </div>
+              {ppWeek != null ? (
+                <div className="flex gap-1.5">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        "h-2 flex-1 rounded-full",
+                        i < Math.min(ppWeek, 12) ? "bg-primary" : "bg-card",
+                      )}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {ppWeek != null ? (
+                <p className="text-[11px] text-muted-foreground">Bars show your first 12 weeks after birth.</p>
+              ) : null}
+              <div className="grid grid-cols-2 gap-2">
+                <Button asChild variant="secondary" className="rounded-2xl">
+                  <Link href="/profile/edit">Add birth date</Link>
+                </Button>
+                <Button asChild className="rounded-2xl">
+                  <Link href="/postpartum">
+                    Postpartum hub
+                    <ChevronRight className="ml-1 h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </Card>
+        ) : (
+          <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-card">
+            <div className="space-y-5 p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">
+                    Pregnancy week
+                  </p>
+                  <p className="font-display text-4xl font-semibold leading-none tracking-tight">
+                    {week}
+                    <span className="text-lg font-medium text-muted-foreground">/40</span>
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Trimester {trimester} · {Math.max(0, 40 - week)} weeks to go
+                    {home.pregnancy.displayEdd
+                      ? ` · Due ${new Date(home.pregnancy.displayEdd).toLocaleDateString()}`
+                      : ""}
+                  </p>
+                </div>
+                <motion.div
+                  key={baby.emoji}
+                  initial={false}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl bg-card text-5xl shadow-soft animate-float"
+                >
+                  {baby.emoji}
+                </motion.div>
+              </div>
 
-            <Slider
-              value={[week]}
-              onValueChange={([v]) => setWeek(v)}
-              onValueCommit={([v]) => void persistWeek(v)}
-              min={1}
-              max={40}
-              step={1}
-              aria-label="Pregnancy week"
-            />
+              <Slider
+                value={[week]}
+                onValueChange={([v]) => setWeek(v)}
+                onValueCommit={([v]) => void persistWeek(v)}
+                min={1}
+                max={40}
+                step={1}
+                aria-label="Pregnancy week"
+              />
 
-            <Button asChild className="w-full rounded-2xl">
-              <Link href="/planner">
-                Continue to today's plan
-                <ChevronRight className="ml-1 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-        </Card>
+              <Button asChild className="w-full rounded-2xl">
+                <Link href="/planner">
+                  Continue to today&apos;s plan
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </Card>
+        )}
 
         <Card className="p-4 shadow-soft">
           <div className="mb-3 flex items-center justify-between">
@@ -195,16 +340,48 @@ export function HomeClient({ initial }: { initial: HomeData }) {
         <Card className="border-accent/20 bg-accent-soft/40 p-4 shadow-soft">
           <div className="flex items-start gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-card text-xl">
-              {baby.emoji}
+              {stage === "planning" ? (
+                <CalendarDays className="h-5 w-5 text-accent" aria-hidden />
+              ) : stage === "postpartum" ? (
+                <Moon className="h-5 w-5 text-accent" aria-hidden />
+              ) : (
+                baby.emoji
+              )}
             </span>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider">
-                Week {week} · Baby this week
-              </p>
-              <p className="mt-1 text-sm font-medium leading-snug ">
-                Your baby is the size of a <span className="text-accent">{baby.size}</span>.
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">{baby.fact}</p>
+              {stage === "planning" ? (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wider">Planning focus</p>
+                  <p className="mt-1 text-sm font-medium leading-snug">
+                    Gentle movement, balanced meals, and sleep set the tone before conception.
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Log vitals regularly so your care team can spot trends early.
+                  </p>
+                </>
+              ) : stage === "postpartum" ? (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wider">
+                    {ppWeek != null ? `Week ${ppWeek} · Recovery` : "Fourth trimester"}
+                  </p>
+                  <p className="mt-1 text-sm font-medium leading-snug">
+                    Healing, feeding, and sleep are all normal challenges — pace yourself and ask for support.
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Heavy bleeding, fever, or severe pain need urgent care — see Emergency if unsure.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wider">
+                    Week {week} · Baby this week
+                  </p>
+                  <p className="mt-1 text-sm font-medium leading-snug ">
+                    Your baby is the size of a <span className="text-accent">{baby.size}</span>.
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">{baby.fact}</p>
+                </>
+              )}
             </div>
           </div>
         </Card>
@@ -213,7 +390,12 @@ export function HomeClient({ initial }: { initial: HomeData }) {
           <QuickAction to="/symptoms" icon={Activity} label="Check symptoms" tone="rose" />
           <QuickAction to="/chat" icon={Sparkles} label="Ask AI" tone="sage" />
           <QuickAction to="/reports" icon={Heart} label="Simplify report" tone="rose" />
-          <QuickAction to="/postpartum" icon={Moon} label="Postpartum" tone="sage" />
+          <QuickAction
+            to={stage === "pregnant" ? "/postpartum" : "/planner"}
+            icon={stage === "pregnant" ? Moon : CalendarClock}
+            label={stage === "pregnant" ? "Postpartum" : "Planner"}
+            tone="sage"
+          />
         </div>
 
         <Card className="p-4 shadow-soft">
@@ -272,7 +454,11 @@ export function HomeClient({ initial }: { initial: HomeData }) {
             <TimelineItem
               icon={Droplets}
               title="Latest symptom log"
-              href={home.latestSymptom?.id ? `/symptoms/result?logId=${encodeURIComponent(home.latestSymptom.id)}` : "/symptoms"}
+              href={
+                home.latestSymptom?.id
+                  ? `/symptoms/result?logId=${encodeURIComponent(home.latestSymptom.id)}`
+                  : "/symptoms"
+              }
               detail={home.latestSymptom ? `${home.latestSymptom.title || "Symptom check"} saved` : "No symptoms logged yet"}
               meta={
                 home.latestSymptom
@@ -362,7 +548,7 @@ function QuickAction({
   label,
   tone,
 }: {
-  to: "/symptoms" | "/chat" | "/reports" | "/postpartum";
+  to: "/symptoms" | "/chat" | "/reports" | "/postpartum" | "/planner";
   icon: typeof Heart;
   label: string;
   tone: "rose" | "sage";
@@ -400,7 +586,7 @@ function TimelineItem({
   riskLevel?: "low" | "medium" | "high" | null;
 }) {
   const body = (
-    <div className="relative pl-11 py-2.5">
+    <div className="relative py-2.5 pl-11">
       <span className="absolute left-[15px] top-0 h-full w-px bg-border/70" />
       <span className="absolute left-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg bg-muted text-muted-foreground">
         <Icon className="h-4 w-4" />
@@ -434,26 +620,3 @@ function TimelineItem({
     </Link>
   );
 }
-
-function Stat({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Heart;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-          <Icon className="h-4 w-4" />
-        </span>
-        <span className="text-sm">{label}</span>
-      </div>
-      <span className="text-sm font-semibold">{value}</span>
-    </div>
-  );
-}
-
