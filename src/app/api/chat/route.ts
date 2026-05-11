@@ -87,34 +87,16 @@ function detectPreferredReplyLanguage(text: string): "bn" | "en" {
   return BANGLA_CHAR_RE.test(text) || isLikelyBanglish(text) ? "bn" : "en";
 }
 
-function normalizeForIntent(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isAskMyName(text: string): boolean {
-  const t = normalizeForIntent(text);
-  return (
-    /\bwhat is my name\b/.test(t) ||
-    /\bmy name\b/.test(t) ||
-    /\bamar nam\b/.test(t) ||
-    /আমার নাম/.test(text)
-  );
-}
-
-function isAskWhatYouKnowAboutMe(text: string): boolean {
-  const t = normalizeForIntent(text);
-  return (
-    /\bwhat do you know about me\b/.test(t) ||
-    /\babout me\b/.test(t) ||
-    /\bamar bisoy\b/.test(t) ||
-    /\bamar bishoy\b/.test(t) ||
-    /\bamar somporke\b/.test(t) ||
-    /আমার\s*(বিষ|বিস|সম্পর্কে)/.test(text)
-  );
+function computeAgeFromDateOfBirth(dateOfBirthIso: string | null | undefined): number | null {
+  if (!dateOfBirthIso) return null;
+  const dob = new Date(dateOfBirthIso);
+  if (Number.isNaN(dob.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const m = now.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) age -= 1;
+  if (age < 0 || age > 120) return null;
+  return age;
 }
 
 function isLikelyBanglish(text: string): boolean {
@@ -248,6 +230,7 @@ export async function POST(req: Request) {
         : "(No matching internal articles were retrieved; answer generally and recommend professional care when unsure.)";
 
     const [
+      profileRes,
       pregnancyRes,
       healthRes,
       conditionsRes,
@@ -255,7 +238,14 @@ export async function POST(req: Request) {
       medsRes,
       vitalsRes,
       symptomRes,
+      plannerRes,
+      appointmentsRes,
     ] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("date_of_birth")
+        .eq("id", session.id)
+        .maybeSingle(),
       supabase
         .from("pregnancy_profiles")
         .select("pregnancy_status, gestational_age_weeks, edd_date, risk_flags")
@@ -301,15 +291,30 @@ export async function POST(req: Request) {
         .order("logged_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from("planner_daily_logs")
+        .select("plan_date, water_glasses, tasks, completion_percent, completed")
+        .eq("user_id", session.id)
+        .order("plan_date", { ascending: false })
+        .limit(7),
+      supabase
+        .from("appointments")
+        .select("title, status, scheduled_at, provider_name, location")
+        .eq("user_id", session.id)
+        .order("scheduled_at", { ascending: false })
+        .limit(5),
     ]);
 
     if (pregnancyRes.error) console.warn("[chat] pregnancy:", pregnancyRes.error.message);
+    if (profileRes.error) console.warn("[chat] profile:", profileRes.error.message);
     if (healthRes.error) console.warn("[chat] health:", healthRes.error.message);
     if (conditionsRes.error) console.warn("[chat] conditions:", conditionsRes.error.message);
     if (allergiesRes.error) console.warn("[chat] allergies:", allergiesRes.error.message);
     if (medsRes.error) console.warn("[chat] medications:", medsRes.error.message);
     if (vitalsRes.error) console.warn("[chat] vitals:", vitalsRes.error.message);
     if (symptomRes.error) console.warn("[chat] symptoms:", symptomRes.error.message);
+    if (plannerRes.error) console.warn("[chat] planner:", plannerRes.error.message);
+    if (appointmentsRes.error) console.warn("[chat] appointments:", appointmentsRes.error.message);
 
     const conditions =
       (conditionsRes.data ?? []).map(
@@ -326,11 +331,32 @@ export async function POST(req: Request) {
         (m) =>
           `${String(m.name)}${m.dose ? ` ${String(m.dose)}` : ""}${m.frequency ? `, ${String(m.frequency)}` : ""}`,
       ) ?? [];
+    const dateOfBirth = (profileRes.data?.date_of_birth as string | null) ?? null;
+    const age = computeAgeFromDateOfBirth(dateOfBirth);
+    const recentPlannerSummary =
+      (plannerRes.data ?? [])
+        .slice(0, 3)
+        .map((p) => {
+          const rawTasks = (p.tasks as Record<string, boolean> | null) ?? {};
+          const doneTaskCount = Object.values(rawTasks).filter(Boolean).length;
+          return `${String(p.plan_date)}: ${Number(p.completion_percent ?? 0)}% complete, water ${Number(p.water_glasses ?? 0)}/8, tasks done ${doneTaskCount}${p.completed ? " (marked complete)" : ""}`;
+        })
+        .join(" | ") || null;
+    const recentAppointmentsSummary =
+      (appointmentsRes.data ?? [])
+        .slice(0, 3)
+        .map(
+          (a) =>
+            `${String(a.title ?? "Appointment")} (${String(a.status ?? "unknown")}) at ${String(a.scheduled_at ?? "n/a")}${a.provider_name ? ` with ${String(a.provider_name)}` : ""}${a.location ? `, ${String(a.location)}` : ""}`,
+        )
+        .join(" | ") || null;
 
     const personalContext = [
       "PERSONAL HEALTH CONTEXT (use only for personalization; do not expose sensitive details unnecessarily):",
       line("Member name", session.name ?? null),
       line("Member email", session.email ?? null),
+      line("Date of birth", dateOfBirth),
+      line("Age (computed from DOB)", age != null ? String(age) : null),
       line("Pregnancy status", pregnancyRes.data?.pregnancy_status as string | null),
       line(
         "Gestational week",
@@ -371,54 +397,13 @@ export async function POST(req: Request) {
           ? `${symptomRes.data.title ?? "Symptom check"}; severity ${symptomRes.data.severity ?? "n/a"}`
           : null,
       ),
+      line("Recent planner activity (hydration/meals/walk/tasks)", recentPlannerSummary),
+      line("Recent appointments", recentAppointmentsSummary),
       line("Active conditions", conditions.length ? conditions.join("; ") : null),
       line("Allergies", allergies.length ? allergies.join("; ") : null),
       line("Active medications", meds.length ? meds.join("; ") : null),
       line("Health notes", (healthRes.data?.notes as string | null) ?? null),
     ].join("\n");
-
-    const displayName = session.name?.trim() || "Member";
-    const pregStatus = (pregnancyRes.data?.pregnancy_status as string | null) ?? null;
-    const pregWeek =
-      pregnancyRes.data?.gestational_age_weeks != null
-        ? String(pregnancyRes.data.gestational_age_weeks)
-        : null;
-
-    if (isAskMyName(lastUser.content)) {
-      const reply =
-        preferredReplyLanguage === "bn"
-          ? `আপনার নাম ${displayName}।`
-          : `Your name is ${displayName}.`;
-      return NextResponse.json({
-        reply,
-        provider: "gemini" as const,
-        needsClientLocation: false,
-        citations: [],
-      });
-    }
-
-    if (isAskWhatYouKnowAboutMe(lastUser.content)) {
-      const statusBn =
-        pregStatus === "pregnant"
-          ? "আপনি এখন pregnant স্টেজে আছেন"
-          : pregStatus === "planning"
-            ? "আপনি এখন planning স্টেজে আছেন"
-            : pregStatus === "postpartum"
-              ? "আপনি এখন postpartum স্টেজে আছেন"
-              : "আপনার স্টেজ তথ্য পুরোপুরি আপডেট নেই";
-      const weekBn = pregWeek ? `, এবং আপনার গর্ভকাল প্রায় ${pregWeek} সপ্তাহ` : "";
-      const weekEn = pregWeek ? ` and your gestational week is about ${pregWeek}` : "";
-      const reply =
-        preferredReplyLanguage === "bn"
-          ? `আমি আপনার প্রোফাইল থেকে যা জানি: আপনার নাম ${displayName}, ${statusBn}${weekBn}।`
-          : `From your profile, I know: your name is ${displayName}, your stage is ${pregStatus ?? "not fully set"}${weekEn}.`;
-      return NextResponse.json({
-        reply,
-        provider: "gemini" as const,
-        needsClientLocation: false,
-        citations: [],
-      });
-    }
 
     const transcript = buildBudgetedTranscript(messages);
     const nearbyIntent = detectNearbyFacilitiesIntent(lastUser.content);
@@ -476,11 +461,17 @@ export async function POST(req: Request) {
     const systemInstruction = [
       "You are MaaCare, a supportive maternity and wellness assistant.",
       "Always remind users that this is informational, not medical diagnosis.",
+      "MaaCare knowledge includes trusted admin-managed sources and user-specific health context.",
+      "Do not say or imply that global knowledge was uploaded by this user.",
+      "Only mention user-uploaded content when REPORT CONTEXT is explicitly provided in this request.",
       "Ground answers in the provided CONTEXT when it is relevant. If CONTEXT is insufficient, say so clearly.",
       "Personalize guidance using PERSONAL HEALTH CONTEXT when relevant to the user question.",
       "Address the user by first name naturally when appropriate (not every sentence).",
       "If personal context is missing for a needed decision, ask a brief clarifying question.",
       "Use clear, compassionate language. Prefer short paragraphs.",
+      "Always prioritize the LATEST USER TURN intent over earlier turns.",
+      "If the latest user turn is a short acknowledgement (e.g., ok/thanks), respond with a brief natural continuation of the immediately previous assistant context.",
+      "Do not switch topic to profile summary unless the latest turn clearly asks about identity/profile.",
       ...(preferredReplyLanguage === "bn"
         ? [
             "Reply in natural conversational Bangla (বাংলা), not literal translated English.",
