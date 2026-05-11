@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -81,10 +81,15 @@ export default function ReportsPage() {
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingProgress, setLoadingProgress] = useState(12);
 
-  const loadingSteps = [
-    "Extracting text from your report...",
-    "Detecting key clinical markers...",
-    "Analyzing risk and generating summary...",
+  const loadingStepsFile = [
+    "Reading your file on the server (PDF text or local OCR when available)...",
+    "Running the clinical simplifier — this usually takes 15–60 seconds...",
+    "Finishing up: applying results and saving anything you opted into...",
+  ];
+  const loadingStepsText = [
+    "Preparing your pasted report text...",
+    "Running the clinical simplifier — this usually takes 15–60 seconds...",
+    "Finishing up: applying results and saving anything you opted into...",
   ];
 
   function resetToFreshInput() {
@@ -100,31 +105,6 @@ export default function ReportsPage() {
     setLoadingProgress(12);
     setUiError(null);
   }
-
-  useEffect(() => {
-    if (stage !== "loading") return;
-
-    setLoadingStep(0);
-    setLoadingProgress(18);
-
-    const t1 = window.setTimeout(() => {
-      setLoadingStep(1);
-      setLoadingProgress(54);
-    }, 900);
-    const t2 = window.setTimeout(() => {
-      setLoadingStep(2);
-      setLoadingProgress(82);
-    }, 2000);
-    const t3 = window.setTimeout(() => {
-      setLoadingProgress(94);
-    }, 3200);
-
-    return () => {
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
-    };
-  }, [stage]);
 
   function startCooldown(seconds: number, message?: string) {
     const retry = Math.max(1, Number(seconds || 60));
@@ -156,10 +136,28 @@ export default function ReportsPage() {
     setAnalyzing(true);
     setStage("loading");
     setLoadingStep(0);
-    setLoadingProgress(12);
+    setLoadingProgress(8);
+
+    let creep: number | undefined;
+
+    const stopCreep = () => {
+      if (creep != null) {
+        window.clearInterval(creep);
+        creep = undefined;
+      }
+    };
+
+    const startCreep = (to: number, everyMs: number) => {
+      stopCreep();
+      creep = window.setInterval(() => {
+        setLoadingProgress((p) => (p >= to ? p : Math.min(to, p + 1)));
+      }, everyMs);
+    };
+
     try {
-      // Always verify local extraction first so OCR failures are shown clearly.
       if (inputMode === "file" && file) {
+        setLoadingStep(0);
+        startCreep(36, 320);
         const previewFd = new FormData();
         previewFd.append("file", file);
         const previewRes = await fetch("/api/reports/extract-local", {
@@ -167,6 +165,7 @@ export default function ReportsPage() {
           credentials: "include",
           body: previewFd,
         });
+        stopCreep();
         const previewData = (await previewRes.json().catch(() => ({}))) as {
           ok?: boolean;
           mode?: string;
@@ -180,7 +179,13 @@ export default function ReportsPage() {
               "Local extraction failed. Please upload a clearer image or switch to Paste text.",
           );
         }
+        setLoadingProgress(40);
+      } else {
+        setLoadingProgress(22);
       }
+
+      setLoadingStep(1);
+      startCreep(88, 420);
 
       const fd = new FormData();
       fd.append("reportTitle", reportTitle.trim());
@@ -194,6 +199,7 @@ export default function ReportsPage() {
         credentials: "include",
         body: fd,
       });
+      stopCreep();
       const data = (await res.json().catch(() => ({}))) as
         | (AnalysisResult & { error?: string; retryAfterSeconds?: number })
         | { error?: string; retryAfterSeconds?: number };
@@ -214,10 +220,13 @@ export default function ReportsPage() {
         throw new Error((data as { error?: string }).error ?? "Could not analyze report.");
       }
 
+      setLoadingStep(2);
+      setLoadingProgress(96);
       setAnalysis(data as AnalysisResult);
       setLoadingProgress(100);
       setStage("result");
     } catch (e) {
+      stopCreep();
       const msg = e instanceof Error ? e.message : "Could not analyze report.";
       if (/limit|quota|resource_exhausted|rate/i.test(msg)) {
         startCooldown(60, "AI usage limit reached. Please wait and try again.");
@@ -227,6 +236,7 @@ export default function ReportsPage() {
       setStage("input");
       setUiError(msg);
     } finally {
+      stopCreep();
       setAnalyzing(false);
     }
   }
@@ -397,7 +407,9 @@ export default function ReportsPage() {
                     <Loader2 className="h-6 w-6 animate-spin" />
                   </span>
                   <p className="text-base font-semibold">Analyzing your report...</p>
-                  <p className="max-w-sm text-sm text-muted-foreground">{loadingSteps[loadingStep]}</p>
+                  <p className="max-w-sm text-sm text-muted-foreground">
+                    {(inputMode === "file" ? loadingStepsFile : loadingStepsText)[loadingStep]}
+                  </p>
                   <div className="mt-2 w-full max-w-sm">
                     <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                       <div

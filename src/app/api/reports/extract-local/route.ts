@@ -3,9 +3,21 @@ import path from "node:path";
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 
+export const runtime = "nodejs";
+
 const MIN_TEXT_CHARS = 20;
 
-type ExtractionMode = "provided_text" | "text_local" | "pdf_local" | "ocr_local" | "none";
+function isVercel(): boolean {
+  return process.env.VERCEL === "1";
+}
+
+type ExtractionMode =
+  | "provided_text"
+  | "text_local"
+  | "pdf_local"
+  | "ocr_local"
+  | "deferred_ai"
+  | "none";
 type PdfParseFn = (dataBuffer: Buffer) => Promise<{ text?: string }>;
 
 async function loadPdfParse(): Promise<PdfParseFn> {
@@ -62,6 +74,10 @@ async function extractFromFile(file: File): Promise<{
   }
 
   if (mime.startsWith("image/") || /\.(png|jpe?g|webp|bmp|gif)$/i.test(name)) {
+    // Tesseract worker paths are not reliable in Vercel serverless bundles; analysis uses Gemini on file instead.
+    if (isVercel()) {
+      return { mode: "none", text: "" };
+    }
     try {
       const tesseractMod = await import("tesseract.js");
       const createWorker = tesseractMod.createWorker;
@@ -121,7 +137,23 @@ export async function POST(req: Request) {
 
     const extracted = await extractFromFile(reportFile as File);
     const text = extracted.text.trim();
+    const file = reportFile as File;
+    const looksLikeImage =
+      ((file.type || "").toLowerCase().startsWith("image/") ||
+        /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name.toLowerCase())) &&
+      !((file.type || "").toLowerCase().includes("pdf")) &&
+      !file.name.toLowerCase().endsWith(".pdf");
+
     if (text.length < MIN_TEXT_CHARS) {
+      if (isVercel() && looksLikeImage) {
+        return Response.json({
+          ok: true,
+          mode: "deferred_ai" as ExtractionMode,
+          chars: 0,
+          preview:
+            "Image received. Text will be read from your image during analysis (secure AI on the server).",
+        });
+      }
       return Response.json(
         {
           ok: false,

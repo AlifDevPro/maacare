@@ -9,6 +9,12 @@ import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 import { generateWithGroq, isRateLimitError } from "@/lib/gemini/text-failover";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+export const runtime = "nodejs";
+
+function isVercel(): boolean {
+  return process.env.VERCEL === "1";
+}
+
 const findingSchema = z.object({
   name: z.string().min(1),
   value: z.string().min(1),
@@ -148,6 +154,9 @@ async function extractTextFromFileLocally(
   }
 
   if (mime.startsWith("image/") || /\.(png|jpe?g|webp|bmp|gif)$/i.test(name)) {
+    if (isVercel()) {
+      return { text: "", mode: "none" };
+    }
     try {
       const tesseractMod = await import("tesseract.js");
       const createWorker = tesseractMod.createWorker;
