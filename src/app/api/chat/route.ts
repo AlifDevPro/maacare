@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import {
+  buildNearbyFacilitiesContextForChat,
+  detectNearbyFacilitiesIntent,
+} from "@/lib/bd-facilities/chat-nearby-context";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 import { searchKnowledge } from "@/lib/rag/service";
@@ -18,6 +22,13 @@ const bodySchema = z.object({
     .min(1)
     .max(120),
   reportContext: z.string().max(30_000).optional(),
+  /** When set and the user asks about nearby hospitals/pharmacies, BD catalog rows are injected. */
+  userLocation: z
+    .object({
+      latitude: z.number().gte(-90).lte(90),
+      longitude: z.number().gte(-180).lte(180),
+    })
+    .optional(),
 });
 
 const MAX_TRANSCRIPT_TOKENS = 2600;
@@ -94,7 +105,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { messages, reportContext } = bodySchema.parse(await req.json());
+    const { messages, reportContext, userLocation } = bodySchema.parse(await req.json());
     const supabase = await createSupabaseServerClient();
 
     if (getGeminiApiKeys().length === 0 && getGroqApiKeys().length === 0) {
@@ -250,6 +261,24 @@ export async function POST(req: Request) {
     ].join("\n");
 
     const transcript = buildBudgetedTranscript(messages);
+    const nearbyIntent = detectNearbyFacilitiesIntent(lastUser.content);
+    let nearbyFacilitiesText = "";
+    if (nearbyIntent) {
+      if (userLocation) {
+        nearbyFacilitiesText = await buildNearbyFacilitiesContextForChat(supabase, {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+          intent: nearbyIntent,
+        });
+      } else {
+        nearbyFacilitiesText = [
+          "The user’s message suggests they want nearby hospitals or pharmacies, but no GPS coordinates were sent yet.",
+          "Reply in ONE short, warm sentence: a popup will ask them to allow location so you can list nearby options.",
+          "Do NOT tell them to send their question again or type “I shared location” — the app will automatically continue this conversation with GPS right after they allow permission.",
+        ].join(" ");
+      }
+    }
+
     let reportContextText = "";
     if (reportContext) {
       try {
@@ -296,6 +325,7 @@ export async function POST(req: Request) {
       personalContext,
       "",
       reportContextText ? `${reportContextText}\n` : "",
+      nearbyFacilitiesText ? `${nearbyFacilitiesText}\n` : "",
       "CONTEXT (retrieved articles):",
       context,
     ].join("\n");
@@ -312,9 +342,12 @@ export async function POST(req: Request) {
       userMessage,
     });
 
+    const needsClientLocation = Boolean(nearbyIntent && !userLocation);
+
     return NextResponse.json({
       reply: out.text,
       provider: out.provider,
+      needsClientLocation,
       citations: hits.map((h) => ({
         id: h.id,
         score: h.score,

@@ -5,11 +5,19 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 import { motion } from "framer-motion";
-import { Loader2, Mic, Send, Sparkles, Shield } from "lucide-react";
+import { Loader2, MapPinned, Mic, Send, Sparkles, Shield } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -46,6 +54,19 @@ function ChatPageContent() {
   const [providerLabel, setProviderLabel] = useState<"gemini" | "groq" | null>("gemini");
   const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  /** Remembered after a successful in-dialog share; sent with later /api/chat calls. */
+  const [chatUserLocation, setChatUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [locationPromptOpen, setLocationPromptOpen] = useState(false);
+  const [locationDialogBusy, setLocationDialogBusy] = useState(false);
+  /** Messages to POST on auto-retry (includes user turn; excludes interim assistant). */
+  const locationRetryMessagesRef = useRef<Msg[] | null>(null);
+  /** AI one-liner shown only inside the location dialog (not duplicated in the thread). */
+  const [locationDialogBody, setLocationDialogBody] = useState<string | null>(null);
+  /** When true, closing the location dialog must not append the short reply into chat. */
+  const locationCloseSkipAppendRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sendBlocked = sending || cooldownSeconds > 0;
   const reportContextRaw = searchParams.get("reportContext");
@@ -77,6 +98,79 @@ function ChatPageContent() {
     return () => window.clearInterval(t);
   }, [cooldownSeconds]);
 
+  async function grantLocationAndContinueChat() {
+    const msgs = locationRetryMessagesRef.current;
+    if (!msgs) {
+      setLocationPromptOpen(false);
+      return;
+    }
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported on this device.");
+      return;
+    }
+
+    setLocationDialogBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        setSending(true);
+        try {
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: msgs,
+              reportContext: reportContextRaw ?? undefined,
+              userLocation: coords,
+            }),
+          });
+          const data = (await res.json()) as {
+            reply?: string;
+            error?: string;
+            retryAfterSeconds?: number;
+            provider?: "gemini" | "groq";
+          };
+
+          if (res.status === 401) {
+            toast.error("Please log in to use the assistant");
+            return;
+          }
+          if (res.status === 429) {
+            const retry = Math.max(1, Number(data.retryAfterSeconds ?? 60) || 60);
+            setCooldownSeconds(retry);
+            setRateLimitMessage(
+              data.error ?? "AI usage limit reached. Please wait a moment before sending again.",
+            );
+            return;
+          }
+          if (!res.ok || !data.reply) {
+            throw new Error(data.error ?? "Request failed");
+          }
+
+          setRateLimitMessage(null);
+          if (data.provider) setProviderLabel(data.provider);
+          setChatUserLocation(coords);
+          locationCloseSkipAppendRef.current = true;
+          setLocationDialogBody(null);
+          setMessages([...msgs, { role: "assistant", content: data.reply }]);
+          locationRetryMessagesRef.current = null;
+          setLocationPromptOpen(false);
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Could not get a reply");
+        } finally {
+          setSending(false);
+          setLocationDialogBusy(false);
+        }
+      },
+      () => {
+        setLocationDialogBusy(false);
+        toast.error("Location permission denied.");
+      },
+      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
+    );
+  }
+
   async function send(text: string) {
     const t = text.trim();
     if (!t || sendBlocked) return;
@@ -91,7 +185,11 @@ function ChatPageContent() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: withUser, reportContext: reportContextRaw ?? undefined }),
+        body: JSON.stringify({
+          messages: withUser,
+          reportContext: reportContextRaw ?? undefined,
+          userLocation: chatUserLocation ?? undefined,
+        }),
       });
 
       const data = (await res.json()) as {
@@ -99,6 +197,7 @@ function ChatPageContent() {
         error?: string;
         retryAfterSeconds?: number;
         provider?: "gemini" | "groq";
+        needsClientLocation?: boolean;
       };
 
       if (res.status === 401) {
@@ -122,7 +221,17 @@ function ChatPageContent() {
 
       setRateLimitMessage(null);
       if (data.provider) setProviderLabel(data.provider);
-      setMessages((m) => [...m, { role: "assistant", content: data.reply! }]);
+
+      if (data.needsClientLocation) {
+        locationRetryMessagesRef.current = withUser;
+        locationCloseSkipAppendRef.current = false;
+        setLocationDialogBody(data.reply);
+        setMessages(withUser);
+        setLocationPromptOpen(true);
+        return;
+      }
+
+      setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not get a reply");
       setMessages((m) => m.slice(0, -1));
@@ -132,30 +241,86 @@ function ChatPageContent() {
   }
 
   return (
-    <AppShell>
-      <AppHeader
-        title="AI Assistant"
-        showBack
-        right={
-          sending ? (
-            <span className="flex items-center gap-1 px-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" /> Thinking
-            </span>
-          ) : cooldownSeconds > 0 ? (
-            <span className="px-2 text-xs text-muted-foreground">
-              Retry in {cooldownSeconds}s
-            </span>
+    <>
+      <Dialog
+        open={locationPromptOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            const skip = locationCloseSkipAppendRef.current;
+            locationCloseSkipAppendRef.current = false;
+            const pending = locationDialogBody;
+            if (!skip && pending && locationRetryMessagesRef.current) {
+              setMessages((msgs) => {
+                const last = msgs[msgs.length - 1];
+                if (last?.role === "user") return [...msgs, { role: "assistant", content: pending }];
+                return msgs;
+              });
+            }
+            setLocationDialogBody(null);
+            locationRetryMessagesRef.current = null;
+          }
+          setLocationPromptOpen(open);
+        }}
+      >
+        <DialogContent className="gap-4 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPinned className="h-5 w-5 text-primary" />
+              Location needed
+            </DialogTitle>
+            <DialogDescription asChild className="text-left">
+              <div className="space-y-3 pt-1">
+                {locationDialogBody ? (
+                  <div className="chat-assistant-md rounded-xl border border-border/50 bg-muted/20 px-3 py-2.5">
+                    <ReactMarkdown>{locationDialogBody}</ReactMarkdown>
+                  </div>
+                ) : null}
+                <p className="text-sm text-muted-foreground">
+                  Allow location once to finish this answer in the chat below. You do not need to send another message.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          {locationDialogBusy ? (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <p className="text-center text-sm text-muted-foreground">Getting location and finishing your reply…</p>
+            </div>
           ) : (
-            <span className="px-2 text-xs text-muted-foreground">
-              Generated by {providerLabel === "groq" ? "Groq" : "Gemini"} + RAG
-            </span>
-          )
-        }
-      />
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button type="button" variant="outline" className="rounded-xl" onClick={() => setLocationPromptOpen(false)}>
+                Not now
+              </Button>
+              <Button type="button" className="rounded-xl" onClick={() => void grantLocationAndContinueChat()}>
+                Share location
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AppShell>
+        <AppHeader
+          title="AI Assistant"
+          showBack
+          right={
+            sending ? (
+              <span className="flex items-center gap-1 px-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Thinking
+              </span>
+            ) : cooldownSeconds > 0 ? (
+              <span className="px-2 text-xs text-muted-foreground">Retry in {cooldownSeconds}s</span>
+            ) : (
+              <span className="px-2 text-xs text-muted-foreground">
+                Generated by {providerLabel === "groq" ? "Groq" : "Gemini"} + RAG
+              </span>
+            )
+          }
+        />
 
       <div
         ref={scrollRef}
-        className="space-y-3 overflow-y-auto px-4 pt-4 pb-2"
+        className="space-y-4 overflow-y-auto px-4 pt-4 pb-2"
         style={{
           /* Reserve space above fixed composer so the last messages stay visible */
           paddingBottom: "calc(6rem + env(safe-area-inset-bottom))",
@@ -175,22 +340,25 @@ function ChatPageContent() {
             key={i}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}
+            className={cn(
+              "flex w-full min-w-0 gap-2.5",
+              m.role === "user" ? "justify-end" : "items-start justify-start",
+            )}
           >
-            {m.role === "assistant" && (
-              <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-rose text-xs">
+            {m.role === "assistant" ? (
+              <span className="mt-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-rose text-sm shadow-soft">
                 🤍
               </span>
-            )}
+            ) : null}
             <div
               className={cn(
-                "max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-soft",
+                "min-w-0 text-pretty shadow-soft",
                 m.role === "user"
-                  ? "rounded-br-md bg-primary text-primary-foreground"
-                  : "rounded-bl-md bg-card",
+                  ? "max-w-[min(92%,26rem)] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm text-primary-foreground"
+                  : "flex-1 rounded-2xl rounded-bl-md rounded-tr-xl border border-border/60 bg-card px-4 py-3.5 text-sm text-foreground shadow-card",
               )}
             >
-              <div className="prose prose-sm max-w-none prose-p:my-1 prose-strong:text-current">
+              <div className={m.role === "user" ? "chat-user-md" : "chat-assistant-md"}>
                 <ReactMarkdown>{m.content}</ReactMarkdown>
               </div>
             </div>
@@ -201,12 +369,12 @@ function ChatPageContent() {
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex justify-start gap-2"
+            className="flex w-full min-w-0 items-start justify-start gap-2.5"
           >
-            <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-rose text-xs">
+            <span className="mt-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-rose text-sm shadow-soft">
               🤍
             </span>
-            <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-card px-3.5 py-2.5 text-sm leading-relaxed shadow-soft">
+            <div className="min-w-0 flex-1 rounded-2xl rounded-bl-md rounded-tr-xl border border-border/60 bg-card px-4 py-3.5 text-sm shadow-card">
               <span className="inline-flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 MaaCare AI is writing...
@@ -285,7 +453,8 @@ function ChatPageContent() {
           </Button>
         </form>
       </div>
-    </AppShell>
+      </AppShell>
+    </>
   );
 }
 

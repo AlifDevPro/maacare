@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "import-bd-facilities": "node scripts/import-bd-facilities.mjs"
   },
   "dependencies": {
     "@fontsource/figtree": "^5.2.10",
