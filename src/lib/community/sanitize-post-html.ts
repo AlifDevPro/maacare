@@ -1,6 +1,6 @@
-import DOMPurify from "isomorphic-dompurify";
+import sanitizeHtml from "sanitize-html";
 
-const ALLOWED_TAGS = [
+const ALLOWED_TAGS_WITH_IMG = [
   "p",
   "br",
   "strong",
@@ -23,22 +23,41 @@ const ALLOWED_TAGS = [
   "img",
 ];
 
-const ALLOWED_ATTR = ["href", "target", "rel", "src", "alt", "class", "width", "height"];
+const ALLOWED_TAGS_NO_IMG = ALLOWED_TAGS_WITH_IMG.filter((t) => t !== "img");
+
+type SanitizeExclusiveFrame = {
+  tag: string;
+  attribs: Record<string, string>;
+};
 
 /**
  * Sanitize rich community post HTML. Only <img src> under the given public storage prefix are kept.
+ * Uses `sanitize-html` (no jsdom) so serverless bundles stay compatible with Vercel.
  */
 export function sanitizeCommunityPostHtml(dirty: string, imageUrlPrefix: string): string {
   const prefix = imageUrlPrefix.trim();
-  const tags = prefix ? ALLOWED_TAGS : ALLOWED_TAGS.filter((t) => t !== "img");
-  const attrs = prefix ? ALLOWED_ATTR : ALLOWED_ATTR.filter((a) => a !== "src");
+  const allowedTags = prefix ? [...ALLOWED_TAGS_WITH_IMG] : [...ALLOWED_TAGS_NO_IMG];
 
-  let out = DOMPurify.sanitize(dirty, {
-    ALLOWED_TAGS: tags,
-    ALLOWED_ATTR: attrs,
-    ALLOW_DATA_ATTR: false,
-    ALLOW_UNKNOWN_PROTOCOLS: false,
-  });
+  const opts = {
+    allowedTags,
+    allowedAttributes: {
+      "*": ["class"],
+      a: ["href", "target", "rel"],
+      ...(prefix ? { img: ["src", "alt", "width", "height", "class"] } : {}),
+    },
+    allowedSchemesByTag: {
+      a: ["http", "https", "mailto"],
+      ...(prefix ? { img: ["http", "https"] } : {}),
+    },
+    exclusiveFilter(frame: SanitizeExclusiveFrame): boolean | "excludeTag" {
+      if (frame.tag !== "img" || !prefix) return false;
+      const src = String(frame.attribs.src ?? "").trim();
+      if (!src.startsWith(prefix)) return "excludeTag";
+      return false;
+    },
+  };
+
+  const out = sanitizeHtml(dirty, opts);
 
   if (!prefix) return out;
 
@@ -46,7 +65,7 @@ export function sanitizeCommunityPostHtml(dirty: string, imageUrlPrefix: string)
     const m = tag.match(/\bsrc=["']([^"']+)["']/i);
     const src = m?.[1]?.trim() ?? "";
     if (!src.startsWith(prefix)) return "";
-    if (!tag.includes('loading=')) {
+    if (!tag.includes("loading=")) {
       return tag.replace(/<img\b/i, '<img loading="lazy" referrerpolicy="no-referrer" ');
     }
     return tag;
