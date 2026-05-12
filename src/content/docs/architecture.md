@@ -1,33 +1,73 @@
-# Architecture (condensed)
+# Architecture (in-app summary)
 
-MaaCare is a **Next.js (App Router)** application with a **Supabase** backend (Auth, Postgres + RLS, Storage, optional Realtime) and **server-side** calls to **Gemini** and **Groq** for AI.
+MaaCare is **Next.js (App Router)** plus **Supabase** (Auth, Postgres + RLS, Storage, optional Realtime). **Gemini** and **Groq** are used **only on the server** from Route Handlers — keys never ship to the browser.
 
-## Request path
+## End-to-end chat and RAG (one diagram)
 
-1. Browser hits Next.js (optionally through `proxy` for session refresh and route gating).
-2. **Route Handlers** under `src/app/api` validate input (commonly **Zod**), load the user with `getSessionFromCookies`, then use `createSupabaseServerClient`.
-3. Postgres enforces **RLS** per user; admin routes additionally check **admin role**.
+```mermaid
+flowchart LR
+  subgraph client [Browser]
+    ui[Chat UI]
+  end
+  subgraph api [Next POST api chat]
+    z[Session plus Zod]
+    lang[Bangla Banglish detect]
+    tr[English query for RAG if bn]
+    emb[Gemini embed 768d]
+    rpc[match_rag_chunks_for_user]
+    dbctx[Parallel profile vitals pregnancy planner appointments]
+    asm[System plus user envelope]
+    gen[Gemini chat then Groq fallback]
+  end
+  subgraph data [Supabase]
+    pg[(Postgres rag plus health)]
+  end
+  subgraph models [Model APIs]
+    ge[Gemini embedding REST]
+    gc[Gemini generative chat]
+    gq[Groq OpenAI chat]
+  end
+  ui --> z
+  z --> lang
+  lang --> tr
+  tr --> emb
+  emb --> ge
+  emb --> rpc
+  rpc --> pg
+  z --> dbctx
+  dbctx --> pg
+  lang --> asm
+  tr --> asm
+  rpc --> asm
+  dbctx --> asm
+  asm --> gen
+  gen --> gc
+  gen --> gq
+```
 
-## Major components
+## Multilingual and voice (short)
 
-| Layer | Responsibility |
-|-------|----------------|
-| UI | React pages under `src/app`, shared shell components, community editor |
-| API | REST-style JSON Route Handlers |
-| Auth | Supabase Auth cookies; public `/api/auth/*` for login/session helpers |
-| Data | Tables for profiles, pregnancy, vitals, symptoms, planner, community, notifications, RAG |
-| AI | Chat orchestration, embeddings, RAG RPC, report pipelines |
-| Storage | Avatars and community images (bucket policies in SQL migrations) |
+- **Reply language:** Unicode Bangla script or **Banglish** Latin-token hints choose **Bangla vs English** system instructions.
+- **Retrieval:** Bangla user text is **translated to English** (same Gemini→Groq helper) **only** to embed and search RAG; the model still answers in the user’s language.
+- **Voice:** Request field `replyChannel: "voice"` adds **spoken-style** rules (no markdown, short sentences), slightly **higher temperature**, and TTS-friendly copy. Browser capture/playback lives under `src/lib/voice/*`.
 
-## External services
+## Model defaults (env overrides)
 
-- **Supabase** — system of record.
-- **Google Gemini** — primary LLM and embeddings.
-- **Groq** — failover LLM.
+| Role | Typical | Env |
+|------|---------|-----|
+| Chat | `gemini-2.5-flash` | `GEMINI_CHAT_MODEL` |
+| Chat fallback | `llama-3.1-8b-instant` on Groq | `GROQ_CHAT_MODEL` |
+| Embeddings | `text-embedding-004` (768-D) | `GEMINI_EMBEDDING_MODEL` |
 
-## Deeper diagrams
+## Request path and security
 
-The repository file `docs/ARCHITECTURE.md` is the long-form architecture reference for contributors. Keep that file and this page aligned when you change major subsystems.
+1. **`proxy`** refreshes Supabase cookies and gates routes.
+2. APIs use **`getSessionFromCookies`** and **`createSupabaseServerClient`**; Postgres **RLS** enforces row access.
+3. Admin UI and `/api/admin/*` require **admin** role.
+
+## Full reference
+
+The canonical, diagram-heavy document is **`docs/ARCHITECTURE.md`** in the repository (chat sequence, failover ladder, RAG ingest vs query, community, realtime, deployment). Update both when you change AI or data paths.
 
 ```mermaid
 flowchart TB
@@ -56,5 +96,5 @@ flowchart TB
 
 ## Security notes
 
-- **Service role** keys must never ship to the client.
-- Public documentation does **not** grant API access; cookies are still required for protected routes.
+- **Service role** keys stay server-only.
+- Public `/docs` does **not** bypass API authentication.

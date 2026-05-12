@@ -8,27 +8,27 @@ This document describes the **as-built** architecture of the **maacare-platform*
 
 ```mermaid
 flowchart TB
-  subgraph users [Users]
-    webUser[WebUser]
-  end
-  subgraph client [Browser]
-    nextApp[NextjsApp]
-  end
-  subgraph cloud [Cloud]
-    supa[SupabaseProject]
-    gemini[GoogleGeminiAPI]
-    groq[GroqOpenAICompatibleAPI]
-  end
-  webUser --> nextApp
-  nextApp --> supa
-  nextApp --> gemini
-  nextApp --> groq
+  user[User]
+  browser[BrowserReact]
+  next[NextjsServer]
+  supa[SupabaseAuthDbStorageRealtime]
+  gemEmb[GeminiEmbeddingsREST]
+  gemChat[GeminiGenerativeAIChat]
+  groqChat[GroqOpenAICompatibleChat]
+  user --> browser
+  browser --> supa
+  browser --> next
+  next --> supa
+  next --> gemEmb
+  next --> gemChat
+  next --> groqChat
 ```
 
-- **Browser** runs the React client (including `createSupabaseBrowserClient` for auth-aware operations and **Realtime** subscriptions).
+- **Browser** runs the React client (including `createSupabaseBrowserClient` for auth-aware operations and **Realtime** subscriptions). The browser **does not** call Gemini or Groq directly; only **Next.js Route Handlers** hold API keys.
 - **Next.js** server handles Route Handlers under `src/app/api/**`, server components, and `proxy` (see `src/proxy.ts`) for cookie session refresh and route gating.
 - **Supabase** is the system of record: Auth, Postgres, Row Level Security, Storage buckets, optional **Realtime** publication on selected tables.
-- **Gemini** and **Groq** are called **server-side only** from API routes (keys never exposed to the client).
+- **Gemini** is used for **chat completion** (`@google/generative-ai`), **embeddings** (REST `text-embedding-004` style, see `src/lib/gemini/embeddings.ts`), and small **translation-for-retrieval** calls inside chat (`generateTextWithGeminiGroqFailover` in `normalizeQueryForEnglishRetrieval`).
+- **Groq** (`https://api.groq.com/openai/v1/chat/completions`) is the **OpenAI-compatible fallback** when Gemini chat fails or returns empty text, using the same system/user envelope where possible (`src/lib/gemini/text-failover.ts`).
 
 ---
 
@@ -52,9 +52,11 @@ flowchart LR
     auth[SupabaseAuth]
   end
   subgraph intelligence [AIIntelligenceLayer]
-    chatApi["/api/chat"]
-    ragSearch["/api/rag/search"]
-    embed[embedText]
+    chatApi["POST api chat"]
+    ragSearch["POST api rag search"]
+    reports["POST api reports analyze"]
+    embed[embedText Gemini768d]
+    rpc[match_rag_chunks_for_user]
     llm[generateTextWithGeminiGroqFailover]
   end
   pages --> api
@@ -64,12 +66,15 @@ flowchart LR
   api --> storage
   api --> auth
   hooks --> rt
-  chatApi --> ragSearch
   chatApi --> embed
+  embed --> rpc
+  rpc --> pg
+  chatApi --> ragSearch
+  ragSearch --> embed
+  reports --> llm
   chatApi --> llm
-  llm --> geminiExt[GoogleGemini]
-  llm --> groqExt[Groq]
-  ragSearch --> pg
+  llm --> geminiExt[GoogleGeminiChat]
+  llm --> groqExt[GroqChat]
 ```
 
 ---
@@ -179,61 +184,195 @@ flowchart TB
 
 ---
 
-## 6. AI chat pipeline (advanced)
+## 6. AI chat, RAG, multilingual, and voice (full pipeline)
 
-Conceptual flow for **`POST /api/chat`** (`src/app/api/chat/route.ts`):
+Primary implementation: **`POST /api/chat`** in [`src/app/api/chat/route.ts`](src/app/api/chat/route.ts). Supporting modules: [`src/lib/rag/service.ts`](src/lib/rag/service.ts), [`src/lib/gemini/embeddings.ts`](src/lib/gemini/embeddings.ts), [`src/lib/gemini/text-failover.ts`](src/lib/gemini/text-failover.ts), [`src/lib/bd-facilities/chat-nearby-context.ts`](src/lib/bd-facilities/chat-nearby-context.ts).
+
+### 6.1 Sequence: one chat turn (happy path)
+
+```mermaid
+sequenceDiagram
+  participant C as ClientChatUI
+  participant API as NextRouteApiChat
+  participant DB as SupabasePostgres
+  participant Emb as GeminiEmbeddingAPI
+  participant RPC as RpcMatchRagChunks
+  participant LLM as GeminiThenGroqChat
+
+  C->>API: POST JSON messages replyChannel userLocation reportContext
+  API->>API: getSessionFromCookies plus Zod bodySchema
+  API->>API: lastUser plus detectPreferredReplyLanguage
+  opt Preferred language is Bangla
+    API->>LLM: normalizeQueryForEnglishRetrieval translate query only
+    LLM-->>API: English retrieval string
+  end
+  API->>Emb: embedText on retrieval query
+  Emb-->>API: vector length 768
+  API->>RPC: match_rag_chunks_for_user query_embedding
+  RPC->>DB: pgvector similarity over rag_chunks
+  DB-->>API: top hits with content and scores
+  par Parallel health reads
+    API->>DB: profiles pregnancy_profiles user_health_profiles
+    API->>DB: medical_conditions allergies medications
+    API->>DB: vital_signs symptom_logs planner_daily_logs appointments
+    DB-->>API: rows for personalContext block
+  end
+  API->>API: buildBudgetedTranscript plus optional BD facilities block
+  API->>API: optional reportContext JSON to text block
+  API->>API: assemble systemInstruction and userMessage
+  API->>LLM: generateTextWithGeminiGroqFailover final answer
+  LLM-->>API: reply text and provider label
+  API-->>C: JSON reply citations needsClientLocation
+```
+
+### 6.2 Flow: retrieval, context, and generation
 
 ```mermaid
 flowchart TD
-  A[Validate session Zod body] --> B[Load user context from Supabase]
-  B --> C[Profile pregnancy vitals symptoms planner appointments]
-  C --> D{Detect Bangla vs English}
-  D --> E[Optional RAG searchKnowledge]
-  E --> F[Build system plus user prompt budget tokens]
-  F --> G{Optional nearby BD facilities}
-  G --> H[generateTextWithGeminiGroqFailover]
-  H --> I1[Gemini primary]
-  H --> I2[Groq fallback]
-  I1 --> J[Return reply plus provider metadata]
-  I2 --> J
+  start[POST api chat] --> auth[Session plus Zod validate]
+  auth --> last[Pick last user message]
+  last --> lang[detectPreferredReplyLanguage]
+  lang --> norm{Preferred Bangla}
+  norm -->|yes| tr[normalizeQueryForEnglishRetrieval via LLM]
+  norm -->|no| qe[Use raw query as retrieval string]
+  tr --> emb[embedText Gemini embedding model]
+  qe --> emb
+  emb --> rpc[RPC match_rag_chunks_for_user]
+  rpc --> hits[Ranked chunk hits limit 8]
+  hits --> ctx[Format CONTEXT block from hits]
+  auth --> par[Parallel Supabase selects]
+  par --> pc[Build PERSONAL HEALTH CONTEXT string]
+  last --> trn[buildBudgetedTranscript token budget]
+  last --> near{Nearby facilities intent}
+  near -->|yes plus coords| bd[buildNearbyFacilitiesContextForChat]
+  near -->|yes no coords| hint[Prompt user to allow location]
+  near -->|no| skipbd[Skip BD block]
+  ctx --> asm[Assemble systemInstruction]
+  pc --> asm
+  trn --> usr[Assemble userMessage with latest original plus English line plus transcript]
+  bd --> asm
+  hint --> asm
+  skipbd --> asm
+  usr --> llm[generateTextWithGeminiGroqFailover]
+  asm --> llm
+  llm --> out[JSON reply provider citations]
 ```
 
-**Notable behaviors (product + engineering):**
+### 6.3 Multilingual behavior (Bangla, Banglish, English)
 
-- **Context assembly:** profile, pregnancy, health snapshot, latest vitals/symptoms, planner — bounded token budget (`MAX_TRANSCRIPT_*` constants).
-- **Language:** `detectPreferredReplyLanguage` using Unicode Bangla range plus **Banglish** heuristic word list.
-- **RAG:** `searchKnowledge` uses embeddings (`embedText` via Gemini) and `match_rag_chunks*` RPC against `rag_chunks` (vector in Postgres).
-- **Resilience:** `generateTextWithGeminiGroqFailover` (`src/lib/gemini/text-failover.ts`) — try Gemini, then Groq on failure / empty response.
-- **Geo:** optional `userLocation` + BD facilities intent to inject **nearby** context (`lib/bd-facilities`).
-- **Voice mode:** `replyChannel` adjusts style (shorter, spoken).
+```mermaid
+flowchart LR
+  u[Latest user text] --> d{Unicode Bangla script}
+  d -->|yes| bn[Preferred reply bn]
+  d -->|no| b2{Banglish heuristic}
+  b2 -->|likely| bn
+  b2 -->|not likely| en[Preferred reply en]
+  bn --> t[Translate question to English for retrieval only]
+  en --> r[Use raw text for retrieval]
+  t --> e[Embed English query]
+  r --> e
+  e --> rpc[RAG RPC]
+  bn --> sys[System lines instruct natural Bangla reply]
+  en --> sys2[System lines instruct clear English reply]
+```
+
+**Implementation details:**
+
+- **Script detection:** Unicode range `\u0980-\u09FF` on the latest user message (`BANGLA_CHAR_RE`).
+- **Banglish:** Latin-token scan against a curated hint set (e.g. *ami, kemon, bhalo*); requires multiple hits to reduce false positives (`isLikelyBanglish`).
+- **Retrieval language:** If preferred reply is **Bangla**, `normalizeQueryForEnglishRetrieval` calls the same **Gemini-then-Groq** stack with a tiny translation system prompt so **semantic search** runs on English-like text while the user still sees answers in Bangla.
+- **User payload to the final model:** `userMessage` includes both **original** latest turn and **English-normalized** line so the model grounds intent without exposing pipeline steps in the reply.
+
+### 6.4 Voice channel (`replyChannel: "voice"`)
+
+```mermaid
+flowchart TD
+  body[Request body replyChannel text or voice] --> v{Voice}
+  v -->|no| tinst[Text system instructions paragraphs ok]
+  v -->|yes| vblock[Append VOICE SPOKEN OUTPUT MODE block]
+  vblock --> rules[No markdown no bullets short sentences warm tone]
+  rules --> temp[Pass temperature 0.82 to failover]
+  tinst --> temp2[Default model temperatures]
+  temp --> llm[generateTextWithGeminiGroqFailover]
+  temp2 --> llm
+```
+
+- **Schema:** `replyChannel` is `z.enum(["text", "voice"]).default("text")` on the chat route.
+- **Prompting:** Extra system lines forbid markdown and encourage **one to three short sentences** suitable for TTS; acknowledges-only turns get a **single short line** policy.
+- **Sampling:** Voice path passes **`temperature: 0.82`** into `generateTextWithGeminiGroqFailover` for slightly more varied spoken phrasing; text mode uses provider defaults unless overridden.
+
+**Client-side voice:** Speech capture, playback, and any browser TTS live under `src/lib/voice/*` and chat UI components (not duplicated here); the **server contract** is the same `POST /api/chat` with `replyChannel: "voice"`.
+
+### 6.5 Models and environment knobs
+
+| Role | Default / typical | Config |
+|------|-------------------|--------|
+| **Chat completion (primary)** | `gemini-2.5-flash` | `GEMINI_CHAT_MODEL` (`getChatModelName` in `text-failover.ts`) |
+| **Chat completion (fallback)** | `llama-3.1-8b-instant` on Groq | `GROQ_CHAT_MODEL` |
+| **Embeddings for RAG** | `text-embedding-004`, **768-D** vector stored in Postgres | `GEMINI_EMBEDDING_MODEL` (`embeddings.ts`) |
+| **RAG match RPC** | `match_rag_chunks_for_user` | Defined in Supabase SQL migrations; called from `searchKnowledge` |
+
+### 6.6 Provider failover (chat and mini-translate)
+
+```mermaid
+flowchart TD
+  in[System plus user messages] --> loopG[For each GEMINI_API_KEY]
+  loopG --> tryG[generateWithGemini]
+  tryG -->|ok non empty| doneG[Return gemini]
+  tryG -->|rate limit| nextG[Next Gemini key]
+  tryG -->|fatal| breakG[Stop Gemini attempts]
+  nextG --> loopG
+  loopG -->|exhausted| loopQ[For each GROQ_API_KEY]
+  loopQ --> tryQ[generateWithGroq OpenAI compatible]
+  tryQ -->|ok| doneQ[Return groq]
+  tryQ -->|rate limit| nextQ[Next Groq key]
+  tryQ -->|fatal| breakQ[Stop Groq attempts]
+```
+
+- **Gemini keys:** Tried in order; **429 / quota** errors continue to the next key; other errors can short-circuit the Gemini loop (see `generateTextWithGeminiGroqFailover`).
+- **Groq keys:** Same pattern after all Gemini attempts fail or return empty.
+- **Same helper** powers the **full chat answer** and the **Bangla-to-English retrieval query** translation, so operational behavior (keys, models, limits) stays consistent.
+
+### 6.7 Context, safety, and budgets
+
+- **Transcript:** `buildBudgetedTranscript` walks messages **newest-first**, clipping each message to `MAX_MESSAGE_CHARS_IN_TRANSCRIPT` and stopping when estimated tokens exceed `MAX_TRANSCRIPT_TOKENS` (heuristic `chars / 4`).
+- **Personal block:** Concatenates DOB-derived age, pregnancy week and risk flags, latest vitals and symptom log summaries, recent planner and appointment strings, conditions, allergies, meds, and notes — all from **RLS-scoped** `select` calls under the user id.
+- **RAG context:** Up to **8** chunks; formatted with numbered sources; empty hit list still yields an explicit “no internal articles” instruction so the model answers conservatively.
+- **Report handoff:** Optional `reportContext` JSON is parsed server-side into a **REPORT CONTEXT** block (title, summary, findings, recommendations) when the user navigates from the reports flow.
+- **Bangladesh facilities:** `detectNearbyFacilitiesIntent` on the latest user text; if intent matches and `userLocation` is present, `buildNearbyFacilitiesContextForChat` queries the **BD catalog** in Supabase; otherwise the model is instructed to ask for **location permission** once (`needsClientLocation` in the JSON response).
 
 ---
 
 ## 7. Knowledge (RAG) subsystem
 
 ```mermaid
-flowchart LR
-  subgraph ingest [IngestionAdminOrScript]
-    doc[rag_documents]
-    chunk[rag_chunks]
-    emb[embedText]
+flowchart TB
+  subgraph adminWrite [Admin or ingest API]
+    adm[POST api rag ingest or admin knowledge routes]
+    adm --> docRow[Insert rag_documents]
+    adm --> split[Chunk text per ingestDocumentWithChunks]
+    split --> embW[embedText per chunk]
+    embW --> insC[Insert rag_chunks with embedding vector768]
   end
-  subgraph query [QueryTime]
-    q[UserQuestionOrNormalizedQuery]
-    vec[Embedding]
-    rpc[match_rag_chunks RPC]
+  subgraph runtimeRead [Runtime chat or rag search]
+    q[User or API query string]
+    q --> embR[embedText query]
+    embR --> rpc[RPC match_rag_chunks_for_user]
+    rpc --> vec[pgvector cosine similarity]
+    vec --> hits[Chunk rows plus similarity score]
   end
-  emb --> chunk
-  doc --> chunk
-  q --> vec
-  vec --> rpc
-  rpc --> chunk
+  docRow --> insC
 ```
 
-- **Tables:** `rag_documents`, `rag_chunks` (with `embedding` vector), managed in migrations under `supabase/migrations/`.
-- **Service layer:** `src/lib/rag/service.ts` — `ingestKnowledgeChunk`, `searchKnowledge`.
-- **Admin HTTP:** `src/app/api/admin/knowledge/documents/**` for CRUD / batch operations (gated).
-- **User search API:** `src/app/api/rag/search/route.ts` (authenticated semantic search).
+- **Tables:** `rag_documents`, `rag_chunks` (column `embedding` aligned with **pgvector** / `GEMINI_EMBEDDING_DIMENSIONS` = 768), created and indexed via `supabase/migrations/`.
+- **Service layer:** [`src/lib/rag/service.ts`](src/lib/rag/service.ts) — `ingestKnowledgeChunk`, `ingestDocumentWithChunks`, **`searchKnowledge`** (embeds query, calls **`match_rag_chunks_for_user`** with `match_count`, `min_similarity`, optional `filter_categories`).
+- **Admin HTTP:** `src/app/api/admin/knowledge/documents/**` for CRUD / batch operations (gated by admin role).
+- **User search API:** `POST /api/rag/search` — authenticated semantic search over the same RPC stack (for tools and future UI outside chat).
+
+### 7.1 Related: medical report analysis pipeline (separate from live chat RAG)
+
+- **Routes:** `POST /api/reports/analyze`, `POST /api/reports/extract-local` — document upload / OCR style flows with their own prompts and provider usage (see route sources under `src/app/api/reports/`).
+- **Chat bridge:** Analyzed report payloads may be passed into **`POST /api/chat`** as `reportContext` so the assistant can discuss the same structured summary inside the normal chat guardrails.
 
 ---
 
@@ -334,8 +473,8 @@ RLS still applies: clients only receive changes for rows they could `SELECT` wit
 |---------|----------------|
 | Validation | **Zod** on API bodies (`route.ts` files) |
 | Errors | `failJson`, `serverErrorJson`, `validationJsonResponse` (`src/lib/api/error-response.ts`) |
-| Theming | `next-themes` + `src/lib/theme.ts` |
-| Voice | `src/lib/voice/*`, `VoiceCallPanel`, optional speech synthesis |
+| Theming | `src/lib/theme.ts` (localStorage + `document.documentElement.classList`) |
+| Voice | `src/lib/voice/*`, `VoiceCallPanel`; chat **`replyChannel: "voice"`** on `POST /api/chat` (spoken-style system prompt + higher temperature) |
 | i18n prefs | Profile `language` `en` \| `bn` + UI copy patterns |
 | Mobile UX | Touch targets, `touch-manipulation`, safe-area insets, bottom nav |
 
@@ -385,7 +524,7 @@ When you add a major route or API:
 
 1. Update **Section 4** (pages) and **Section 5** (API groups).
 2. If you add a new external dependency, update **Section 1–2**.
-3. If schema changes affect AI context, update **Section 6** and **Section 10**.
+3. If schema or **AI pipeline** changes, update **Section 6–7** and the in-app mirror `src/content/docs/architecture.md`.
 
 ---
 
