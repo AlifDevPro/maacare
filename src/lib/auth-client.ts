@@ -103,6 +103,33 @@ export async function loginWithPassword(
   return { ok: true, user: data.user };
 }
 
+export async function checkEmailRegistered(
+  email: string,
+): Promise<
+  | { ok: true; registered: boolean }
+  | { ok: true; unavailable: true }
+  | { ok: false; error: string }
+> {
+  const res = await fetch("/api/auth/email-registered", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    registered?: boolean;
+    unavailable?: boolean;
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return { ok: false, error: data.message ?? data.error ?? "Could not check email." };
+  }
+  if (data.unavailable) {
+    return { ok: true, unavailable: true };
+  }
+  return { ok: true, registered: !!data.registered };
+}
+
 export async function registerAccount(
   name: string,
   email: string,
@@ -144,6 +171,80 @@ export async function registerAccount(
 
   notifyAuth();
   return { ok: true, user: data.user };
+}
+
+export async function requestPasswordReset(
+  email: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const res = await fetch("/api/auth/forgot-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) {
+    return { ok: false, error: data.message ?? data.error ?? "Could not send reset email." };
+  }
+  return { ok: true, message: data.message ?? "Check your email." };
+}
+
+export async function sendLoginEmailOtp(
+  email: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const res = await fetch("/api/auth/send-login-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) {
+    return { ok: false, error: data.message ?? data.error ?? "Could not send a code." };
+  }
+  return { ok: true, message: data.message ?? "Check your email." };
+}
+
+export async function verifyLoginEmailOtp(
+  email: string,
+  token: string,
+): Promise<{ ok: true; user: AuthUser } | { ok: false; error: string }> {
+  const res = await fetch("/api/auth/verify-login-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email, token }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    user?: AuthUser;
+    error?: string;
+    message?: string;
+  };
+  if (!res.ok) {
+    return { ok: false, error: data.message ?? data.error ?? "Verification failed" };
+  }
+  if (!data.user) {
+    return { ok: false, error: "Verification failed" };
+  }
+  notifyAuth();
+  return { ok: true, user: data.user };
+}
+
+export async function updatePassword(
+  password: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetch("/api/auth/update-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ password }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) {
+    return { ok: false, error: data.message ?? data.error ?? "Could not update password." };
+  }
+  notifyAuth();
+  return { ok: true };
 }
 
 export async function signOut(): Promise<void> {

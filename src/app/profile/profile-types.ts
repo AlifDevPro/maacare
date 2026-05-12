@@ -12,6 +12,8 @@ export type ProfileBundle = {
     timezone: string | null;
     notify_community_activity?: boolean | null;
     notify_daily_reminders?: boolean | null;
+    /** Self-reported: parent_caregiver | clinician | other — not the auth `role`. */
+    profession?: string | null;
   } | null;
   health: {
     blood_type: string | null;

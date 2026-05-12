@@ -8,6 +8,7 @@ import {
   serverErrorJson,
   friendlyAuth,
 } from "@/lib/api/error-response";
+import { resolvePublicOrigin } from "@/lib/auth/public-origin";
 import { resolvePublicUser } from "@/lib/auth/profile";
 import { createSupabaseAuthRouteHandler } from "@/lib/supabase/route-handler-client";
 
@@ -16,32 +17,6 @@ const bodySchema = z.object({
   email: z.string().email("Enter a valid email address."),
   password: z.string().min(8, "Password must be at least 8 characters.").max(200),
 });
-
-function resolvePublicOrigin(req: NextRequest): string {
-  const xfProto = req.headers.get("x-forwarded-proto");
-  const xfHost = req.headers.get("x-forwarded-host");
-  if (xfHost) {
-    const proto = xfProto || (xfHost.includes("localhost") ? "http" : "https");
-    return `${proto}://${xfHost}`.replace(/\/+$/, "");
-  }
-
-  const host = req.headers.get("host");
-  if (host) {
-    const proto = host.includes("localhost") ? "http" : "https";
-    return `${proto}://${host}`.replace(/\/+$/, "");
-  }
-
-  const envUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.SITE_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
-  if (envUrl) {
-    return envUrl.replace(/\/+$/, "");
-  }
-
-  return new URL(req.url).origin.replace(/\/+$/, "");
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -52,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     const { name, email, password } = parsed.data;
     const origin = resolvePublicOrigin(req);
-    const emailRedirectTo = `${origin}/login`;
+    const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/app")}`;
 
     const { supabase, applyAuthCookies } = createSupabaseAuthRouteHandler(req);
 
@@ -69,7 +44,13 @@ export async function POST(req: NextRequest) {
     });
 
     if (error) {
-      const dup = error.message.toLowerCase().includes("already");
+      const msg = error.message.toLowerCase();
+      const dup =
+        msg.includes("already") ||
+        msg.includes("registered") ||
+        msg.includes("exists") ||
+        msg.includes("duplicate") ||
+        error.status === 422;
       if (dup) {
         return failJson(409, "This email is already registered. Try signing in instead.");
       }
@@ -82,13 +63,18 @@ export async function POST(req: NextRequest) {
       return failJson(500, friendlyAuth.accountIncomplete);
     }
 
+    // Supabase often returns 200 with no error when the email already exists (identities: []).
+    if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return failJson(409, "This email is already registered. Try signing in instead.");
+    }
+
     if (!data.session) {
       return applyAuthCookies(
         NextResponse.json({
           ok: true,
           needsEmailConfirmation: true,
           message:
-            "We've sent you a confirmation email. Open the link inside, then come back and sign in.",
+            "We've sent you a confirmation email. Open the link to confirm your address — you'll be signed in when it completes.",
         }),
       );
     }

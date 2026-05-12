@@ -197,6 +197,53 @@
 
 /* AI chat — readable markdown (assistant + optional user rich text). */
 @layer components {
+  /* Native date inputs: calendar on inline-end; WebKit only shrinks when the input overflows hidden + datetime-edit min-width 0. */
+  .date-input-icon-end {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-inline-size: 0;
+    position: relative;
+    text-align: start;
+    overflow: hidden;
+  }
+  .date-input-icon-end::-webkit-datetime-edit-fields-wrapper {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .date-input-icon-end::-webkit-datetime-edit {
+    min-width: 0;
+    max-width: 100%;
+    padding: 0;
+    flex: 1 1 0;
+  }
+  .date-input-icon-end::-webkit-datetime-edit-month-field,
+  .date-input-icon-end::-webkit-datetime-edit-day-field,
+  .date-input-icon-end::-webkit-datetime-edit-year-field {
+    min-width: 0;
+  }
+  .date-input-icon-end::-webkit-datetime-edit-text {
+    padding: 0 0.1em;
+  }
+  .date-input-icon-end::-webkit-calendar-picker-indicator {
+    position: absolute;
+    inset-inline-end: 0.55rem;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    opacity: 1;
+  }
+  .date-input-icon-end::-moz-calendar-picker-indicator {
+    position: absolute;
+    inset-inline-end: 0.55rem;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+  }
+
   .chat-assistant-md {
     font-size: 0.9375rem;
     line-height: 1.65;

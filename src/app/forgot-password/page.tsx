@@ -1,42 +1,96 @@
 "use client";
-import { useState } from "react";
+
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from 'next/navigation';
 
 import { Mail } from "lucide-react";
 import { AuthShell } from "@/components/app/AuthShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { requestPasswordReset } from "@/lib/auth-client";
+import { isValidEmailFormat } from "@/lib/validation/email";
 import { toast } from "sonner";
 
 export default function ForgotPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const canSend = useMemo(() => isValidEmailFormat(email), [email]);
 
   return (
     <AuthShell
       title="Reset your password"
-      subtitle="We'll email you a link to set a new password."
-      footer={<><Link href="/login" className="font-medium text-primary">Back to log in</Link></>}
+      subtitle="We'll email you a secure link to choose a new password."
+      footer={
+        <>
+          <Link href="/login" className="font-medium text-primary">
+            Back to log in
+          </Link>
+        </>
+      }
     >
       <form
         className="space-y-4"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          if (!email) return toast.error("Enter your email");
-          toast.success("Reset link sent (demo)");
-          router.push("/reset-password");
+          if (!email.trim()) return toast.error("Enter your email");
+          if (!isValidEmailFormat(email)) {
+            return toast.error("Enter a valid email address");
+          }
+          setLoading(true);
+          try {
+            const result = await requestPasswordReset(email.trim());
+            if (!result.ok) {
+              toast.error(result.error);
+              return;
+            }
+            toast.success(result.message);
+            setSent(true);
+          } finally {
+            setLoading(false);
+          }
         }}
       >
         <div>
           <Label htmlFor="email">Email</Label>
           <div className="relative mt-1.5">
             <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input id="email" type="email" placeholder="you@example.com" className="pl-9" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input
+              id="email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              className="min-w-0 pl-9"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={sent}
+            />
           </div>
+          {email.trim() && !canSend ? (
+            <p className="mt-1.5 text-xs text-destructive">Enter a valid email address (include @ and a domain).</p>
+          ) : null}
         </div>
-        <Button className="w-full rounded-full" type="submit">Send reset link</Button>
+        <Button className="w-full rounded-full" type="submit" disabled={loading || sent || !canSend}>
+          {sent ? "Email sent" : loading ? "Sending…" : "Send reset link"}
+        </Button>
+        {sent ? (
+          <p className="text-center text-sm text-muted-foreground">
+            Didn&apos;t get it? Check spam, then you can try again in a few minutes or{" "}
+            <button
+              type="button"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+              onClick={() => {
+                setSent(false);
+              }}
+            >
+              use another email
+            </button>
+            .
+          </p>
+        ) : null}
       </form>
     </AuthShell>
   );

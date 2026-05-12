@@ -4,11 +4,16 @@ import { cn } from "@/lib/utils";
 
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
   ({ className, type, ...props }, ref) => {
+    const isDateLike = type === "date" || type === "datetime-local" || type === "time";
     return (
       <input
         type={type}
         className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+          "h-9 w-full rounded-md border border-input bg-transparent py-1 text-base transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+          /* Date-like: no `px-3` — it overrides padding-inline-end from our date CSS and WebKit needs overflow hidden to shrink (iOS Safari). */
+          isDateLike
+            ? "box-border block min-w-0 max-w-full overflow-hidden pl-3 pr-[2.35rem]"
+            : "flex min-h-9 items-center px-3",
           className,
         )}
         ref={ref}

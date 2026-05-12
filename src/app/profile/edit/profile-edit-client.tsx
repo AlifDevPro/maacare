@@ -8,11 +8,12 @@ import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
+import { BLOOD_TYPES, SEX_OPTIONS } from "@/app/profile/profile-field-options";
 import {
-  BLOOD_TYPES,
-  PREGNANCY_STATUS_OPTIONS,
-  SEX_OPTIONS,
-} from "@/app/profile/profile-field-options";
+  JourneyStatusPicker,
+  ProfessionPicker,
+  type ProfessionValue,
+} from "@/components/profile/journey-profession-pickers";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { PublicUser } from "@/lib/auth/types";
 import { refreshSession, useSession } from "@/lib/auth-client";
+import { pregnancyFieldVisibility } from "@/lib/profile/journey-fields";
+import { cn } from "@/lib/utils";
+
+const tabListClass =
+  "mt-1 flex h-auto w-full gap-0 overflow-x-auto rounded-none border-0 border-t border-border/40 bg-transparent p-0 pt-2";
+
+const tabTriggerClass =
+  "min-h-10 flex-1 shrink-0 rounded-none border-b-2 border-transparent bg-transparent px-1.5 py-2 text-xs font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-2 sm:text-sm";
 
 function FieldLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
   return (
@@ -100,8 +109,11 @@ export function ProfileEditClient({
   const [allergiesText, setAllergiesText] = useState("");
   const [conditionsText, setConditionsText] = useState("");
   const [activeSection, setActiveSection] = useState<SectionKey>("personal");
+  const [timezone, setTimezone] = useState("");
+  const [profession, setProfession] = useState<ProfessionValue | "">("");
 
   const fieldClass = "rounded-sm shadow-none";
+  const dateFieldClass = cn(fieldClass, "date-input-icon-end");
 
   useEffect(() => {
     setBundle(initialBundle);
@@ -138,10 +150,16 @@ export function ProfileEditClient({
     setHealthNotes(h?.notes ?? "");
     setAllergiesText(bundle.allergies.join(", "));
     setConditionsText(bundle.conditions.join(", "));
+    setTimezone(p?.timezone ?? "");
+    const prof = p?.profession;
+    setProfession(
+      prof === "parent_caregiver" || prof === "clinician" || prof === "other" ? prof : "",
+    );
   }, [bundle, user, session.name]);
 
   const activeIdx = SECTION_ORDER.indexOf(activeSection);
   const progress = ((activeIdx + 1) / SECTION_ORDER.length) * 100;
+  const pregDetailVis = pregnancyFieldVisibility(pregnancyStatus);
 
   function goSection(step: number) {
     const idx = Math.max(0, Math.min(SECTION_ORDER.length - 1, step));
@@ -164,25 +182,28 @@ export function ProfileEditClient({
         .map((s) => s.trim())
         .filter(Boolean);
 
+      const vis = pregnancyFieldVisibility(pregnancyStatus);
       let gv: number | null = null;
-      if (gravida !== "") {
-        const n = Number.parseInt(gravida, 10);
-        if (Number.isNaN(n)) {
-          toast.error("Gravida must be a whole number.");
-          setSaving(false);
-          return;
-        }
-        gv = n;
-      }
       let pv: number | null = null;
-      if (para !== "") {
-        const n = Number.parseInt(para, 10);
-        if (Number.isNaN(n)) {
-          toast.error("Para must be a whole number.");
-          setSaving(false);
-          return;
+      if (vis.showGravidaPara) {
+        if (gravida !== "") {
+          const n = Number.parseInt(gravida, 10);
+          if (Number.isNaN(n)) {
+            toast.error("Gravida must be a whole number.");
+            setSaving(false);
+            return;
+          }
+          gv = n;
         }
-        pv = n;
+        if (para !== "") {
+          const n = Number.parseInt(para, 10);
+          if (Number.isNaN(n)) {
+            toast.error("Para must be a whole number.");
+            setSaving(false);
+            return;
+          }
+          pv = n;
+        }
       }
 
       const payload: Record<string, unknown> = {
@@ -190,23 +211,35 @@ export function ProfileEditClient({
         phone: phone.trim() || null,
         dateOfBirth: dateOfBirth || null,
         sex: sex || null,
+        timezone: timezone.trim() || null,
+        profession: profession || null,
         pregnancyStatus,
-        lmpDate: lmpDate || null,
-        eddDate: eddDate || null,
-        gravida: gv,
-        para: pv,
+        lmpDate: vis.showLmpEdd ? lmpDate || null : null,
+        eddDate: vis.showLmpEdd ? eddDate || null : null,
+        gravida: vis.showGravidaPara ? gv : null,
+        para: vis.showGravidaPara ? pv : null,
         allergies,
         conditions,
       };
 
-      if (gestationalAgeWeeks !== "") {
-        const g = Number.parseInt(gestationalAgeWeeks, 10);
-        if (!Number.isNaN(g)) payload.gestationalAgeWeeks = g;
+      if (vis.showGestationalWeek) {
+        if (gestationalAgeWeeks !== "") {
+          const g = Number.parseInt(gestationalAgeWeeks, 10);
+          if (!Number.isNaN(g)) payload.gestationalAgeWeeks = g;
+        } else {
+          payload.gestationalAgeWeeks = null;
+        }
+      } else {
+        payload.gestationalAgeWeeks = null;
       }
 
-      payload.babyBirthDate = babyBirthDate.trim() ? babyBirthDate.trim() : null;
+      payload.babyBirthDate = vis.showBabyBirth ? (babyBirthDate.trim() ? babyBirthDate.trim() : null) : null;
 
-      if (bloodType) payload.bloodType = bloodType === "unknown" ? "unknown" : bloodType;
+      if (bloodType === "" || !bloodType) {
+        payload.bloodType = null;
+      } else {
+        payload.bloodType = bloodType === "unknown" ? "unknown" : bloodType;
+      }
       if (heightCm !== "") {
         const h = Number.parseFloat(heightCm);
         if (!Number.isNaN(h)) payload.heightCm = h;
@@ -245,63 +278,51 @@ export function ProfileEditClient({
     }
   }
 
+  const profileEmail = bundle.profile?.email ?? session.email;
+
   return (
     <AppShell hideNav>
       <AppHeader title="Edit profile" showBack backHref="/profile" />
 
-      <div className="space-y-4 px-4 pt-4 pb-28">
+      <div className="min-w-0 space-y-4 overflow-x-hidden px-4 pt-4 pb-28">
         <p className="text-sm text-muted-foreground">
           Keep your details up to date so reminders, guidance, and emergency information stay
           accurate. Nothing here replaces medical advice from your clinician.
         </p>
 
-        <Card className="rounded-sm border-border/80 shadow-none">
-          <CardContent className="space-y-3 p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-muted-foreground">
-                Guided setup • Step {activeIdx + 1} of {SECTION_ORDER.length}
-              </p>
-              <p className="text-xs font-semibold text-foreground">
-                {SECTION_META[activeSection].title}
-              </p>
-            </div>
-            <div className="h-1.5 w-full rounded-full bg-muted">
-              <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
-            </div>
-            <div className="flex gap-1 overflow-x-auto pb-0.5">
-              {SECTION_ORDER.map((key, idx) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => goSection(idx)}
-                  className={`shrink-0 rounded-sm border px-2.5 py-1 text-xs transition-colors ${
-                    key === activeSection
-                      ? "border-primary bg-primary-soft text-primary"
-                      : "border-border text-muted-foreground"
-                  }`}
-                >
-                  {SECTION_META[key].title}
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Tabs value={activeSection} onValueChange={(v) => setActiveSection(v as SectionKey)} className="w-full">
-            <TabsList className="flex h-auto w-full gap-1 overflow-x-auto rounded-sm bg-muted/70 p-1.5">
-              <TabsTrigger value="personal" className="rounded-sm text-xs sm:text-sm">
-                Personal
-              </TabsTrigger>
-              <TabsTrigger value="pregnancy" className="rounded-sm text-xs sm:text-sm">
-                Pregnancy
-              </TabsTrigger>
-              <TabsTrigger value="health" className="rounded-sm text-xs sm:text-sm">
-                Health
-              </TabsTrigger>
-              <TabsTrigger value="care" className="rounded-sm text-xs sm:text-sm">
-                Care & safety
-              </TabsTrigger>
-            </TabsList>
+        <Tabs value={activeSection} onValueChange={(v) => setActiveSection(v as SectionKey)} className="w-full min-w-0">
+          <Card className="rounded-sm border-border/80 shadow-none">
+            <CardContent className="space-y-3 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Guided setup • Step {activeIdx + 1} of {SECTION_ORDER.length}
+                </p>
+                <p className="text-xs font-semibold text-foreground">
+                  {SECTION_META[activeSection].title}
+                </p>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted">
+                <div
+                  className="h-1.5 rounded-full bg-primary transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <TabsList className={tabListClass}>
+                <TabsTrigger value="personal" className={tabTriggerClass}>
+                  Personal
+                </TabsTrigger>
+                <TabsTrigger value="pregnancy" className={tabTriggerClass}>
+                  Pregnancy
+                </TabsTrigger>
+                <TabsTrigger value="health" className={tabTriggerClass}>
+                  Health
+                </TabsTrigger>
+                <TabsTrigger value="care" className={tabTriggerClass}>
+                  Care & safety
+                </TabsTrigger>
+              </TabsList>
+            </CardContent>
+          </Card>
 
             <TabsContent value="personal" className="mt-4 space-y-4 focus-visible:outline-none">
               <Card className="overflow-hidden rounded-sm border-border/80 shadow-none">
@@ -332,11 +353,31 @@ export function ProfileEditClient({
                     />
                   </div>
                   <div className="grid gap-2">
+                    <FieldLabel htmlFor="em-ro">Email</FieldLabel>
+                    <Input
+                      id="em-ro"
+                      readOnly
+                      className={cn(fieldClass, "cursor-not-allowed bg-muted/30")}
+                      value={profileEmail}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <FieldLabel htmlFor="tz">Location / time zone</FieldLabel>
+                    <Input
+                      id="tz"
+                      className={fieldClass}
+                      placeholder="e.g. Asia/Dhaka"
+                      value={timezone}
+                      onChange={(e) => setTimezone(e.target.value)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">Used for reminders and local timing.</p>
+                  </div>
+                  <div className="grid gap-2">
                     <FieldLabel htmlFor="dob">Date of birth</FieldLabel>
                     <Input
                       id="dob"
                       type="date"
-                      className={fieldClass}
+                      className={dateFieldClass}
                       value={dateOfBirth}
                       onChange={(e) => setDateOfBirth(e.target.value)}
                     />
@@ -357,6 +398,13 @@ export function ProfileEditClient({
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="grid gap-2">
+                    <FieldLabel>Your role</FieldLabel>
+                    <p className="text-xs text-muted-foreground">
+                      Helps tailor the app and identify clinicians for future features — not account permissions.
+                    </p>
+                    <ProfessionPicker value={profession} onChange={(v) => setProfession(v)} />
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -366,99 +414,106 @@ export function ProfileEditClient({
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">Pregnancy journey</CardTitle>
                   <CardDescription>
-                    Week counts and due dates help personalize tips; leave blank if not applicable.
+                    Choose your journey — we only ask for details that matter for your situation.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-4">
+                <CardContent className="grid gap-5">
                   <div className="grid gap-2">
                     <FieldLabel>Current journey</FieldLabel>
-                    <Select value={pregnancyStatus} onValueChange={setPregnancyStatus}>
-                      <SelectTrigger className="rounded-xl">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PREGNANCY_STATUS_OPTIONS.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s.replace("_", " ")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <JourneyStatusPicker value={pregnancyStatus} onChange={(v) => setPregnancyStatus(v)} />
                   </div>
-                  <div className="grid gap-4">
-                    <div className="grid gap-2">
-                      <FieldLabel htmlFor="lmp">Last menstrual period (LMP)</FieldLabel>
-                      <Input
-                        id="lmp"
-                        type="date"
-                        className={fieldClass}
-                        value={lmpDate}
-                        onChange={(e) => setLmpDate(e.target.value)}
-                      />
+
+                  {pregDetailVis.showLmpEdd && (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="grid min-w-0 gap-2">
+                        <FieldLabel htmlFor="lmp">Last menstrual period (LMP)</FieldLabel>
+                        <Input
+                          id="lmp"
+                          type="date"
+                          className={dateFieldClass}
+                          value={lmpDate}
+                          onChange={(e) => setLmpDate(e.target.value)}
+                        />
+                      </div>
+                      <div className="grid min-w-0 gap-2">
+                        <FieldLabel htmlFor="edd">Estimated due date (EDD)</FieldLabel>
+                        <Input
+                          id="edd"
+                          type="date"
+                          className={dateFieldClass}
+                          value={eddDate}
+                          onChange={(e) => setEddDate(e.target.value)}
+                        />
+                      </div>
                     </div>
+                  )}
+
+                  {pregDetailVis.showGestationalWeek && (
                     <div className="grid gap-2">
-                      <FieldLabel htmlFor="edd">Estimated due date (EDD)</FieldLabel>
+                      <FieldLabel htmlFor="gw">Gestational age (weeks)</FieldLabel>
                       <Input
-                        id="edd"
-                        type="date"
-                        className={fieldClass}
-                        value={eddDate}
-                        onChange={(e) => setEddDate(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    <FieldLabel htmlFor="gw">Gestational age (weeks)</FieldLabel>
-                    <Input
-                      id="gw"
-                      inputMode="numeric"
-                      placeholder="Optional — we can derive from LMP when set"
-                      className={fieldClass}
-                      value={gestationalAgeWeeks}
-                      onChange={(e) => setGestationalAgeWeeks(e.target.value)}
-                    />
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      Override only if your clinician gave a different week than LMP suggests.
-                    </p>
-                  </div>
-                  <div className="grid gap-2">
-                    <FieldLabel htmlFor="bbd">Baby&apos;s birth date</FieldLabel>
-                    <Input
-                      id="bbd"
-                      type="date"
-                      className={fieldClass}
-                      value={babyBirthDate}
-                      onChange={(e) => setBabyBirthDate(e.target.value)}
-                    />
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      Used for your postpartum week on Home and in the postpartum hub. Leave blank if
-                      not applicable.
-                    </p>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="grid gap-2">
-                      <FieldLabel htmlFor="g">Gravida</FieldLabel>
-                      <Input
-                        id="g"
+                        id="gw"
                         inputMode="numeric"
-                        placeholder="Pregnancies"
+                        placeholder="Optional — we can derive from LMP when set"
                         className={fieldClass}
-                        value={gravida}
-                        onChange={(e) => setGravida(e.target.value)}
+                        value={gestationalAgeWeeks}
+                        onChange={(e) => setGestationalAgeWeeks(e.target.value)}
                       />
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        Override only if your clinician gave a different week than LMP suggests.
+                      </p>
                     </div>
+                  )}
+
+                  {pregDetailVis.showBabyBirth && (
                     <div className="grid gap-2">
-                      <FieldLabel htmlFor="pa">Para</FieldLabel>
+                      <FieldLabel htmlFor="bbd">Baby&apos;s birth date</FieldLabel>
                       <Input
-                        id="pa"
-                        inputMode="numeric"
-                        placeholder="Births ≥20 wk"
-                        className={fieldClass}
-                        value={para}
-                        onChange={(e) => setPara(e.target.value)}
+                        id="bbd"
+                        type="date"
+                        className={dateFieldClass}
+                        value={babyBirthDate}
+                        onChange={(e) => setBabyBirthDate(e.target.value)}
                       />
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        Used for your postpartum week on Home and in the postpartum hub. Leave blank if
+                        not applicable.
+                      </p>
                     </div>
-                  </div>
+                  )}
+
+                  {pregDetailVis.showGravidaPara && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-2">
+                        <FieldLabel htmlFor="g">Gravida</FieldLabel>
+                        <Input
+                          id="g"
+                          inputMode="numeric"
+                          placeholder="Pregnancies"
+                          className={fieldClass}
+                          value={gravida}
+                          onChange={(e) => setGravida(e.target.value)}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <FieldLabel htmlFor="pa">Para</FieldLabel>
+                        <Input
+                          id="pa"
+                          inputMode="numeric"
+                          placeholder="Births ≥20 wk"
+                          className={fieldClass}
+                          value={para}
+                          onChange={(e) => setPara(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {pregnancyStatus === "not_applicable" && (
+                    <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                      Pregnancy tracking is hidden. You can change your journey anytime if this updates.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

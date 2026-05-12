@@ -228,6 +228,7 @@ export async function POST(req: Request) {
     let extractionMode: "provided_text" | "pdf_local" | "ocr_local" | "text_local" | "gemini_file" =
       "provided_text";
     let includeRawFileForGemini = false;
+    let extractionFailureReason: string | null = null;
 
     let fallbackPdfBase64: string | null = null;
     if (!extractedText && reportFile instanceof File) {
@@ -236,6 +237,8 @@ export async function POST(req: Request) {
         extractedText = local.text;
         extractionMode = local.mode === "none" ? "text_local" : local.mode;
       } else {
+        extractionFailureReason =
+          "Could not read enough text from the uploaded file on server. Try a clearer file or paste the report text.";
         if (isImageUpload) {
           fallbackPdfBase64 = await imageToPdfBase64(reportFile);
           if (!fallbackPdfBase64) {
@@ -328,6 +331,15 @@ export async function POST(req: Request) {
             retryAfterSeconds: 60,
           },
           { status: 429 },
+        );
+      }
+      if (includeRawFileForGemini && !extractedText && extractionFailureReason) {
+        return Response.json(
+          {
+            error: extractionFailureReason,
+            hint: "Use Paste text for best reliability on production deployments.",
+          },
+          { status: 422 },
         );
       }
       return failJson(500, "Could not analyze report right now.");

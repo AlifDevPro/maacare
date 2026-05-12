@@ -37,6 +37,7 @@ const patchSchema = z.object({
   conditions: z.array(z.string().max(200)).max(50).optional(),
   notifyCommunityActivity: z.boolean().optional(),
   notifyDailyReminders: z.boolean().optional(),
+  profession: z.string().max(64).nullable().optional(),
 });
 
 export async function GET() {
@@ -87,6 +88,9 @@ export async function PATCH(req: Request) {
     }
     if (body.notifyDailyReminders !== undefined) {
       profileUpdates.notify_daily_reminders = body.notifyDailyReminders;
+    }
+    if (body.profession !== undefined) {
+      profileUpdates.profession = body.profession?.trim() || null;
     }
     if (Object.keys(profileUpdates).length > 0) {
       const { error } = await supabase.from("profiles").update(profileUpdates).eq("id", uid);

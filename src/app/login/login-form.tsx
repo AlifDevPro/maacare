@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { safeInternalPath } from "@/lib/auth/safe-internal-path";
-import { loginWithPassword } from "@/lib/auth-client";
+import { loginWithPassword, sendLoginEmailOtp } from "@/lib/auth-client";
 import { toast } from "sonner";
 
 function LoginFormInner() {
@@ -19,6 +19,16 @@ function LoginFormInner() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+
+  useEffect(() => {
+    const err = searchParams.get("error");
+    if (err === "auth_callback") {
+      toast.error("That sign-in link is invalid or expired. Try logging in again.");
+    } else if (err === "missing_code") {
+      toast.error("Missing confirmation code. Open the full link from your email.");
+    }
+  }, [searchParams]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +45,22 @@ function LoginFormInner() {
       router.push(next);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const sendOtp = async () => {
+    if (!email.trim()) return toast.error("Enter your email first");
+    setOtpSending(true);
+    try {
+      const result = await sendLoginEmailOtp(email.trim());
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(result.message);
+      router.push(`/verify-otp?email=${encodeURIComponent(email.trim())}`);
+    } finally {
+      setOtpSending(false);
     }
   };
 
@@ -59,8 +85,9 @@ function LoginFormInner() {
             <Input
               id="email"
               type="email"
+              autoComplete="email"
               placeholder="you@example.com"
-              className="pl-9"
+              className="min-w-0 pl-9"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -78,8 +105,9 @@ function LoginFormInner() {
             <Input
               id="password"
               type="password"
+              autoComplete="current-password"
               placeholder="••••••••"
-              className="pl-9"
+              className="min-w-0 pl-9"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -100,12 +128,10 @@ function LoginFormInner() {
           type="button"
           variant="outline"
           className="w-full rounded-full"
-          onClick={() => {
-            toast.info("OTP sent to your email (demo)");
-            router.push("/verify-otp");
-          }}
+          disabled={otpSending}
+          onClick={() => void sendOtp()}
         >
-          Send me a one-time code
+          {otpSending ? "Sending code…" : "Send me a one-time code"}
         </Button>
       </form>
     </AuthShell>

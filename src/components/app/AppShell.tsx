@@ -14,8 +14,8 @@ interface AppShellProps {
 export function AppShell({ children, hideNav, className }: AppShellProps) {
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto flex min-h-screen max-w-md flex-col">
-        <main className={cn("flex-1 pb-24", hideNav && "pb-6", className)}>
+      <div className="mx-auto flex min-h-screen max-w-md min-w-0 flex-col">
+        <main className={cn("min-w-0 flex-1 pb-24", hideNav && "pb-6", className)}>
           {children}
         </main>
         {!hideNav && <BottomNav />}

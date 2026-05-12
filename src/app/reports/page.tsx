@@ -92,6 +92,7 @@ export default function ReportsPage() {
     "Running the clinical simplifier — this usually takes 15–60 seconds...",
     "Finishing up: applying results and saving anything you opted into...",
   ];
+  const RATE_LIMIT_RE = /\b(resource_exhausted|quota|rate[\s_-]*limit|too many requests|429)\b/i;
 
   function resetToFreshInput() {
     setStage("input");
@@ -206,8 +207,7 @@ export default function ReportsPage() {
         | { error?: string; retryAfterSeconds?: number };
 
       const errText = (data as { error?: string }).error ?? "";
-      const looksLikeLimit =
-        res.status === 429 || /limit|quota|resource_exhausted|rate/i.test(errText);
+      const looksLikeLimit = res.status === 429 || RATE_LIMIT_RE.test(errText);
       if (looksLikeLimit) {
         startCooldown(
           Number((data as { retryAfterSeconds?: number }).retryAfterSeconds ?? 60),
@@ -229,7 +229,7 @@ export default function ReportsPage() {
     } catch (e) {
       stopCreep();
       const msg = e instanceof Error ? e.message : "Could not analyze report.";
-      if (/limit|quota|resource_exhausted|rate/i.test(msg)) {
+      if (RATE_LIMIT_RE.test(msg)) {
         startCooldown(60, "AI usage limit reached. Please wait and try again.");
         setStage("input");
         return;
