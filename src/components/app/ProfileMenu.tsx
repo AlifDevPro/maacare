@@ -14,6 +14,7 @@ import {
   Monitor,
   ShieldCheck,
   LogIn,
+  BookOpen,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -158,6 +159,11 @@ export function ProfileMenu() {
         <DropdownMenuItem asChild>
           <Link href="/help" className="cursor-pointer">
             <HelpCircle className="mr-2 h-4 w-4" /> Help & support
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/docs" className="cursor-pointer">
+            <BookOpen className="mr-2 h-4 w-4" /> Documentation
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { MessageCircle, MessagesSquare, Phone, Users, Mail, LifeBuoy } from "lucide-react";
+import { MessageCircle, MessagesSquare, Phone, Users, Mail, LifeBuoy, BookOpen } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -33,7 +33,7 @@ export default function HelpPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Button variant="outline" className="h-auto min-h-24 flex-col gap-1 rounded-2xl py-4" asChild>
             <Link href="/chat">
               <MessagesSquare className="h-6 w-6 text-primary" />
@@ -46,6 +46,13 @@ export default function HelpPage() {
               <Users className="h-6 w-6 text-primary" />
               <span className="font-display text-sm font-semibold">Community</span>
               <span className="text-xs text-muted-foreground">Connect with others</span>
+            </Link>
+          </Button>
+          <Button variant="outline" className="h-auto min-h-24 flex-col gap-1 rounded-2xl py-4" asChild>
+            <Link href="/docs">
+              <BookOpen className="h-6 w-6 text-primary" />
+              <span className="font-display text-sm font-semibold">Documentation</span>
+              <span className="text-xs text-muted-foreground">Features, APIs & guides</span>
             </Link>
           </Button>
         </div>

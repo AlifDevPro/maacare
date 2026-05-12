@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
-import { formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { Activity, Loader2, Shield, Stethoscope } from "lucide-react";
 import { toast } from "sonner";
 
@@ -48,9 +48,12 @@ type MemberProfile = {
   profession: string | null;
   professionLabel: string | null;
   language: string;
+  languageLabel: string;
   communityShowExtendedProfile: boolean;
   verifiedProfessional: boolean;
   showExtendedToViewer: boolean;
+  postCount: number;
+  commentCount: number;
   pregnancy: {
     gestationalWeek: number | null;
     eddDate: string | null;
@@ -215,7 +218,20 @@ export default function CommunityMemberPage() {
   }
 
   const preg = profile.pregnancy;
-  const showPregnancyBlock = profile.showExtendedToViewer && preg && (preg.gestationalWeek != null || preg.eddDate);
+  let joinedDateLabel: string | null = null;
+  try {
+    joinedDateLabel = format(new Date(profile.memberSince), "MMM d, yyyy");
+  } catch {
+    joinedDateLabel = null;
+  }
+  const hasPregnancyDetail =
+    !!preg &&
+    (preg.gestationalWeek != null ||
+      (preg.eddDate != null && String(preg.eddDate).trim() !== "") ||
+      (preg.pregnancyStatus != null && String(preg.pregnancyStatus).trim() !== ""));
+  const showPregnancyBlock = profile.showExtendedToViewer && hasPregnancyDetail;
+  const showExtendedOnCopy =
+    profile.showExtendedToViewer && user?.id !== profile.id && !hasPregnancyDetail;
 
   return (
     <AppShell>
@@ -248,9 +264,21 @@ export default function CommunityMemberPage() {
               <p className="font-display text-lg font-semibold leading-tight">{profile.displayName}</p>
               <p className="text-[11px] text-muted-foreground">
                 Member since {formatDistanceToNow(new Date(profile.memberSince), { addSuffix: true })}
+                {joinedDateLabel ? ` · ${joinedDateLabel}` : ""}
               </p>
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                <span className="rounded-full border border-border/70 bg-muted/40 px-2.5 py-1 font-medium tabular-nums text-foreground/85">
+                  {profile.postCount ?? 0} posts
+                </span>
+                <span className="rounded-full border border-border/70 bg-muted/40 px-2.5 py-1 font-medium tabular-nums text-foreground/85">
+                  {profile.commentCount ?? 0} replies
+                </span>
+                <span className="rounded-full border border-border/70 bg-muted/40 px-2.5 py-1 font-medium text-foreground/85">
+                  {profile.languageLabel ?? (profile.language === "bn" ? "Bengali" : "English")}
+                </span>
+              </div>
               {profile.professionLabel ? (
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-2 text-xs text-muted-foreground">
                   <span className="font-medium text-foreground/80">Profession:</span> {profile.professionLabel}
                 </p>
               ) : null}
@@ -260,17 +288,23 @@ export default function CommunityMemberPage() {
                   Pregnancy week details are hidden — this member has not enabled extended community profile.
                 </p>
               ) : null}
+              {showExtendedOnCopy ? (
+                <p className="mt-2 rounded-lg border border-primary/25 bg-primary-soft/30 px-3 py-2 text-[11px] leading-relaxed text-foreground/90">
+                  Extended community profile is on. Pregnancy week and due date will show here once they are saved in
+                  pregnancy settings.
+                </p>
+              ) : null}
               {showPregnancyBlock ? (
-                <div className="mt-3 rounded-xl border border-border/80 bg-muted/30 px-3 py-2 text-xs">
-                  <p className="font-semibold text-foreground/90">Pregnancy (shared)</p>
+                <div className="mt-3 rounded-xl border border-border/80 bg-muted/30 px-3 py-2.5 text-xs">
+                  <p className="font-semibold text-foreground/90">Pregnancy journey (shared with members)</p>
                   {preg?.gestationalWeek != null ? (
-                    <p className="mt-0.5 text-muted-foreground">About week {preg.gestationalWeek}</p>
+                    <p className="mt-1 text-muted-foreground">About week {preg.gestationalWeek}</p>
                   ) : null}
                   {preg?.eddDate ? (
-                    <p className="text-muted-foreground">EDD {preg.eddDate}</p>
+                    <p className="text-muted-foreground">Due date {preg.eddDate}</p>
                   ) : null}
                   {preg?.pregnancyStatus ? (
-                    <p className="text-muted-foreground capitalize">Status: {preg.pregnancyStatus.replace(/_/g, " ")}</p>
+                    <p className="mt-0.5 capitalize text-muted-foreground">Status: {preg.pregnancyStatus.replace(/_/g, " ")}</p>
                   ) : null}
                 </div>
               ) : null}

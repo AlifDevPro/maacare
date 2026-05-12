@@ -4,7 +4,6 @@ import { z } from "zod";
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { gestationalWeekFromLmp } from "@/lib/profile/computed";
-import { tryCreateSupabaseServiceClient } from "@/lib/supabase/service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
@@ -61,9 +60,7 @@ export async function GET(
     } | null = null;
 
     if (showExtended) {
-      const pregClient =
-        isSelf ? supabase : (tryCreateSupabaseServiceClient() ?? supabase);
-      const { data: preg } = await pregClient
+      const { data: preg } = await supabase
         .from("pregnancy_profiles")
         .select("gestational_age_weeks, lmp_date, edd_date, pregnancy_status")
         .eq("user_id", uid)
@@ -162,6 +159,22 @@ export async function GET(
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 30);
 
+    const [{ count: postCountExact }, { count: commentCountExact }] = await Promise.all([
+      supabase
+        .from("community_posts")
+        .select("id", { count: "exact", head: true })
+        .eq("author_id", uid)
+        .eq("moderation_status", "visible"),
+      supabase
+        .from("community_comments")
+        .select("id", { count: "exact", head: true })
+        .eq("author_id", uid)
+        .eq("moderation_status", "visible"),
+    ]);
+
+    const postCount = typeof postCountExact === "number" ? postCountExact : posts.length;
+    const commentCount = typeof commentCountExact === "number" ? commentCountExact : commentRowsSafe.length;
+
     const professionLabel =
       profile.profession === "clinician"
         ? "Clinician"
@@ -173,6 +186,9 @@ export async function GET(
               ? String(profile.profession)
               : null;
 
+    const lang = (profile.language as string | null) ?? "en";
+    const languageLabel = lang === "bn" ? "Bengali" : "English";
+
     return Response.json({
       profile: {
         id: profile.id as string,
@@ -182,11 +198,14 @@ export async function GET(
         memberSince: profile.created_at as string,
         profession: (profile.profession as string | null) ?? null,
         professionLabel,
-        language: (profile.language as string | null) ?? "en",
+        language: lang,
+        languageLabel,
         communityShowExtendedProfile: profile.community_show_extended_profile === true,
         verifiedProfessional: profile.verified_professional === true,
         showExtendedToViewer: showExtended,
         pregnancy: pregnancyPublic,
+        postCount,
+        commentCount,
       },
       posts,
       activity,

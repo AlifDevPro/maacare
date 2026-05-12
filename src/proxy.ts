@@ -18,6 +18,11 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.has(pathname);
 }
 
+/** Product documentation (readable without sign-in; does not expose secrets). */
+function isPublicDocsPath(pathname: string): boolean {
+  return pathname === "/docs" || pathname.startsWith("/docs/");
+}
+
 function isPublicAuthApi(pathname: string): boolean {
   return pathname.startsWith("/api/auth/");
 }
@@ -102,6 +107,10 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(new URL("/", request.url));
     }
 
+    return response;
+  }
+
+  if (isPublicDocsPath(pathname)) {
     return response;
   }
 

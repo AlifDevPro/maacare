@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { formatDistanceToNow } from "date-fns";
-import { CornerDownRight, Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Stethoscope, Trash2 } from "lucide-react";
+import { Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Stethoscope, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
@@ -49,14 +49,17 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useSession } from "@/lib/auth-client";
 import { CommunityAvatar } from "@/components/community/community-avatar";
+import {
+  CommunityCommentThread,
+  type CommunityCommentNode as CommentNode,
+  type CommunityCommentRow as CommentRow,
+} from "@/components/community/community-comment-thread";
 import { CommunityPostBody } from "@/components/community/community-post-body";
 import { CommunityRichEditor } from "@/components/community/community-rich-editor";
 import { cn } from "@/lib/utils";
 import {
   COMMUNITY_ACTION,
   COMMUNITY_ACTION_ICON,
-  COMMUNITY_COMMENT_ACTION,
-  COMMUNITY_COMMENT_ACTION_ICON,
 } from "@/lib/community/action-row-styles";
 import { useCommunityPostRealtime } from "@/hooks/use-community-post-realtime";
 
@@ -76,21 +79,6 @@ type PostPayload = {
   commentCount: number;
   likedByMe: boolean;
 };
-
-type CommentRow = {
-  id: string;
-  body: string;
-  createdAt: string;
-  parentCommentId: string | null;
-  authorId?: string;
-  authorDisplayName: string;
-  authorRole: string;
-  authorAvatarUrl?: string | null;
-  authorProfession?: string | null;
-  authorVerifiedProfessional?: boolean;
-};
-
-type CommentNode = CommentRow & { children: CommentNode[] };
 
 function kindLabel(kind: string): string {
   if (kind === "question") return "Question";
@@ -752,21 +740,17 @@ export default function PostDetailPage() {
         </Card>
 
         <h2 className="font-display text-sm font-semibold">Replies</h2>
-        <div className="space-y-2">
+        <div className="min-h-0">
           {comments.length === 0 ? (
             <p className="text-sm text-muted-foreground">No replies yet — add a kind note below.</p>
           ) : (
-            roots.map((node) => (
-              <CommentTree
-                key={node.id}
-                node={node}
-                depth={0}
-                postId={post.id}
-                isModerator={isModerator}
-                onReply={(id) => setReplyToCommentId(id)}
-                onModerated={() => void refreshPostDetailSilent()}
-              />
-            ))
+            <CommunityCommentThread
+              roots={roots}
+              postId={post.id}
+              isModerator={isModerator}
+              onReply={(id) => setReplyToCommentId(id)}
+              onModerated={() => void refreshPostDetailSilent()}
+            />
           )}
         </div>
       </div>
@@ -823,146 +807,5 @@ export default function PostDetailPage() {
         </form>
       </div>
     </AppShell>
-  );
-}
-
-function CommentTree({
-  node,
-  depth,
-  onReply,
-  postId,
-  isModerator,
-  onModerated,
-}: {
-  node: CommentNode;
-  depth: number;
-  onReply: (id: string) => void;
-  postId: string;
-  isModerator: boolean;
-  onModerated: () => void | Promise<void>;
-}) {
-  const safeDepth = Math.min(depth, 4);
-
-  const verifiedDoctor = node.authorVerifiedProfessional && node.authorProfession === "clinician";
-
-  async function hideComment() {
-    try {
-      const res = await fetch(`/api/community/posts/${postId}/comments/${node.id}/moderate`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "hidden" }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { message?: string };
-      if (!res.ok) throw new Error(j.message ?? "Could not hide reply");
-      toast.success("Reply hidden.");
-      await onModerated();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not hide reply");
-    }
-  }
-
-  return (
-    <div className={safeDepth > 0 ? "ml-5 border-l-2 border-border/80 pl-3" : ""}>
-      <div className="flex items-start gap-2.5">
-        <CommunityAvatar
-          url={node.authorAvatarUrl}
-          name={node.authorDisplayName}
-          className="h-8 w-8"
-          fallbackClassName="bg-accent-soft text-xs font-semibold text-accent"
-        />
-        <div className="min-w-0 flex-1">
-          <div
-            className={cn(
-              "rounded-2xl bg-muted px-3 py-2",
-              verifiedDoctor && "ring-1 ring-sky-500/40 shadow-[0_0_0_1px_rgba(14,165,233,0.12)]",
-            )}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {node.authorId ? (
-                  <Link
-                    href={`/community/member/${node.authorId}`}
-                    className="text-sm font-semibold text-primary hover:underline"
-                  >
-                    {node.authorDisplayName}
-                  </Link>
-                ) : (
-                  <p className="text-sm font-semibold">{node.authorDisplayName}</p>
-                )}
-                {node.authorRole === "admin" ? (
-                  <Badge
-                    variant="outline"
-                    className="h-5 gap-0.5 border-amber-500/50 bg-amber-500/10 px-1.5 text-[10px] font-semibold uppercase text-amber-900 shadow-[0_0_8px_rgba(245,158,11,0.25)] dark:text-amber-100"
-                  >
-                    <Shield className="h-3 w-3" />
-                    Admin
-                  </Badge>
-                ) : null}
-                {node.authorRole === "moderator" ? (
-                  <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-semibold uppercase">
-                    Mod
-                  </Badge>
-                ) : null}
-                {node.authorVerifiedProfessional && node.authorProfession === "clinician" ? (
-                  <Badge
-                    variant="outline"
-                    className="h-5 gap-0.5 border-sky-500/50 bg-sky-500/10 px-1.5 text-[10px] font-semibold uppercase text-sky-900 shadow-[0_0_10px_rgba(14,165,233,0.3)] dark:text-sky-100"
-                  >
-                    <Stethoscope className="h-3 w-3" />
-                    Verified
-                  </Badge>
-                ) : null}
-              </div>
-              <span className="text-[11px] text-muted-foreground">
-                {formatDistanceToNow(new Date(node.createdAt), { addSuffix: true })}
-              </span>
-            </div>
-            <p className="mt-0.5 text-sm whitespace-pre-wrap text-foreground/90">{node.body}</p>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1 pl-0.5 sm:pl-2">
-            <button
-              type="button"
-              className={cn(
-                COMMUNITY_COMMENT_ACTION,
-                "text-muted-foreground hover:text-primary",
-              )}
-              onClick={() => onReply(node.id)}
-            >
-              <CornerDownRight className={cn("h-4 w-4", COMMUNITY_COMMENT_ACTION_ICON)} />
-              Reply
-            </button>
-            {isModerator ? (
-              <button
-                type="button"
-                className={cn(
-                  COMMUNITY_COMMENT_ACTION,
-                  "text-muted-foreground hover:text-destructive",
-                )}
-                onClick={() => void hideComment()}
-              >
-                Hide
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      {node.children.length ? (
-        <div className="mt-1.5 space-y-1.5">
-          {node.children.map((child) => (
-            <CommentTree
-              key={child.id}
-              node={child}
-              depth={safeDepth + 1}
-              postId={postId}
-              isModerator={isModerator}
-              onReply={onReply}
-              onModerated={onModerated}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
   );
 }

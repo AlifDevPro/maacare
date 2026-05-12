@@ -74,8 +74,12 @@ function SiteHeader() {
           <a href="#how" className="text-sm font-medium text-muted-foreground hover:text-foreground">How it works</a>
           <a href="#pricing" className="text-sm font-medium text-muted-foreground hover:text-foreground">Pricing</a>
           <a href="#faq" className="text-sm font-medium text-muted-foreground hover:text-foreground">FAQ</a>
+          <Link href="/docs" className="text-sm font-medium text-muted-foreground hover:text-foreground">Docs</Link>
         </nav>
         <div className="flex items-center gap-2">
+          <Button asChild variant="ghost" size="sm" className="sm:hidden">
+            <Link href="/docs">Docs</Link>
+          </Button>
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
             <Link href="/login">Log in</Link>
           </Button>
@@ -333,6 +337,12 @@ function SiteFooter() {
             <span className="font-display text-lg font-semibold">MaaCare</span>
           </Link>
           <p className="mt-3 text-sm text-muted-foreground">AI maternal health companion. Calm, accurate, accessible.</p>
+          <Link
+            href="/docs"
+            className="mt-4 inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Documentation
+          </Link>
         </div>
         <FooterCol title="Product" items={["Features", "How it works", "Pricing", "FAQ"]} />
         <FooterCol title="Company" items={["About", "Blog", "Careers", "Contact"]} />
