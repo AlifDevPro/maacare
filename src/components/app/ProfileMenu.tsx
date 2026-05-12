@@ -150,11 +150,15 @@ export function ProfileMenu() {
             </Link>
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem disabled>
-          <Settings className="mr-2 h-4 w-4" /> Settings
+        <DropdownMenuItem asChild>
+          <Link href="/settings" className="cursor-pointer">
+            <Settings className="mr-2 h-4 w-4" /> Settings
+          </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem disabled>
-          <HelpCircle className="mr-2 h-4 w-4" /> Help & support
+        <DropdownMenuItem asChild>
+          <Link href="/help" className="cursor-pointer">
+            <HelpCircle className="mr-2 h-4 w-4" /> Help & support
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

@@ -149,7 +149,7 @@ export async function registerAccount(
   try {
     const supabase = createSupabaseBrowserClient();
     const origin = window.location.origin.replace(/\/+$/, "");
-    const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/app")}`;
+    const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/app")}&flow=signup`;
 
     const { data, error } = await supabase.auth.signUp({
       email: email.toLowerCase().trim(),
