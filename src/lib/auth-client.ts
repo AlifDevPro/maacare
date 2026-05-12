@@ -173,36 +173,95 @@ export async function registerAccount(
   return { ok: true, user: data.user };
 }
 
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
 export async function requestPasswordReset(
   email: string,
 ): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
-  const res = await fetch("/api/auth/forgot-password", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ email }),
-  });
-  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
-  if (!res.ok) {
-    return { ok: false, error: data.message ?? data.error ?? "Could not send reset email." };
+  try {
+    /**
+     * Must run in the browser so the PKCE code verifier is stored in the same
+     * cookie/storage that `exchangeCodeForSession` uses on `/auth/callback`.
+     * Server-initiated `resetPasswordForEmail` breaks the link flow (verifier missing).
+     */
+    const supabase = createSupabaseBrowserClient();
+    const origin = window.location.origin.replace(/\/+$/, "");
+    const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/reset-password")}`;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email.toLowerCase().trim(), {
+      redirectTo,
+    });
+
+    if (error) {
+      const msg = error.message.toLowerCase();
+      const rateLimited =
+        msg.includes("rate") || msg.includes("too many") || (error as { status?: number }).status === 429;
+      if (rateLimited) {
+        return {
+          ok: false,
+          error: "Too many reset attempts. Please wait a few minutes before trying again.",
+        };
+      }
+      return {
+        ok: false,
+        error:
+          error.message ||
+          "We could not send the reset email. Check Supabase Auth email / SMTP settings and try again.",
+      };
+    }
+
+    return {
+      ok: true,
+      message:
+        "If an account exists for that email, we've sent a reset link. Check your inbox and spam folder.",
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not send reset email.";
+    return { ok: false, error: message };
   }
-  return { ok: true, message: data.message ?? "Check your email." };
 }
 
 export async function sendLoginEmailOtp(
   email: string,
 ): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
-  const res = await fetch("/api/auth/send-login-otp", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ email }),
-  });
-  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
-  if (!res.ok) {
-    return { ok: false, error: data.message ?? data.error ?? "Could not send a code." };
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const origin = window.location.origin.replace(/\/+$/, "");
+    const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/app")}`;
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.toLowerCase().trim(),
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo,
+      },
+    });
+
+    if (error) {
+      console.warn("[auth/send-login-otp]", error.message);
+      const msg = error.message.toLowerCase();
+      const notFound =
+        msg.includes("signups not allowed") ||
+        msg.includes("user not found") ||
+        (error as { code?: string }).code === "otp_disabled";
+      if (notFound) {
+        return {
+          ok: false,
+          error:
+            "No account found for that email, or passwordless sign-in is disabled. Try signing up or use your password.",
+        };
+      }
+      return { ok: false, error: error.message || "Could not send a code. Try again in a moment." };
+    }
+
+    return {
+      ok: true,
+      message: "Check your email for a sign-in code or link.",
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not send a code.";
+    return { ok: false, error: message };
   }
-  return { ok: true, message: data.message ?? "Check your email." };
 }
 
 export async function verifyLoginEmailOtp(
