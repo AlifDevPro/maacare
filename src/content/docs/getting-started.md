@@ -33,4 +33,5 @@ Open [/profile](/profile) to set display name, avatar, and pregnancy-related fie
 ## Next steps
 
 - [User guide](/docs/user-guide) for everyday tasks  
+- [Visual guides](/docs/visual-guides) for diagrams and a screen map  
 - [Features](/docs/features) for a map of every major screen  

@@ -37,7 +37,11 @@ export function DocsChrome({ children }: { children: React.ReactNode }) {
 
       <div className="mx-auto flex max-w-7xl gap-8 px-4 pb-20 pt-6 lg:pt-8">
         <DocsSidebar pathname={pathname} />
-        <main className="min-w-0 flex-1 max-w-4xl">{children}</main>
+        <main className="min-w-0 flex-1 max-w-4xl">
+          <div className="rounded-3xl border border-border/60 bg-card/35 p-6 shadow-[0_1px_0_rgba(0,0,0,0.04)_inset] backdrop-blur-sm md:p-8 lg:p-10 dark:bg-card/25 dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
+            {children}
+          </div>
+        </main>
       </div>
     </div>
   );

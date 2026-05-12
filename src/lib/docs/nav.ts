@@ -11,6 +11,7 @@ export const DOCS_NAV: DocsNavItem[] = [
   { title: "Getting started", href: "/docs/getting-started" },
   { title: "Features", href: "/docs/features" },
   { title: "User guide", href: "/docs/user-guide" },
+  { title: "Visual guides", href: "/docs/visual-guides" },
   {
     title: "API reference",
     href: "/docs/api",
@@ -39,6 +40,10 @@ export const DOCS_MARKDOWN_SLUGS = [
 ] as const;
 
 export type DocsMarkdownSlug = (typeof DOCS_MARKDOWN_SLUGS)[number];
+
+export function isVisualGuidesSlug(segments: string[] | undefined): boolean {
+  return Array.isArray(segments) && segments.length === 1 && segments[0] === "visual-guides";
+}
 
 export function isMarkdownDocsSlug(segments: string[] | undefined): segments is [DocsMarkdownSlug] {
   return (

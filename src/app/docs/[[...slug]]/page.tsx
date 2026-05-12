@@ -4,11 +4,13 @@ import { notFound } from "next/navigation";
 import { ApiReferencePage } from "@/components/docs/api-reference-page";
 import { FeaturesCatalogTable } from "@/components/docs/features-catalog-table";
 import { MarkdownDoc } from "@/components/docs/markdown-doc";
+import { VisualGuidesPage } from "@/components/docs/visual-guides-page";
 import { loadDocsMarkdown } from "@/lib/docs/load-doc";
 import {
   docsMarkdownFileForSlug,
   isApiDocsSlug,
   isMarkdownDocsSlug,
+  isVisualGuidesSlug,
   parseApiDocsSlug,
   type DocsMarkdownSlug,
 } from "@/lib/docs/nav";
@@ -40,6 +42,7 @@ function titleForSlug(slug: string[] | undefined): string {
     "user-guide": "User guide",
     algorithms: "Algorithms",
     architecture: "Architecture",
+    "visual-guides": "Visual guides",
   };
   return map[one ?? ""] ?? "Documentation";
 }
@@ -49,7 +52,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   if (isApiDocsSlug(slug) && parseApiDocsSlug(slug) === null) {
     return { title: "Not found — MaaCare Documentation", robots: { index: false, follow: true } };
   }
-  if (slug?.length && !isApiDocsSlug(slug) && !isMarkdownDocsSlug(slug) && slug.length > 0) {
+  if (
+    slug?.length &&
+    !isApiDocsSlug(slug) &&
+    !isMarkdownDocsSlug(slug) &&
+    !isVisualGuidesSlug(slug) &&
+    slug.length > 0
+  ) {
     return { title: "Not found — MaaCare Documentation", robots: { index: false, follow: true } };
   }
   return {
@@ -73,12 +82,16 @@ export default async function DocsSlugPage({ params }: PageProps) {
     return <MarkdownDoc content={content} />;
   }
 
+  if (isVisualGuidesSlug(slug)) {
+    return <VisualGuidesPage />;
+  }
+
   if (isMarkdownDocsSlug(slug)) {
     const key = slug[0] as DocsMarkdownSlug;
     const content = await loadDocsMarkdown(docsMarkdownFileForSlug(key));
     if (key === "features") {
       return (
-        <div>
+        <div className="space-y-12">
           <MarkdownDoc content={content} />
           <FeaturesCatalogTable />
         </div>

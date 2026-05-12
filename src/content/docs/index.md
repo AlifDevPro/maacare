@@ -15,6 +15,7 @@ MaaCare is **not** a substitute for a qualified clinician. AI output is for educ
 - [Getting started](/docs/getting-started) — account, language, and navigation
 - [Features](/docs/features) — product surface map and deep links
 - [User guide](/docs/user-guide) — task-oriented flows
+- [Visual guides](/docs/visual-guides) — diagrams, screen map, and safe-chat checklist
 - [API reference](/docs/api) — HTTP Route Handlers (for integrators and contributors)
 - [Algorithms](/docs/algorithms) — how the AI and retrieval layers behave
 - [Architecture](/docs/architecture) — system shape at a glance

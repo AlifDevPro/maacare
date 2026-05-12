@@ -1,6 +1,8 @@
 # User guide
 
-Task-oriented flows for the web app. Adjust labels if your deployment differs slightly.
+Task-oriented flows for the web app. Prefer the companion [Visual guides](/docs/visual-guides) page for diagrams and a screen map.
+
+Adjust labels if your deployment differs slightly.
 
 ## Use AI chat safely
 
