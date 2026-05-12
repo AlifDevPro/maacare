@@ -52,6 +52,12 @@ import { CommunityAvatar } from "@/components/community/community-avatar";
 import { CommunityPostBody } from "@/components/community/community-post-body";
 import { CommunityRichEditor } from "@/components/community/community-rich-editor";
 import { cn } from "@/lib/utils";
+import {
+  COMMUNITY_ACTION,
+  COMMUNITY_ACTION_ICON,
+  COMMUNITY_COMMENT_ACTION,
+  COMMUNITY_COMMENT_ACTION_ICON,
+} from "@/lib/community/action-row-styles";
 
 type PostPayload = {
   id: string;
@@ -625,8 +631,8 @@ export default function PostDetailPage() {
             <div className="absolute right-2 top-2 z-10">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button type="button" size="icon" variant="ghost" className="h-8 w-8 rounded-full" aria-label="Post options">
-                    <MoreHorizontal className="h-4 w-4" />
+                  <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label="Post options">
+                    <MoreHorizontal className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="z-[100]">
@@ -643,8 +649,8 @@ export default function PostDetailPage() {
             <div className="absolute right-2 top-2 z-10">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button type="button" size="icon" variant="ghost" className="h-8 w-8 rounded-full" aria-label="Moderate post">
-                    <Shield className="h-4 w-4" />
+                  <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label="Moderate post">
+                    <Shield className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="z-[100]">
@@ -679,25 +685,44 @@ export default function PostDetailPage() {
           </div>
           {post.title ? <p className="mb-2 font-display text-base font-semibold">{post.title}</p> : null}
           <CommunityPostBody body={post.body} bodyFormat={post.bodyFormat} className="text-sm" />
-          <div className="mt-3 flex items-center gap-4 text-sm text-muted-foreground">
+          <div className="mt-3 flex flex-wrap items-center gap-1">
             <button
               type="button"
-              className={`flex items-center gap-1.5 rounded-lg px-1 py-0.5 transition-colors hover:text-primary disabled:opacity-60 ${post.likedByMe ? "text-primary" : ""}`}
+              className={cn(
+                COMMUNITY_ACTION,
+                post.likedByMe ? "text-primary hover:bg-primary/10" : "text-muted-foreground",
+              )}
               onClick={() => void toggleLike()}
               disabled={pendingLike}
+              aria-label={post.likedByMe ? "Unlike" : "Like"}
             >
-              <Heart className={`h-4 w-4 ${post.likedByMe ? "fill-current" : ""}`} /> {post.likeCount}
+              <Heart
+                className={cn(
+                  "h-5 w-5",
+                  COMMUNITY_ACTION_ICON,
+                  post.likedByMe && "fill-current",
+                  pendingLike && "scale-110 animate-pulse",
+                )}
+              />
+              <span>{post.likeCount}</span>
             </button>
-            <span className="flex items-center gap-1.5">
-              <MessageCircle className="h-4 w-4" /> {post.commentCount}
-            </span>
+            <a
+              href="#community-reply-composer"
+              className={cn(COMMUNITY_ACTION, "text-muted-foreground no-underline")}
+              aria-label={`${post.commentCount} comments — focus composer`}
+            >
+              <MessageCircle className={cn("h-5 w-5", COMMUNITY_ACTION_ICON)} />
+              <span>{post.commentCount}</span>
+            </a>
             {!isOwner ? (
               <button
                 type="button"
-                className="flex items-center gap-1.5 rounded-lg px-1 py-0.5 transition-colors hover:text-destructive"
+                className={cn(COMMUNITY_ACTION, "text-muted-foreground hover:text-destructive")}
                 onClick={() => setReportOpen(true)}
+                aria-label="Report post"
               >
-                <Flag className="h-4 w-4" /> Report
+                <Flag className={cn("h-5 w-5", COMMUNITY_ACTION_ICON)} />
+                <span>Report</span>
               </button>
             ) : null}
           </div>
@@ -724,7 +749,8 @@ export default function PostDetailPage() {
       </div>
 
       <div
-        className="fixed inset-x-0 z-30 mx-auto max-w-md border-t border-border/60 bg-background/95 px-3 pt-2 backdrop-blur-xl"
+        id="community-reply-composer"
+        className="fixed inset-x-0 z-30 mx-auto max-w-md scroll-mt-4 border-t border-border/60 bg-background/95 px-3 pt-2 backdrop-blur-xl"
         style={{
           bottom: "calc(env(safe-area-inset-bottom) + 5.75rem)",
         }}
@@ -736,7 +762,7 @@ export default function PostDetailPage() {
             </span>
             <button
               type="button"
-              className="text-primary"
+              className="min-h-10 shrink-0 touch-manipulation rounded-lg px-3 py-2 text-xs font-semibold text-primary transition-[transform,opacity] duration-150 active:scale-[0.96] motion-reduce:active:scale-100"
               onClick={() => setReplyToCommentId(null)}
             >
               Cancel
@@ -747,17 +773,17 @@ export default function PostDetailPage() {
           onSubmit={(e) => void sendReply(e)}
           className="flex items-center gap-2 rounded-2xl border border-border bg-card px-2 py-1.5"
         >
-          <span className="flex h-8 w-8 shrink-0">
+          <span className="flex h-9 w-9 shrink-0">
             <CommunityAvatar
               url={user?.avatarUrl}
               name={user?.name ?? user?.email ?? "You"}
-              className="h-8 w-8"
+              className="h-9 w-9"
               fallbackClassName="bg-primary-soft text-xs font-semibold"
             />
           </span>
           <input
             placeholder={replyToCommentId ? "Write a reply…" : "Add a kind comment…"}
-            className="h-9 flex-1 rounded-full bg-muted px-3 text-sm outline-none placeholder:text-muted-foreground"
+            className="min-h-11 flex-1 rounded-full bg-muted px-3 text-sm outline-none placeholder:text-muted-foreground"
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             disabled={sending}
@@ -765,7 +791,7 @@ export default function PostDetailPage() {
           <Button
             type="submit"
             size="icon"
-            className="h-9 w-9 rounded-full"
+            className="rounded-full"
             aria-label="Send"
             disabled={!reply.trim() || sending}
           >
@@ -871,18 +897,25 @@ function CommentTree({
             </div>
             <p className="mt-0.5 text-sm whitespace-pre-wrap text-foreground/90">{node.body}</p>
           </div>
-          <div className="mt-1 flex items-center gap-3 pl-2">
+          <div className="mt-1 flex flex-wrap items-center gap-1 pl-0.5 sm:pl-2">
             <button
               type="button"
-              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
+              className={cn(
+                COMMUNITY_COMMENT_ACTION,
+                "text-muted-foreground hover:text-primary",
+              )}
               onClick={() => onReply(node.id)}
             >
-              <CornerDownRight className="h-3.5 w-3.5" /> Reply
+              <CornerDownRight className={cn("h-4 w-4", COMMUNITY_COMMENT_ACTION_ICON)} />
+              Reply
             </button>
             {isModerator ? (
               <button
                 type="button"
-                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-destructive"
+                className={cn(
+                  COMMUNITY_COMMENT_ACTION,
+                  "text-muted-foreground hover:text-destructive",
+                )}
                 onClick={() => void hideComment()}
               >
                 Hide

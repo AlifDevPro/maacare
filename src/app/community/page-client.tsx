@@ -62,6 +62,7 @@ import { CommunityPostBody } from "@/components/community/community-post-body";
 import { CommunityRichEditor } from "@/components/community/community-rich-editor";
 import { isRichPostBodyEmpty } from "@/lib/community/rich-post-empty";
 import { cn } from "@/lib/utils";
+import { COMMUNITY_ACTION, COMMUNITY_ACTION_ICON } from "@/lib/community/action-row-styles";
 
 const FEED_SCROLL_KEY = "maacare:community-feed-scroll-y";
 
@@ -361,13 +362,13 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
         showNotifications
         right={
           <div className="flex items-center gap-0.5">
-            <Button asChild variant="ghost" size="sm" className="h-9 rounded-xl px-2 text-xs font-semibold">
+            <Button asChild variant="ghost" size="sm" className="min-h-11 rounded-xl px-3 text-xs font-semibold sm:h-9">
               <Link href="/profile">Profile</Link>
             </Button>
             <Button
               size="icon"
               variant="ghost"
-              className="h-9 w-9"
+              className="rounded-xl"
               aria-label="New post"
               type="button"
               onClick={() => openCreatePost()}
@@ -561,7 +562,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
         <button
           type="button"
           onClick={() => openCreatePost()}
-          className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-3 text-left shadow-sm transition-colors hover:bg-muted/40"
+          className="flex w-full min-h-[3.25rem] items-center gap-3 rounded-2xl border border-border bg-card p-3 text-left shadow-sm transition-transform duration-150 ease-out active:scale-[0.99] hover:bg-muted/40 motion-reduce:active:scale-100"
         >
           <CommunityAvatar
             url={user?.avatarUrl}
@@ -578,7 +579,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
             type="button"
             onClick={() => setFeedSort("new")}
             className={cn(
-              "flex-1 border-b-2 pb-2 text-xs font-semibold transition-colors",
+              "min-h-11 flex-1 border-b-2 py-2.5 text-xs font-semibold transition-[transform,colors] duration-150 active:scale-[0.98] motion-reduce:active:scale-100",
               feedSort === "new"
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",
@@ -590,13 +591,13 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
             type="button"
             onClick={() => setFeedSort("trending")}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1 border-b-2 pb-2 text-xs font-semibold transition-colors",
+              "flex min-h-11 flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 text-xs font-semibold transition-[transform,colors] duration-150 active:scale-[0.98] motion-reduce:active:scale-100",
               feedSort === "trending"
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
-            <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+            <TrendingUp className="h-4 w-4 shrink-0" />
             Trending
           </button>
         </div>
@@ -650,8 +651,8 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                     <div className="absolute right-2 top-3 z-10">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button type="button" size="icon" variant="ghost" className="h-8 w-8 rounded-full bg-card/80 backdrop-blur-sm" aria-label="Post options">
-                            <MoreHorizontal className="h-4 w-4" />
+                          <Button type="button" size="icon" variant="ghost" className="rounded-full bg-card/80 backdrop-blur-sm" aria-label="Post options">
+                            <MoreHorizontal className="h-5 w-5" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="z-[100]">
@@ -694,32 +695,45 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                       </div>
                     </Link>
                   </div>
-                  <div className="flex items-center gap-4 px-4 pb-4 pt-1 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-1 px-2 pb-3 pt-1 sm:px-4">
                     <button
                       type="button"
                       className={cn(
-                        "flex items-center gap-1 rounded-lg px-1 py-0.5 transition-colors hover:text-primary disabled:opacity-60",
-                        p.likedByMe && "text-primary",
+                        COMMUNITY_ACTION,
+                        p.likedByMe ? "text-primary hover:bg-primary/10" : "text-muted-foreground",
                       )}
                       onClick={() => void toggleLike(p.id)}
                       disabled={pendingLikeIds.has(p.id)}
+                      aria-label={p.likedByMe ? "Unlike" : "Like"}
                     >
-                      <Heart className={cn("h-3.5 w-3.5", p.likedByMe && "fill-current")} /> {p.likeCount}
+                      <Heart
+                        className={cn(
+                          "h-5 w-5",
+                          COMMUNITY_ACTION_ICON,
+                          p.likedByMe && "fill-current",
+                          pendingLikeIds.has(p.id) && "scale-110 animate-pulse",
+                        )}
+                      />
+                      <span>{p.likeCount}</span>
                     </button>
                     <Link
                       href={`/community/${p.id}`}
                       onClick={saveFeedScroll}
-                      className="flex items-center gap-1 rounded-lg px-1 py-0.5 transition-colors hover:text-primary"
+                      className={cn(COMMUNITY_ACTION, "text-muted-foreground no-underline")}
+                      aria-label={`${p.commentCount} comments`}
                     >
-                      <MessageCircle className="h-3.5 w-3.5" /> {p.commentCount}
+                      <MessageCircle className={cn("h-5 w-5", COMMUNITY_ACTION_ICON)} />
+                      <span>{p.commentCount}</span>
                     </Link>
                     {!isOwner ? (
                       <button
                         type="button"
-                        className="flex items-center gap-1 rounded-lg px-1 py-0.5 transition-colors hover:text-destructive"
+                        className={cn(COMMUNITY_ACTION, "text-muted-foreground hover:text-destructive")}
                         onClick={() => setReportPost(p)}
+                        aria-label="Report post"
                       >
-                        <Flag className="h-3.5 w-3.5" /> Report
+                        <Flag className={cn("h-5 w-5", COMMUNITY_ACTION_ICON)} />
+                        <span>Report</span>
                       </button>
                     ) : null}
                   </div>
