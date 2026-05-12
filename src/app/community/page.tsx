@@ -13,7 +13,7 @@ async function getInitialPosts(): Promise<FeedPost[]> {
 
     const res = await fetch(`${origin}/api/community/posts?limit=30`, {
       headers: { cookie: c.toString() },
-      next: { revalidate: 30 },
+      cache: "no-store",
     });
 
     if (!res.ok) return [];

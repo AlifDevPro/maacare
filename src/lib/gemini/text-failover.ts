@@ -20,11 +20,15 @@ async function generateWithGemini(
   apiKey: string,
   systemInstruction: string,
   userMessage: string,
+  options?: { temperature?: number },
 ): Promise<string> {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
     model: getChatModelName(),
     systemInstruction,
+    ...(options?.temperature != null
+      ? { generationConfig: { temperature: options.temperature } }
+      : {}),
   });
   const result = await model.generateContent(userMessage);
   return result.response.text().trim();
@@ -75,12 +79,17 @@ export async function generateWithGroq(
 export async function generateTextWithGeminiGroqFailover(input: {
   systemInstruction: string;
   userMessage: string;
+  /** When set, both Gemini and Groq use this temperature (otherwise model defaults / Groq 0.4). */
+  temperature?: number;
 }): Promise<{ text: string; provider: "gemini" | "groq" }> {
   const errors: string[] = [];
+  const temp = input.temperature;
 
   for (const key of getGeminiApiKeys()) {
     try {
-      const reply = await generateWithGemini(key, input.systemInstruction, input.userMessage);
+      const reply = await generateWithGemini(key, input.systemInstruction, input.userMessage, {
+        temperature: temp,
+      });
       if (reply) return { text: reply, provider: "gemini" };
       errors.push("gemini: empty response");
     } catch (e) {
@@ -92,7 +101,9 @@ export async function generateTextWithGeminiGroqFailover(input: {
 
   for (const key of getGroqApiKeys()) {
     try {
-      const reply = await generateWithGroq(key, input.systemInstruction, input.userMessage);
+      const reply = await generateWithGroq(key, input.systemInstruction, input.userMessage, {
+        temperature: temp ?? 0.4,
+      });
       if (reply) return { text: reply, provider: "groq" };
       errors.push("groq: empty response");
     } catch (e) {

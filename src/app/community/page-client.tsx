@@ -12,6 +12,8 @@ import {
   Search,
   Trash2,
   Flag,
+  TrendingUp,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -56,6 +58,8 @@ import { dispatchNotificationsUpdated } from "@/lib/notifications/events";
 import { cn } from "@/lib/utils";
 
 const TABS = ["Posts", "Questions", "Tips"] as const;
+
+const FEED_SCROLL_KEY = "maacare:community-feed-scroll-y";
 
 export type FeedPost = {
   id: string;
@@ -112,6 +116,58 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
   const [reportDetails, setReportDetails] = useState("");
   const [reporting, setReporting] = useState(false);
   const [pendingLikeIds, setPendingLikeIds] = useState<Set<string>>(new Set());
+  const [feedSort, setFeedSort] = useState<"new" | "trending">("new");
+  const [forYouPosts, setForYouPosts] = useState<FeedPost[]>([]);
+  const [forYouLoaded, setForYouLoaded] = useState(false);
+
+  const saveFeedScroll = useCallback(() => {
+    try {
+      sessionStorage.setItem(FEED_SCROLL_KEY, String(window.scrollY));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(FEED_SCROLL_KEY);
+      if (raw == null) return;
+      const y = Number(raw);
+      sessionStorage.removeItem(FEED_SCROLL_KEY);
+      if (Number.isNaN(y)) return;
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: y, behavior: "auto" });
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/community/posts?forYou=1&limit=12", { credentials: "include" });
+        if (!res.ok) {
+          if (!cancelled) setForYouLoaded(true);
+          return;
+        }
+        const data = (await res.json()) as { posts: FeedPost[] };
+        if (!cancelled) {
+          setForYouPosts(data.posts ?? []);
+          setForYouLoaded(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setForYouPosts([]);
+          setForYouLoaded(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 320);
@@ -127,6 +183,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
         if (tab === "Questions") params.set("kind", "question");
         if (tab === "Tips") params.set("kind", "tip");
         if (debouncedSearch) params.set("q", debouncedSearch);
+        if (feedSort === "trending") params.set("sort", "trending");
 
         const res = await fetch(`/api/community/posts?${params.toString()}`, {
           credentials: "include",
@@ -152,17 +209,17 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
         if (showLoader) setLoading(false);
       }
     },
-    [tab, debouncedSearch],
+    [tab, debouncedSearch, feedSort],
   );
 
   useEffect(() => {
-    const onDefaultFeed = tab === "Posts" && !debouncedSearch;
+    const onDefaultFeed = tab === "Posts" && !debouncedSearch && feedSort === "new";
     if (usedInitialRef.current && onDefaultFeed) {
       usedInitialRef.current = false;
       return;
     }
     void loadPosts();
-  }, [loadPosts, tab, debouncedSearch]);
+  }, [loadPosts, tab, debouncedSearch, feedSort]);
 
   async function toggleLike(postId: string) {
     if (pendingLikeIds.has(postId)) return;
@@ -348,16 +405,21 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
         title="Community"
         showNotifications
         right={
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-9 w-9"
-            aria-label="New post"
-            type="button"
-            onClick={() => setComposeOpen(true)}
-          >
-            <Plus className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-0.5">
+            <Button asChild variant="ghost" size="sm" className="h-9 rounded-xl px-2 text-xs font-semibold">
+              <Link href="/profile">Profile</Link>
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9"
+              aria-label="New post"
+              type="button"
+              onClick={() => setComposeOpen(true)}
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
+          </div>
         }
       />
 
@@ -569,6 +631,63 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
             </button>
           ))}
         </div>
+        <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-2 py-1.5">
+          <span className="pl-2 text-xs font-medium text-muted-foreground">Sort</span>
+          <div className="flex flex-1 gap-1">
+            <button
+              type="button"
+              onClick={() => setFeedSort("new")}
+              className={cn(
+                "flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                feedSort === "new" ? "bg-primary-soft text-primary" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              New
+            </button>
+            <button
+              type="button"
+              onClick={() => setFeedSort("trending")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                feedSort === "trending"
+                  ? "bg-primary-soft text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+              Trending
+            </button>
+          </div>
+        </div>
+        {forYouLoaded && forYouPosts.length > 0 ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 px-0.5 text-xs font-semibold text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+              Near your week
+            </div>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              {forYouPosts.map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/community/${p.id}`}
+                  onClick={saveFeedScroll}
+                  className="min-w-[220px] max-w-[78vw] shrink-0 rounded-2xl border border-border bg-card p-3 shadow-sm transition-colors hover:bg-muted/40"
+                >
+                  <p className="text-[11px] text-muted-foreground">
+                    {kindLabel(p.postKind)}
+                    {p.gestationalWeekSnapshot != null ? ` · Week ${p.gestationalWeekSnapshot}` : ""}
+                  </p>
+                  {p.title ? (
+                    <p className="mt-1 line-clamp-2 font-display text-sm font-semibold leading-snug">{p.title}</p>
+                  ) : null}
+                  <p className={cn("mt-0.5 text-xs leading-relaxed text-foreground/85", p.title ? "line-clamp-2" : "line-clamp-3")}>
+                    {p.body}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {loading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
         ) : posts.length === 0 ? (
@@ -594,8 +713,12 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                       </DropdownMenu>
                     </div>
                   ) : null}
-                  <Link href={`/community/${p.id}`} className={cn("block p-4 pb-2", isOwner && "pr-12")}>
-                    <div className="mb-2 flex items-center gap-2.5">
+                  <div className={cn("px-4 pb-2 pt-4", isOwner && "pr-12")}>
+                    <Link
+                      href={`/community/member/${p.authorId}`}
+                      onClick={saveFeedScroll}
+                      className="mb-2 flex items-center gap-2.5 rounded-xl py-0.5 outline-none ring-offset-background transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
+                    >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-soft font-display text-sm font-semibold text-primary">
                         {avatarLetter(p.authorDisplayName)}
                       </span>
@@ -608,10 +731,16 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                           {p.gestationalWeekSnapshot != null ? ` · Week ${p.gestationalWeekSnapshot}` : ""}
                         </p>
                       </div>
-                    </div>
-                    {p.title ? <p className="mb-1 font-display text-sm font-semibold leading-snug">{p.title}</p> : null}
-                    <p className="line-clamp-4 text-sm leading-relaxed text-foreground/90">{p.body}</p>
-                  </Link>
+                    </Link>
+                    <Link
+                      href={`/community/${p.id}`}
+                      onClick={saveFeedScroll}
+                      className="block rounded-lg outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {p.title ? <p className="mb-1 font-display text-sm font-semibold leading-snug">{p.title}</p> : null}
+                      <p className="line-clamp-4 text-sm leading-relaxed text-foreground/90">{p.body}</p>
+                    </Link>
+                  </div>
                   <div className="flex items-center gap-4 px-4 pb-4 pt-1 text-xs text-muted-foreground">
                     <button
                       type="button"
@@ -624,7 +753,11 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                     >
                       <Heart className={cn("h-3.5 w-3.5", p.likedByMe && "fill-current")} /> {p.likeCount}
                     </button>
-                    <Link href={`/community/${p.id}`} className="flex items-center gap-1 rounded-lg px-1 py-0.5 transition-colors hover:text-primary">
+                    <Link
+                      href={`/community/${p.id}`}
+                      onClick={saveFeedScroll}
+                      className="flex items-center gap-1 rounded-lg px-1 py-0.5 transition-colors hover:text-primary"
+                    >
                       <MessageCircle className="h-3.5 w-3.5" /> {p.commentCount}
                     </Link>
                     {!isOwner ? (

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { formatDistanceToNow } from "date-fns";
-import { CornerDownRight, Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Trash2 } from "lucide-react";
+import { CornerDownRight, Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
@@ -328,6 +328,24 @@ export default function PostDetailPage() {
     setEditOpen(true);
   }
 
+  async function moderatePostHidden() {
+    if (!post) return;
+    try {
+      const res = await fetch(`/api/community/posts/${post.id}/moderate`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "hidden" }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(j.message ?? "Could not hide post");
+      toast.success("Post hidden from community.");
+      router.replace("/community");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not hide post");
+    }
+  }
+
   if (!validId) {
     return (
       <AppShell>
@@ -376,6 +394,7 @@ export default function PostDetailPage() {
     .join(" · ");
 
   const isOwner = user?.id === post.authorId;
+  const isModerator = user?.role === "moderator" || user?.role === "admin";
   const commentById = new Map(comments.map((c) => [c.id, c]));
   const roots: CommentNode[] = [];
   const nodeById = new Map<string, CommentNode>();
@@ -543,7 +562,7 @@ export default function PostDetailPage() {
       >
         <Card className="relative p-4 shadow-soft">
           {isOwner ? (
-            <div className="absolute right-2 top-2">
+            <div className="absolute right-2 top-2 z-10">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button type="button" size="icon" variant="ghost" className="h-8 w-8 rounded-full" aria-label="Post options">
@@ -560,14 +579,37 @@ export default function PostDetailPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+          ) : isModerator ? (
+            <div className="absolute right-2 top-2 z-10">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" size="icon" variant="ghost" className="h-8 w-8 rounded-full" aria-label="Moderate post">
+                    <Shield className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="z-[100]">
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => void moderatePostHidden()}
+                  >
+                    Hide post
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           ) : null}
-          <div className={cn("mb-2 flex items-center gap-2.5", isOwner && "pr-10")}>
+          <div className={cn("mb-2 flex items-center gap-2.5", (isOwner || isModerator) && "pr-10")}>
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-soft font-display text-sm font-semibold text-primary">
               {avatarLetter(post.authorDisplayName)}
             </span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
-                <p className="text-sm font-semibold">{post.authorDisplayName}</p>
+                <Link
+                  href={`/community/member/${post.authorId}`}
+                  className="text-sm font-semibold text-primary hover:underline"
+                >
+                  {post.authorDisplayName}
+                </Link>
               </div>
               <p className="text-[11px] text-muted-foreground">{meta}</p>
             </div>
@@ -608,7 +650,10 @@ export default function PostDetailPage() {
                 key={node.id}
                 node={node}
                 depth={0}
+                postId={post.id}
+                isModerator={isModerator}
                 onReply={(id) => setReplyToCommentId(id)}
+                onModerated={() => void loadAll()}
               />
             ))
           )}
@@ -668,12 +713,36 @@ function CommentTree({
   node,
   depth,
   onReply,
+  postId,
+  isModerator,
+  onModerated,
 }: {
   node: CommentNode;
   depth: number;
   onReply: (id: string) => void;
+  postId: string;
+  isModerator: boolean;
+  onModerated: () => void | Promise<void>;
 }) {
   const safeDepth = Math.min(depth, 4);
+
+  async function hideComment() {
+    try {
+      const res = await fetch(`/api/community/posts/${postId}/comments/${node.id}/moderate`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "hidden" }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(j.message ?? "Could not hide reply");
+      toast.success("Reply hidden.");
+      await onModerated();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not hide reply");
+    }
+  }
+
   return (
     <div className={safeDepth > 0 ? "ml-5 border-l-2 border-border/80 pl-3" : ""}>
       <div className="flex items-start gap-2.5">
@@ -684,7 +753,16 @@ function CommentTree({
           <div className="rounded-2xl bg-muted px-3 py-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-1.5">
-                <p className="text-sm font-semibold">{node.authorDisplayName}</p>
+                {node.authorId ? (
+                  <Link
+                    href={`/community/member/${node.authorId}`}
+                    className="text-sm font-semibold text-primary hover:underline"
+                  >
+                    {node.authorDisplayName}
+                  </Link>
+                ) : (
+                  <p className="text-sm font-semibold">{node.authorDisplayName}</p>
+                )}
               </div>
               <span className="text-[11px] text-muted-foreground">
                 {formatDistanceToNow(new Date(node.createdAt), { addSuffix: true })}
@@ -700,6 +778,15 @@ function CommentTree({
             >
               <CornerDownRight className="h-3.5 w-3.5" /> Reply
             </button>
+            {isModerator ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-destructive"
+                onClick={() => void hideComment()}
+              >
+                Hide
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -707,7 +794,15 @@ function CommentTree({
       {node.children.length ? (
         <div className="mt-1.5 space-y-1.5">
           {node.children.map((child) => (
-            <CommentTree key={child.id} node={child} depth={safeDepth + 1} onReply={onReply} />
+            <CommentTree
+              key={child.id}
+              node={child}
+              depth={safeDepth + 1}
+              postId={postId}
+              isModerator={isModerator}
+              onReply={onReply}
+              onModerated={onModerated}
+            />
           ))}
         </div>
       ) : null}

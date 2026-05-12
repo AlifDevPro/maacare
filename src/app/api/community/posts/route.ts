@@ -5,6 +5,7 @@ import { validationJsonResponse, failJson, serverErrorJson } from "@/lib/api/err
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { countByPostId, escapeIlike } from "@/lib/community/aggregate-counts";
 import { unwrapProfileEmbed } from "@/lib/community/profile-embed";
+import { communityTrendingScore } from "@/lib/community/trending-score";
 import { isMissingOptionalCommunityColumn } from "@/lib/community/schema-errors";
 import { gestationalWeekFromLmp } from "@/lib/profile/computed";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -68,6 +69,27 @@ export async function GET(req: NextRequest) {
     const kind = searchParams.get("kind") ?? "all";
     const q = searchParams.get("q")?.trim() ?? "";
     const limit = Math.min(Number(searchParams.get("limit") ?? "30") || 30, 50);
+    const sort = searchParams.get("sort") === "trending" ? "trending" : "new";
+    const forYou = searchParams.get("forYou") === "1";
+    const fetchLimit = forYou
+      ? Math.min(90, 50)
+      : sort === "trending"
+        ? Math.min(90, Math.max(limit * 3, 45))
+        : limit;
+
+    let userWeekForYou: number | null = null;
+    if (forYou) {
+      const { data: preg } = await supabase
+        .from("pregnancy_profiles")
+        .select("gestational_age_weeks, lmp_date")
+        .eq("user_id", uid)
+        .maybeSingle();
+      if (preg?.gestational_age_weeks != null) {
+        userWeekForYou = Math.round(Number(preg.gestational_age_weeks));
+      } else if (preg?.lmp_date) {
+        userWeekForYou = gestationalWeekFromLmp(preg.lmp_date as string);
+      }
+    }
 
     const buildQuery = (selectFragment: string, applyKindFilter: boolean) => {
       let qb = supabase
@@ -76,7 +98,7 @@ export async function GET(req: NextRequest) {
         .eq("moderation_status", "visible")
         .order("is_pinned", { ascending: false })
         .order("created_at", { ascending: false })
-        .limit(limit);
+        .limit(fetchLimit);
 
       if (applyKindFilter && kind !== "all" && (kind === "post" || kind === "question" || kind === "tip")) {
         qb = qb.eq("post_kind", kind);
@@ -145,7 +167,7 @@ export async function GET(req: NextRequest) {
         : (myLikeRes.data ?? []).map((r: { post_id: string }) => r.post_id),
     );
 
-    const mapped = rows.map((row: Record<string, unknown>) => {
+    let mapped = rows.map((row: Record<string, unknown>) => {
       const profile = unwrapProfileEmbed(row.profiles);
       const id = row.id as string;
       return {
@@ -170,8 +192,38 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    if (forYou && userWeekForYou != null) {
+      mapped = mapped.filter(
+        (p) =>
+          p.gestationalWeekSnapshot != null &&
+          Math.abs(p.gestationalWeekSnapshot - userWeekForYou!) <= 2,
+      );
+    } else if (forYou) {
+      mapped = [];
+    }
+
+    if (sort === "trending") {
+      mapped = [...mapped].sort((a, b) => {
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        const sa = communityTrendingScore({
+          likeCount: a.likeCount,
+          commentCount: a.commentCount,
+          createdAtIso: a.createdAt,
+        });
+        const sb = communityTrendingScore({
+          likeCount: b.likeCount,
+          commentCount: b.commentCount,
+          createdAtIso: b.createdAt,
+        });
+        if (sb !== sa) return sb - sa;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+    }
+
+    const postsOut = mapped.slice(0, limit);
+
     return Response.json(
-      { posts: mapped },
+      { posts: postsOut },
       { headers: { "Cache-Control": "private, max-age=20, stale-while-revalidate=40" } },
     );
   } catch (e) {

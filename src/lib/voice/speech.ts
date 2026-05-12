@@ -111,6 +111,101 @@ export function speakText(opts: {
   });
 }
 
+/** Strip markdown / formatting so Web Speech reads naturally. */
+export function stripTextForSpeech(raw: string): string {
+  let s = raw.trim();
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+  s = s.replace(/\*([^*]+)\*/g, "$1");
+  s = s.replace(/`+/g, "");
+  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  s = s.replace(/#{1,6}\s+/g, "");
+  s = s.replace(/\s+/g, " ");
+  return s.trim();
+}
+
+function splitIntoSpeechChunks(text: string, maxLen = 240): string[] {
+  const cleaned = stripTextForSpeech(text);
+  if (!cleaned) return [];
+
+  const sentences = cleaned.split(/(?<=[.!?।॥])\s+/).filter(Boolean);
+  const chunks: string[] = [];
+  let buf = "";
+
+  const flushBuf = () => {
+    if (buf.trim()) chunks.push(buf.trim());
+    buf = "";
+  };
+
+  for (const seg of sentences) {
+    const next = buf ? `${buf} ${seg}` : seg;
+    if (next.length <= maxLen) {
+      buf = next;
+    } else {
+      flushBuf();
+      if (seg.length <= maxLen) {
+        buf = seg;
+      } else {
+        for (let i = 0; i < seg.length; i += maxLen) {
+          chunks.push(seg.slice(i, i + maxLen).trim());
+        }
+      }
+    }
+  }
+  flushBuf();
+  return chunks;
+}
+
+/**
+ * Speak with short pauses between phrases/sentences so browser TTS feels less robotic.
+ * Cancels any in-flight speech once at the start (same as speakText).
+ */
+export function speakNatural(opts: {
+  text: string;
+  lang: string;
+  rate?: number;
+  pitch?: number;
+  volume?: number;
+  /** Pause between chunks (ms). */
+  pauseBetweenMs?: number;
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined") return resolve();
+    const synth = window.speechSynthesis;
+    if (!synth) return resolve();
+
+    const parts = splitIntoSpeechChunks(opts.text);
+    if (parts.length === 0) return resolve();
+
+    synth.cancel();
+
+    const pause = opts.pauseBetweenMs ?? 140;
+    const rate = opts.rate ?? 0.96;
+    const pitch = opts.pitch ?? 1;
+    const volume = opts.volume ?? 1;
+
+    let idx = 0;
+    const speakNext = () => {
+      if (idx >= parts.length) {
+        resolve();
+        return;
+      }
+      const u = new SpeechSynthesisUtterance(parts[idx]);
+      u.lang = opts.lang;
+      u.rate = rate;
+      u.pitch = pitch;
+      u.volume = volume;
+      u.onerror = () => reject(new Error("TTS failed"));
+      u.onend = () => {
+        idx += 1;
+        window.setTimeout(speakNext, pause);
+      };
+      synth.speak(u);
+    };
+
+    speakNext();
+  });
+}
+
 export function stopSpeaking() {
   if (typeof window === "undefined") return;
   window.speechSynthesis?.cancel();

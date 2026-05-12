@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 import { motion } from "framer-motion";
-import { Bot, Loader2, MapPinned, Mic, Send, Sparkles, Shield, PhoneCall } from "lucide-react";
+import { Bot, Loader2, MapPinned, Send, Sparkles, Shield, PhoneCall } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VoiceCallPanel } from "@/app/chat/voice-call-panel";
-import { speakText, stopSpeaking } from "@/lib/voice/speech";
+import { speakNatural, stopSpeaking } from "@/lib/voice/speech";
 import { useVoiceCall } from "@/lib/voice/useVoiceCall";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -185,7 +185,10 @@ function ChatPageContent() {
     );
   }
 
-  async function send(text: string): Promise<string | null> {
+  async function send(
+    text: string,
+    opts?: { replyChannel?: "text" | "voice" },
+  ): Promise<string | null> {
     const t = text.trim();
     if (!t || sendBlocked) return null;
 
@@ -203,6 +206,7 @@ function ChatPageContent() {
           messages: withUser,
           reportContext: reportContextRaw ?? undefined,
           userLocation: chatUserLocation ?? undefined,
+          replyChannel: opts?.replyChannel ?? "text",
         }),
       });
 
@@ -265,9 +269,16 @@ function ChatPageContent() {
     onUnsupported: () => {
       toast.error("Voice call is not supported on this browser. Please use text chat.");
     },
-    onTurn: async (finalText) => send(finalText),
+    onTurn: async (finalText) => send(finalText, { replyChannel: "voice" }),
     onSpeak: async (assistantText) => {
-      await speakText({ text: assistantText, lang: "en-US", rate: 1, pitch: 1, volume: 1 });
+      await speakNatural({
+        text: assistantText,
+        lang: "en-US",
+        rate: 0.96,
+        pitch: 1,
+        volume: 1,
+        pauseBetweenMs: 150,
+      });
     },
   });
   const voiceStart = voice.start;
@@ -282,12 +293,13 @@ function ChatPageContent() {
     void (async () => {
       try {
         if (!voiceMuted) {
-          await speakText({
+          await speakNatural({
             text: "Hi, I'm MaaCare AI. What topic would you like to talk about today?",
             lang: "en-US",
-            rate: 1,
+            rate: 0.96,
             pitch: 1,
             volume: 1,
+            pauseBetweenMs: 120,
           });
         }
       } catch {
@@ -325,13 +337,17 @@ function ChatPageContent() {
       err.includes("permission") ||
       err.includes("service-not-allowed")
     ) {
-      setVoiceMicMuted(true);
-      toast.error("Microphone permission denied. Enable mic access in browser settings.");
+      window.requestAnimationFrame(() => {
+        setVoiceMicMuted(true);
+        toast.error("Microphone permission denied. Enable mic access in browser settings.");
+      });
       return;
     }
     if (err.includes("audio-capture") || err.includes("not-found")) {
-      setVoiceMicMuted(true);
-      toast.error("No microphone found. Connect a mic and try again.");
+      window.requestAnimationFrame(() => {
+        setVoiceMicMuted(true);
+        toast.error("No microphone found. Connect a mic and try again.");
+      });
       return;
     }
     toast.error(voiceLastError);

@@ -29,6 +29,8 @@ const bodySchema = z.object({
       longitude: z.number().gte(-180).lte(180),
     })
     .optional(),
+  /** Voice mode: shorter, spoken-style replies (no markdown); slightly higher sampling for variety. */
+  replyChannel: z.enum(["text", "voice"]).optional().default("text"),
 });
 
 const MAX_TRANSCRIPT_TOKENS = 2600;
@@ -197,7 +199,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { messages, reportContext, userLocation } = bodySchema.parse(await req.json());
+    const { messages, reportContext, userLocation, replyChannel } = bodySchema.parse(await req.json());
+    const isVoiceChannel = replyChannel === "voice";
     const supabase = await createSupabaseServerClient();
 
     if (getGeminiApiKeys().length === 0 && getGroqApiKeys().length === 0) {
@@ -458,6 +461,19 @@ export async function POST(req: Request) {
       }
     }
 
+    const voiceSpeechBlock = isVoiceChannel
+      ? [
+          "",
+          "VOICE / SPOKEN OUTPUT MODE (this reply will be read aloud by text-to-speech):",
+          "Write plain speech only: no markdown, no bullet lists, no asterisks, no headings, no links.",
+          "Keep it brief by default: about one to three short sentences unless the user clearly asks for more detail.",
+          "Sound warm and conversational: you may rarely start with a tiny natural filler like “Mm,” or “Okay—” but do not overuse fillers or sound theatrical.",
+          "If the user only greets you (e.g. hi/hello again), answer in one short friendly line—do not repeat a long introduction you already gave earlier in the thread.",
+          "Vary wording across turns; avoid sounding scripted or identical to your previous reply.",
+          "Still include the usual safety framing when giving health-related guidance (informational, not diagnosis)—keep that part concise for speech.",
+        ]
+      : [];
+
     const systemInstruction = [
       "You are MaaCare, a supportive maternity and wellness assistant.",
       "Always remind users that this is informational, not medical diagnosis.",
@@ -468,10 +484,19 @@ export async function POST(req: Request) {
       "Personalize guidance using PERSONAL HEALTH CONTEXT when relevant to the user question.",
       "Address the user by first name naturally when appropriate (not every sentence).",
       "If personal context is missing for a needed decision, ask a brief clarifying question.",
-      "Use clear, compassionate language. Prefer short paragraphs.",
-      "Always prioritize the LATEST USER TURN intent over earlier turns.",
-      "If the latest user turn is a short acknowledgement (e.g., ok/thanks), respond with a brief natural continuation of the immediately previous assistant context.",
-      "Do not switch topic to profile summary unless the latest turn clearly asks about identity/profile.",
+      ...(isVoiceChannel
+        ? [
+            "Use clear, compassionate spoken language—short sentences that are easy to hear.",
+            "Always prioritize the LATEST USER TURN intent over earlier turns.",
+            "If the latest user turn is a short acknowledgement (e.g., ok/thanks), respond with one brief spoken line that continues the previous topic.",
+            "Do not switch topic to profile summary unless the latest turn clearly asks about identity/profile.",
+          ]
+        : [
+            "Use clear, compassionate language. Prefer short paragraphs.",
+            "Always prioritize the LATEST USER TURN intent over earlier turns.",
+            "If the latest user turn is a short acknowledgement (e.g., ok/thanks), respond with a brief natural continuation of the immediately previous assistant context.",
+            "Do not switch topic to profile summary unless the latest turn clearly asks about identity/profile.",
+          ]),
       ...(preferredReplyLanguage === "bn"
         ? [
             "Reply in natural conversational Bangla (বাংলা), not literal translated English.",
@@ -479,6 +504,7 @@ export async function POST(req: Request) {
             "Keep important medical terms bilingual when useful, e.g., রক্তচাপ (blood pressure).",
           ]
         : ["Reply in clear English."]),
+      ...voiceSpeechBlock,
       "",
       personalContext,
       "",
@@ -506,6 +532,7 @@ export async function POST(req: Request) {
     const out = await generateTextWithGeminiGroqFailover({
       systemInstruction,
       userMessage,
+      ...(isVoiceChannel ? { temperature: 0.82 } : {}),
     });
 
     const needsClientLocation = Boolean(nearbyIntent && !userLocation);
