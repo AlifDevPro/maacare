@@ -5,33 +5,28 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { formatDistanceToNow } from "date-fns";
-import { Bell, Loader2 } from "lucide-react";
+import { Bell, ChevronRight, Loader2 } from "lucide-react";
 
+import { CommunityAvatar } from "@/components/community/community-avatar";
 import type { NotificationDTO } from "@/lib/notifications/types";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { NOTIFICATIONS_UPDATED_EVENT } from "@/lib/notifications/events";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { NOTIFICATIONS_UPDATED_EVENT, dispatchNotificationsUpdated } from "@/lib/notifications/events";
+import { useNotificationsRealtime } from "@/hooks/use-notifications-realtime";
+import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
-async function markRead(ids: string[]) {
-  if (ids.length === 0) return;
-  await fetch("/api/notifications/mark-read", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids }),
-  });
-}
+const BELL_FETCH_LIMIT = 50;
 
 export function NotificationBell() {
   const router = useRouter();
+  const { user } = useSession();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
@@ -40,7 +35,7 @@ export function NotificationBell() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/notifications?limit=12", { credentials: "include" });
+      const res = await fetch(`/api/notifications?limit=${BELL_FETCH_LIMIT}`, { credentials: "include" });
       if (!res.ok) return;
       const data = (await res.json()) as {
         notifications: NotificationDTO[];
@@ -57,12 +52,14 @@ export function NotificationBell() {
     void load();
   }, [load]);
 
+  useNotificationsRealtime(user?.id, dispatchNotificationsUpdated);
+
   useEffect(() => {
     const onFocus = () => void load();
     const onUpdated = () => void load();
     window.addEventListener("focus", onFocus);
     window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, onUpdated);
-    const id = window.setInterval(() => void load(), 60_000);
+    const id = window.setInterval(() => void load(), 5 * 60_000);
     return () => {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, onUpdated);
@@ -70,79 +67,122 @@ export function NotificationBell() {
     };
   }, [load]);
 
-  useEffect(() => {
-    if (open) void load();
-  }, [open, load]);
-
-  async function onOpenItem(n: NotificationDTO) {
-    if (!n.readAt) {
-      await markRead([n.id]);
-      setUnreadCount((c) => Math.max(0, c - 1));
-      setNotifications((prev) =>
-        prev.map((x) => (x.id === n.id ? { ...x, readAt: new Date().toISOString() } : x)),
-      );
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next) {
+      void (async () => {
+        try {
+          const res = await fetch("/api/notifications/mark-read", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ all: true }),
+          });
+          if (res.ok) {
+            const now = new Date().toISOString();
+            setUnreadCount(0);
+            setNotifications((prev) => prev.map((n) => ({ ...n, readAt: n.readAt ?? now })));
+          }
+        } catch {
+          /* ignore */
+        } finally {
+          dispatchNotificationsUpdated();
+          await load();
+        }
+      })();
     }
+  };
+
+  function onOpenItem(n: NotificationDTO) {
     setOpen(false);
     if (n.linkPath) router.push(n.linkPath);
   }
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button size="icon" variant="ghost" className="relative h-9 w-9" aria-label="Notifications">
-          <Bell className="h-5 w-5" />
+    <Sheet open={open} onOpenChange={handleOpenChange}>
+      <SheetTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="group relative shrink-0"
+          aria-label="Notifications"
+          aria-expanded={open}
+        >
+          <Bell className="h-5 w-5 transition-transform duration-150 ease-out group-active:scale-110 motion-reduce:group-active:scale-100" />
           {unreadCount > 0 && (
             <span className="absolute right-1.5 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="z-[60] w-[min(100vw-2rem,22rem)] p-0">
-        <DropdownMenuLabel className="flex items-center justify-between px-3 py-2 font-display text-sm">
-          Notifications
-          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <div className="max-h-[min(70vh,320px)] overflow-y-auto">
-          {notifications.length === 0 ? (
-            <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-              You&apos;re all caught up.
-            </p>
+      </SheetTrigger>
+
+      <SheetContent
+        side="right"
+        className="flex h-[100dvh] w-full max-w-full flex-col gap-0 border-l-0 p-0 sm:max-w-md"
+      >
+        <SheetHeader className="shrink-0 space-y-0 border-b border-border/60 px-4 pb-3 pt-4 text-left">
+          <div className="flex items-center justify-between gap-2 pr-10">
+            <SheetTitle className="font-display text-lg">Notifications</SheetTitle>
+            {loading && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />}
+          </div>
+        </SheetHeader>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {notifications.length === 0 && !loading ? (
+            <p className="px-4 py-12 text-center text-sm text-muted-foreground">You&apos;re all caught up.</p>
           ) : (
-            notifications.map((n) => (
-              <DropdownMenuItem
-                key={n.id}
-                className={cn(
-                  "cursor-pointer flex-col items-start gap-0.5 rounded-none px-3 py-2.5 focus:bg-muted",
-                  !n.readAt && "bg-primary-soft/35",
-                )}
-                onSelect={(e) => {
-                  e.preventDefault();
-                  void onOpenItem(n);
-                }}
-              >
-                <span className="text-xs font-semibold leading-tight">{n.title}</span>
-                {n.actorDisplayName && (
-                  <span className="text-[11px] text-muted-foreground">From {n.actorDisplayName}</span>
-                )}
-                {n.body && (
-                  <span className="line-clamp-2 text-xs text-muted-foreground">{n.body}</span>
-                )}
-                <span className="text-[10px] text-muted-foreground">
-                  {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
-                </span>
-              </DropdownMenuItem>
-            ))
+            <ul className="divide-y divide-border/60">
+              {notifications.map((n) => (
+                <li key={n.id}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex w-full touch-manipulation items-start gap-3 px-4 py-3 text-left transition-[transform,background-color] duration-150 active:scale-[0.99] motion-reduce:active:scale-100",
+                      !n.readAt ? "bg-primary-soft/40" : "bg-background hover:bg-muted/50",
+                    )}
+                    onClick={() => onOpenItem(n)}
+                  >
+                    <CommunityAvatar
+                      url={null}
+                      name={n.actorDisplayName ?? n.title}
+                      className="mt-0.5 h-11 w-11 shrink-0"
+                      fallbackClassName="bg-muted text-xs font-semibold text-muted-foreground"
+                    />
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <p className="text-sm font-semibold leading-snug text-foreground">{n.title}</p>
+                      {n.actorDisplayName ? (
+                        <p className="text-xs text-muted-foreground">From {n.actorDisplayName}</p>
+                      ) : null}
+                      {n.body ? (
+                        <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">{n.body}</p>
+                      ) : null}
+                      <p className="text-[11px] text-muted-foreground/90">
+                        {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
+                      </p>
+                    </div>
+                    <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild className="cursor-pointer justify-center py-2 font-medium">
-          <Link href="/notifications" onClick={() => setOpen(false)}>
-            View all notifications
-          </Link>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+
+        <div className="shrink-0 border-t border-border/60 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <Button variant="outline" className="w-full rounded-xl" asChild>
+            <Link
+              href="/notifications"
+              onClick={() => {
+                setOpen(false);
+              }}
+            >
+              View all notifications
+            </Link>
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

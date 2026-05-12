@@ -44,17 +44,20 @@ export function BottomNav() {
                 href={to}
                 prefetch
                 className={cn(
-                  "flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition-colors",
+                  "group flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium touch-manipulation transition-[transform,colors] duration-150 active:scale-[0.96] motion-reduce:active:scale-100",
                   active ? "text-primary" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <span
                   className={cn(
-                    "flex h-9 w-9 items-center justify-center rounded-full transition-all",
+                    "flex h-9 w-9 items-center justify-center rounded-full transition-[transform,colors,box-shadow] duration-150 ease-out group-active:[&>svg]:scale-110 motion-reduce:group-active:[&>svg]:scale-100",
                     active && "bg-primary-soft shadow-soft",
                   )}
                 >
-                  <Icon className="h-[18px] w-[18px]" strokeWidth={active ? 2.4 : 2} />
+                  <Icon
+                    className="h-[18px] w-[18px] transition-transform duration-150 ease-out"
+                    strokeWidth={active ? 2.4 : 2}
+                  />
                 </span>
                 {label}
               </Link>

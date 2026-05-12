@@ -58,6 +58,7 @@ import {
   COMMUNITY_COMMENT_ACTION,
   COMMUNITY_COMMENT_ACTION_ICON,
 } from "@/lib/community/action-row-styles";
+import { useCommunityPostRealtime } from "@/hooks/use-community-post-realtime";
 
 type PostPayload = {
   id: string;
@@ -177,6 +178,28 @@ export default function PostDetailPage() {
     }
   }, [rawId, validId, router]);
 
+  /** Refetch post + comments without toggling `loading` (avoids full-page skeleton flash). */
+  const refreshPostDetailSilent = useCallback(async () => {
+    if (!validId) return;
+    try {
+      const [rp, rc] = await Promise.all([
+        fetch(`/api/community/posts/${rawId}`, { credentials: "include" }),
+        fetch(`/api/community/posts/${rawId}/comments`, { credentials: "include" }),
+      ]);
+      if (!rp.ok || !rc.ok) return;
+      const pj = (await rp.json()) as { post: PostPayload };
+      const cj = (await rc.json()) as { comments: CommentRow[] };
+      setPost(pj.post);
+      setComments(cj.comments ?? []);
+    } catch {
+      /* keep existing UI */
+    }
+  }, [rawId, validId]);
+
+  useCommunityPostRealtime(post && validId ? rawId : null, () => {
+    void refreshPostDetailSilent();
+  });
+
   useEffect(() => {
     const t = window.setTimeout(() => {
       void loadAll();
@@ -253,7 +276,7 @@ export default function PostDetailPage() {
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not send reply");
-      void loadAll();
+      await refreshPostDetailSilent();
       dispatchNotificationsUpdated();
       toast.success("Reply posted");
     } catch (err) {
@@ -287,7 +310,7 @@ export default function PostDetailPage() {
       if (!res.ok) throw new Error(j.message ?? "Could not update post");
       toast.success("Post updated");
       setEditOpen(false);
-      await loadAll();
+      await refreshPostDetailSilent();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not update post");
     } finally {
@@ -741,7 +764,7 @@ export default function PostDetailPage() {
                 postId={post.id}
                 isModerator={isModerator}
                 onReply={(id) => setReplyToCommentId(id)}
-                onModerated={() => void loadAll()}
+                onModerated={() => void refreshPostDetailSilent()}
               />
             ))
           )}

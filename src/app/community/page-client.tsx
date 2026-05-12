@@ -63,6 +63,7 @@ import { CommunityRichEditor } from "@/components/community/community-rich-edito
 import { isRichPostBodyEmpty } from "@/lib/community/rich-post-empty";
 import { cn } from "@/lib/utils";
 import { COMMUNITY_ACTION, COMMUNITY_ACTION_ICON } from "@/lib/community/action-row-styles";
+import { useCommunityFeedRealtime } from "@/hooks/use-community-feed-realtime";
 
 const FEED_SCROLL_KEY = "maacare:community-feed-scroll-y";
 
@@ -116,6 +117,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
   const [feedSort, setFeedSort] = useState<"new" | "trending">("new");
   const [forYouPosts, setForYouPosts] = useState<FeedPost[]>([]);
   const [forYouLoaded, setForYouLoaded] = useState(false);
+  const [feedRemoteHint, setFeedRemoteHint] = useState(false);
 
   const saveFeedScroll = useCallback(() => {
     try {
@@ -197,6 +199,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
 
         const data = (await res.json()) as { posts: FeedPost[] };
         setPosts(data.posts ?? []);
+        setFeedRemoteHint(false);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not load posts");
         setPosts([]);
@@ -206,6 +209,14 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
     },
     [debouncedSearch, feedSort],
   );
+
+  const feedRealtimeEnabled = Boolean(user?.id && !debouncedSearch && feedSort === "new");
+
+  useCommunityFeedRealtime(feedRealtimeEnabled, () => setFeedRemoteHint(true));
+
+  useEffect(() => {
+    if (!feedRealtimeEnabled) setFeedRemoteHint(false);
+  }, [feedRealtimeEnabled]);
 
   useEffect(() => {
     const onDefaultFeed = !debouncedSearch && feedSort === "new";
@@ -550,6 +561,21 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
       </Dialog>
 
       <div className="space-y-4 px-4 pt-4">
+        {feedRemoteHint ? (
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/30 bg-primary-soft/50 px-3 py-2.5 shadow-sm">
+            <p className="text-sm font-medium text-foreground">New activity on the feed</p>
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0 rounded-xl"
+              onClick={() => {
+                void loadPosts({ showLoader: false });
+              }}
+            >
+              Refresh
+            </Button>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input

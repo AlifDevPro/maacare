@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import type { ReactNode } from "react";
-import { ArrowLeft, Bell, Menu } from "lucide-react";
+import { ArrowLeft, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "./NotificationBell";
@@ -43,25 +43,25 @@ export function AppHeader({
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {showBack &&
           (backHref ? (
-            <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" asChild>
+            <Button size="icon" variant="ghost" className="group shrink-0" asChild>
               <Link href={backHref} aria-label="Back">
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="h-5 w-5 transition-transform duration-150 ease-out group-active:scale-110 motion-reduce:group-active:scale-100" />
               </Link>
             </Button>
           ) : (
             <Button
               size="icon"
               variant="ghost"
-              className="h-9 w-9 shrink-0"
+              className="group shrink-0"
               onClick={() => router.back()}
               aria-label="Back"
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft className="h-5 w-5 transition-transform duration-150 ease-out group-active:scale-110 motion-reduce:group-active:scale-100" />
             </Button>
           ))}
         {showMenu && (
-          <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" aria-label="Menu">
-            <Menu className="h-5 w-5" />
+          <Button size="icon" variant="ghost" className="group shrink-0" aria-label="Menu">
+            <Menu className="h-5 w-5 transition-transform duration-150 ease-out group-active:scale-110 motion-reduce:group-active:scale-100" />
           </Button>
         )}
         {brand ? (
