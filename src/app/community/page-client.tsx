@@ -9,7 +9,6 @@ import {
   MessageCircle,
   MoreHorizontal,
   Pencil,
-  Plus,
   Search,
   Trash2,
   Flag,
@@ -22,6 +21,7 @@ import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -66,6 +66,36 @@ import { COMMUNITY_ACTION, COMMUNITY_ACTION_ICON } from "@/lib/community/action-
 import { useCommunityFeedRealtime } from "@/hooks/use-community-feed-realtime";
 
 const FEED_SCROLL_KEY = "maacare:community-feed-scroll-y";
+const FEED_PAGE_SIZE = 15;
+
+function CommunityFeedSkeleton({ count = 5 }: { count?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: count }, (_, i) => (
+        <Card key={i} className="overflow-hidden p-0">
+          <div className="px-4 pb-2 pt-4">
+            <div className="mb-2 flex items-center gap-2.5">
+              <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <Skeleton className="h-4 w-28 rounded-md" />
+                <Skeleton className="h-3 w-36 rounded-md" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-3/4 max-w-[18rem] rounded-md" />
+              <Skeleton className="h-3 w-full rounded-md" />
+              <Skeleton className="h-3 w-[92%] rounded-md" />
+            </div>
+          </div>
+          <div className="flex gap-2 px-4 pb-3 pt-1">
+            <Skeleton className="h-8 w-16 rounded-lg" />
+            <Skeleton className="h-8 w-16 rounded-lg" />
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
 
 export type FeedPost = {
   id: string;
@@ -90,14 +120,43 @@ function kindLabel(kind: string): string {
   return "Post";
 }
 
-export default function CommunityPageClient({ initialPosts }: { initialPosts: FeedPost[] }) {
+export default function CommunityPageClient({
+  initialPosts,
+  initialHasMore,
+  initialNextCursor,
+}: {
+  initialPosts: FeedPost[];
+  initialHasMore: boolean;
+  initialNextCursor: string | null;
+}) {
   const router = useRouter();
   const { user } = useSession();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [posts, setPosts] = useState<FeedPost[]>(initialPosts);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const [nextCursor, setNextCursor] = useState<string | null>(initialNextCursor);
   const usedInitialRef = useRef(true);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const nextCursorRef = useRef<string | null>(initialNextCursor);
+  const hasMoreRef = useRef(initialHasMore);
+  const loadingRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+
+  useEffect(() => {
+    nextCursorRef.current = nextCursor;
+  }, [nextCursor]);
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore;
+  }, [loadingMore]);
 
   const [editPost, setEditPost] = useState<FeedPost | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -174,13 +233,16 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
   }, [search]);
 
   const loadPosts = useCallback(
-    async (options?: { showLoader?: boolean }) => {
-      const showLoader = options?.showLoader ?? true;
-      if (showLoader) setLoading(true);
+    async (options?: { showLoader?: boolean; append?: boolean; cursor?: string | null }) => {
+      const append = options?.append ?? false;
+      const showLoader = options?.showLoader ?? !append;
+      if (showLoader && !append) setLoading(true);
       try {
         const params = new URLSearchParams();
+        params.set("limit", String(FEED_PAGE_SIZE));
         if (debouncedSearch) params.set("q", debouncedSearch);
         if (feedSort === "trending") params.set("sort", "trending");
+        if (append && options?.cursor) params.set("cursor", options.cursor);
 
         const res = await fetch(`/api/community/posts?${params.toString()}`, {
           credentials: "include",
@@ -189,6 +251,8 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
         if (res.status === 401) {
           toast.error("Please sign in to view community.");
           setPosts([]);
+          setHasMore(false);
+          setNextCursor(null);
           return;
         }
 
@@ -197,18 +261,73 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
           throw new Error(j.message ?? "Could not load posts");
         }
 
-        const data = (await res.json()) as { posts: FeedPost[] };
-        setPosts(data.posts ?? []);
+        const data = (await res.json()) as {
+          posts: FeedPost[];
+          hasMore?: boolean;
+          nextCursor?: string | null;
+        };
+        const chunk = data.posts ?? [];
+        if (append) {
+          setPosts((prev) => {
+            const seen = new Set(prev.map((p) => p.id));
+            const add = chunk.filter((p) => !seen.has(p.id));
+            return [...prev, ...add];
+          });
+        } else {
+          setPosts(chunk);
+        }
+        const hm = !!data.hasMore;
+        setHasMore(hm);
+        setNextCursor(hm && typeof data.nextCursor === "string" ? data.nextCursor : null);
         setFeedRemoteHint(false);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not load posts");
-        setPosts([]);
+        if (!append) {
+          setPosts([]);
+          setHasMore(false);
+          setNextCursor(null);
+        } else {
+          setHasMore(false);
+          setNextCursor(null);
+        }
       } finally {
-        if (showLoader) setLoading(false);
+        if (showLoader && !append) setLoading(false);
       }
     },
     [debouncedSearch, feedSort],
   );
+
+  useEffect(() => {
+    const el = loadMoreSentinelRef.current;
+    if (!el) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return;
+        if (!hasMoreRef.current || !nextCursorRef.current) return;
+        if (loadingRef.current || loadingMoreRef.current) return;
+
+        void (async () => {
+          loadingMoreRef.current = true;
+          setLoadingMore(true);
+          try {
+            await loadPosts({
+              append: true,
+              cursor: nextCursorRef.current,
+              showLoader: false,
+            });
+          } finally {
+            loadingMoreRef.current = false;
+            setLoadingMore(false);
+          }
+        })();
+      },
+      { root: null, rootMargin: "280px", threshold: 0 },
+    );
+
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [loadPosts, posts.length, debouncedSearch, feedSort, hasMore, nextCursor]);
 
   const feedRealtimeEnabled = Boolean(user?.id && !debouncedSearch && feedSort === "new");
 
@@ -296,7 +415,6 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not update post");
-      toast.success("Post updated");
       setEditPost(null);
       await loadPosts({ showLoader: false });
     } catch (e) {
@@ -316,7 +434,6 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not delete post");
-      toast.success("Post deleted");
       setDeletePost(null);
       await loadPosts({ showLoader: false });
     } catch (e) {
@@ -347,7 +464,6 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not submit report");
-      toast.success("Report submitted. Admin will review it.");
       setReportPost(null);
       setReportReason("spam");
       setReportDetails("");
@@ -368,27 +484,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
 
   return (
     <AppShell>
-      <AppHeader
-        title="Community"
-        showNotifications
-        right={
-          <div className="flex items-center gap-0.5">
-            <Button asChild variant="ghost" size="sm" className="min-h-11 rounded-xl px-3 text-xs font-semibold sm:h-9">
-              <Link href="/profile">Profile</Link>
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="rounded-xl"
-              aria-label="New post"
-              type="button"
-              onClick={() => openCreatePost()}
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
-          </div>
-        }
-      />
+      <AppHeader title="Community" showNotifications />
 
       <Dialog open={!!editPost} onOpenChange={(o) => !o && setEditPost(null)}>
         <DialogContent className="max-h-[90vh] gap-4 overflow-y-auto sm:max-w-md">
@@ -627,6 +723,27 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
             Trending
           </button>
         </div>
+        {user && !forYouLoaded ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 px-0.5 text-xs font-semibold text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+              Near your week
+            </div>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="min-w-[220px] max-w-[78vw] shrink-0 rounded-2xl border border-border bg-card p-3 shadow-sm"
+                >
+                  <Skeleton className="h-3 w-24 rounded-md" />
+                  <Skeleton className="mt-2 h-4 w-full rounded-md" />
+                  <Skeleton className="mt-1.5 h-3 w-full rounded-md" />
+                  <Skeleton className="mt-1 h-3 w-[85%] rounded-md" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {forYouLoaded && forYouPosts.length > 0 ? (
           <div className="space-y-2">
             <div className="flex items-center gap-1.5 px-0.5 text-xs font-semibold text-muted-foreground">
@@ -654,7 +771,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                       p.title && "line-clamp-2",
                     )}
                   >
-                    <CommunityPostBody body={p.body} bodyFormat={p.bodyFormat} />
+                    <CommunityPostBody body={p.body} bodyFormat={p.bodyFormat} collapseLines={4} />
                   </div>
                 </Link>
               ))}
@@ -662,7 +779,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
           </div>
         ) : null}
         {loading ? (
-          <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+          <CommunityFeedSkeleton />
         ) : posts.length === 0 ? (
           <Card className="p-8 text-center text-sm text-muted-foreground">
             No posts yet. Be the first to share — tap above to start a post.
@@ -717,7 +834,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                     >
                       {p.title ? <p className="mb-1 font-display text-sm font-semibold leading-snug">{p.title}</p> : null}
                       <div className="line-clamp-4 text-sm leading-relaxed text-foreground/90 [&_.prose]:line-clamp-4">
-                        <CommunityPostBody body={p.body} bodyFormat={p.bodyFormat} />
+                        <CommunityPostBody body={p.body} bodyFormat={p.bodyFormat} collapseLines={4} />
                       </div>
                     </Link>
                   </div>
@@ -766,6 +883,12 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                 </Card>
               );
             })}
+            {hasMore ? <div ref={loadMoreSentinelRef} className="h-8 w-full shrink-0" aria-hidden /> : null}
+            {loadingMore ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
+              </div>
+            ) : null}
           </div>
         )}
       </div>

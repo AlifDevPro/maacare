@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { memo, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -16,7 +17,7 @@ import {
   LogIn,
   BookOpen,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -34,11 +35,39 @@ import {
 import { signOut, updateUserLanguage, useSession } from "@/lib/auth-client";
 import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+type MenuAvatarProps = {
+  initials: string;
+  avatarUrl?: string | null;
+  sizeClass: string;
+};
+
+const ProfileMenuAvatar = memo(function ProfileMenuAvatar({ initials, avatarUrl, sizeClass }: MenuAvatarProps) {
+  return (
+    <Avatar className={cn("border border-border", sizeClass)}>
+      {avatarUrl ? (
+        <AvatarImage src={avatarUrl} alt="" referrerPolicy="no-referrer" className="object-cover" />
+      ) : null}
+      <AvatarFallback className="bg-primary-soft text-xs font-semibold text-primary">{initials}</AvatarFallback>
+    </Avatar>
+  );
+});
 
 export function ProfileMenu() {
   const { user, loading } = useSession();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+
+  const initials = useMemo(() => {
+    if (!user) return "";
+    return user.name
+      .split(" ")
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase();
+  }, [user]);
 
   if (loading) {
     return (
@@ -57,13 +86,6 @@ export function ProfileMenu() {
     );
   }
 
-  const initials = user.name
-    .split(" ")
-    .map((n) => n[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -72,23 +94,22 @@ export function ProfileMenu() {
           className="rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           aria-label="Account menu"
         >
-          <Avatar className="h-9 w-9 border border-border">
-            <AvatarFallback className="bg-primary-soft text-xs font-semibold text-primary">{initials}</AvatarFallback>
-          </Avatar>
+          <ProfileMenuAvatar initials={initials} avatarUrl={user.avatarUrl} sizeClass="h-9 w-9" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel className="flex items-center gap-3 py-2">
-          <Avatar className="h-10 w-10">
-            <AvatarFallback className="bg-primary-soft text-xs font-semibold text-primary">{initials}</AvatarFallback>
-          </Avatar>
+      <DropdownMenuContent
+        align="end"
+        className="max-h-[min(70vh,calc(100dvh-6rem))] min-w-[min(100vw-1.25rem,22rem)] max-w-[calc(100vw-1rem)] w-[calc(100vw-1rem)] overflow-y-auto sm:min-w-72 sm:w-auto sm:max-w-none"
+      >
+        <DropdownMenuLabel className="flex items-center gap-3 px-3 py-3 text-base">
+          <ProfileMenuAvatar initials={initials} avatarUrl={user.avatarUrl} sizeClass="h-10 w-10" />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">{user.name}</p>
+        <p className="truncate text-base font-semibold">{user.name}</p>
             <p className="truncate text-xs font-normal text-muted-foreground">{user.email}</p>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
+        <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
           <Link href="/profile" className="cursor-pointer">
             <User className="mr-2 h-4 w-4" /> View profile
           </Link>
@@ -104,8 +125,7 @@ export function ProfileMenu() {
               onValueChange={async (v) => {
                 const lang = v as "en" | "bn";
                 const ok = await updateUserLanguage(lang);
-                if (ok) toast.success(`Language: ${lang === "en" ? "English" : "বাংলা"}`);
-                else toast.error("Could not update language");
+                if (!ok) toast.error("Could not update language");
               }}
             >
               <DropdownMenuRadioItem value="en">English</DropdownMenuRadioItem>
@@ -145,33 +165,32 @@ export function ProfileMenu() {
 
         <DropdownMenuSeparator />
         {user.role === "admin" && (
-          <DropdownMenuItem asChild>
+          <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
             <Link href="/admin" className="cursor-pointer">
               <ShieldCheck className="mr-2 h-4 w-4" /> Admin panel
             </Link>
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem asChild>
+        <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
           <Link href="/settings" className="cursor-pointer">
             <Settings className="mr-2 h-4 w-4" /> Settings
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
+        <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
           <Link href="/help" className="cursor-pointer">
             <HelpCircle className="mr-2 h-4 w-4" /> Help & support
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
+        <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
           <Link href="/docs" className="cursor-pointer">
             <BookOpen className="mr-2 h-4 w-4" /> Documentation
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          className="text-destructive focus:text-destructive"
+          className="cursor-pointer py-3 text-base text-destructive focus:text-destructive"
           onClick={async () => {
             await signOut();
-            toast.success("Signed out");
             router.push("/");
           }}
         >

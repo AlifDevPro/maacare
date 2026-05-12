@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 
 import {
@@ -13,6 +13,7 @@ import {
   Loader2,
   Moon,
   Plus,
+  Sparkles,
   Sun,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -74,6 +75,7 @@ export default function PlannerPage() {
     { label: "Dinner", body: "Chapati, mixed vegetables, yogurt", tag: "Calcium · Fiber" },
   ]);
   const [plannerLoaded, setPlannerLoaded] = useState(false);
+  const [mealPlanSource, setMealPlanSource] = useState<string>("");
   const dayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   useEffect(() => {
@@ -182,9 +184,10 @@ export default function PlannerPage() {
             : "/api/planner/food",
           { credentials: "include" },
         );
-        const foodJson = (await foodRes.json().catch(() => ({}))) as { meals?: MealSuggestion[] };
+        const foodJson = (await foodRes.json().catch(() => ({}))) as { meals?: MealSuggestion[]; source?: string };
         if (alive && Array.isArray(foodJson.meals) && foodJson.meals.length === 3) {
           setMeals(foodJson.meals);
+          setMealPlanSource(typeof foodJson.source === "string" ? foodJson.source : "");
         }
       } catch (e) {
         if (alive) toast.error(e instanceof Error ? e.message : "Could not load planner data");
@@ -204,7 +207,7 @@ export default function PlannerPage() {
 
   return (
     <AppShell>
-      <AppHeader title="Your daily care plan" showBack />
+      <AppHeader title="Your daily care plan" showBack showNotifications />
 
       <div className="space-y-4 px-4 pt-4">
         <div>
@@ -258,7 +261,19 @@ export default function PlannerPage() {
           </div>
         </PlanCard>
 
-        <PlanCard icon={Apple} tone="sage" title="Nutrition plan">
+        <PlanCard
+          icon={Apple}
+          tone="sage"
+          title="Nutrition plan"
+          trailing={
+            mealPlanSource === "food-rag" ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/25 bg-primary-soft/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                AI
+              </span>
+            ) : null
+          }
+        >
           <div className="space-y-2.5">
             {meals.map((m) => (
               <Meal key={m.label} label={m.label} body={m.body} tag={m.tag} />
@@ -393,24 +408,29 @@ function PlanCard({
   tone,
   title,
   children,
+  trailing,
 }: {
   icon: typeof Sun;
   tone: "rose" | "sage";
   title: string;
   children: React.ReactNode;
+  trailing?: ReactNode;
 }) {
   return (
     <Card className="p-4 shadow-soft">
-      <div className="mb-3 flex items-center gap-2.5">
-        <span
-          className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-sm",
-            tone === "rose" ? "bg-primary-soft text-primary" : "bg-accent-soft text-accent",
-          )}
-        >
-          <Icon className="h-5 w-5" />
-        </span>
-        <h2 className="font-display text-base font-semibold">{title}</h2>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <span
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-sm",
+              tone === "rose" ? "bg-primary-soft text-primary" : "bg-accent-soft text-accent",
+            )}
+          >
+            <Icon className="h-5 w-5" />
+          </span>
+          <h2 className="font-display text-base font-semibold">{title}</h2>
+        </div>
+        {trailing ? <div className="shrink-0">{trailing}</div> : null}
       </div>
       <div className="space-y-2">{children}</div>
     </Card>

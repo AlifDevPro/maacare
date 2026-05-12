@@ -336,12 +336,12 @@ export default function EmergencyClient() {
           onValueChange={(v) => setFacilityTab(v as FacilityKind)}
           className="w-full"
         >
-          <TabsList className="grid h-auto w-full grid-cols-3 gap-1 p-1">
+          <TabsList className="grid h-auto w-full grid-cols-3 gap-0 rounded-none border-b border-border bg-transparent p-0">
             {(["clinic", "hospital", "pharmacy"] as const).map((kind) => (
               <TabsTrigger
                 key={kind}
                 value={kind}
-                className="rounded-md px-2 py-2 text-[11px] font-semibold leading-tight sm:px-3 sm:text-sm"
+                className="rounded-none border-b-2 border-transparent bg-transparent px-1 py-2.5 text-[11px] font-semibold leading-tight text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-3 sm:text-sm"
               >
                 <span className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1.5">
                   <span>{KIND_LABEL[kind]}</span>

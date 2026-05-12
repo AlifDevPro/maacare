@@ -39,7 +39,7 @@ function buildInsight(input: {
   return `${symptomPart} ${sevPart} ${advice}`;
 }
 
-async function buildRagRiskInsight(input: {
+async function fetchRiskRulesContext(input: {
   symptomCodes: string[];
   severity: number | null;
   title: string | null;
@@ -58,11 +58,33 @@ async function buildRagRiskInsight(input: {
     categories: ["risk-rules"],
   });
   if (hits.length === 0) return null;
-
-  const context = hits
+  return hits
     .map((h, i) => `[${i + 1}] (${h.source ?? "risk-rules"})\n${h.content}`)
     .join("\n\n---\n\n");
+}
 
+function buildUserMessageForRag(input: {
+  symptomCodes: string[];
+  severity: number | null;
+  title: string | null;
+}): string {
+  return [
+    `Symptoms: ${input.symptomCodes.join(", ") || "not specified"}`,
+    `Title: ${input.title ?? "n/a"}`,
+    `Severity: ${input.severity != null ? `${input.severity}/10` : "n/a"}`,
+    "",
+    "Provide supportive assessment and next-step guidance.",
+  ].join("\n");
+}
+
+async function buildRagRiskInsightFromContext(
+  context: string,
+  input: {
+    symptomCodes: string[];
+    severity: number | null;
+    title: string | null;
+  },
+): Promise<string | null> {
   const systemInstruction = [
     "You are a conservative maternal symptom triage assistant.",
     "Use only the provided RISK-RULES context.",
@@ -73,16 +95,55 @@ async function buildRagRiskInsight(input: {
     context,
   ].join("\n");
 
-  const userMessage = [
-    `Symptoms: ${input.symptomCodes.join(", ") || "not specified"}`,
-    `Title: ${input.title ?? "n/a"}`,
-    `Severity: ${input.severity != null ? `${input.severity}/10` : "n/a"}`,
+  const reply = await generateChatReply({
+    systemInstruction,
+    userMessage: buildUserMessageForRag(input),
+  });
+  return reply.trim() || null;
+}
+
+function extractJsonArray(text: string): string | null {
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start < 0 || end <= start) return null;
+  return text.slice(start, end + 1);
+}
+
+async function buildRagSuggestionsFromContext(
+  context: string,
+  input: {
+    symptomCodes: string[];
+    severity: number | null;
+    title: string | null;
+  },
+): Promise<string[]> {
+  const systemInstruction = [
+    "You are a conservative maternal symptom triage assistant.",
+    "Use only the provided RISK-RULES context.",
+    "Return ONLY a JSON array of 3 to 5 strings: short, practical next-step suggestions tailored to this log.",
+    "No diagnoses. Prefer hydration, rest, monitoring, and when to escalate to a clinician.",
+    "Example: [\"Drink water and rest 20 minutes\",\"Track contractions for 1 hour\",\"Call your provider if pain worsens\"]",
     "",
-    "Provide supportive assessment and next-step guidance.",
+    "RISK-RULES CONTEXT:",
+    context,
   ].join("\n");
 
-  const reply = await generateChatReply({ systemInstruction, userMessage });
-  return reply.trim() || null;
+  const reply = await generateChatReply({
+    systemInstruction,
+    userMessage: buildUserMessageForRag(input),
+  });
+  const block = extractJsonArray(reply.trim());
+  if (!block) return [];
+  try {
+    const parsed = JSON.parse(block) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((x) => String(x ?? "").trim())
+      .filter(Boolean)
+      .slice(0, 5);
+  } catch {
+    return [];
+  }
 }
 
 export async function GET(
@@ -115,9 +176,17 @@ export async function GET(
     const level = riskLevelFromSeverity(severity);
     const title = (data.title as string | null) ?? null;
     let insight = buildInsight({ symptomCodes, severity, title });
+    let suggestions: string[] = [];
     try {
-      const ragInsight = await buildRagRiskInsight({ symptomCodes, severity, title });
-      if (ragInsight) insight = ragInsight;
+      const ctx = await fetchRiskRulesContext({ symptomCodes, severity, title });
+      if (ctx) {
+        const [ragInsight, ragSuggestions] = await Promise.all([
+          buildRagRiskInsightFromContext(ctx, { symptomCodes, severity, title }),
+          buildRagSuggestionsFromContext(ctx, { symptomCodes, severity, title }),
+        ]);
+        if (ragInsight) insight = ragInsight;
+        suggestions = ragSuggestions;
+      }
     } catch (e) {
       console.warn("[symptoms/log/id] risk-rules fallback:", e);
     }
@@ -133,6 +202,7 @@ export async function GET(
       },
       insight,
       level,
+      suggestions,
     });
   } catch (e) {
     return serverErrorJson("symptoms_log_id GET", e);

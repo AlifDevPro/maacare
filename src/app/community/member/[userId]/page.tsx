@@ -5,19 +5,19 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { format, formatDistanceToNow } from "date-fns";
-import { Activity, Loader2, Shield, Stethoscope } from "lucide-react";
+import { Activity, MessageCircle, Shield, Stethoscope } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CommunityPostBody } from "@/components/community/community-post-body";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
+import { MemberProfileSkeleton } from "./member-profile-skeleton";
 
 type MemberPost = {
   id: string;
@@ -34,9 +34,13 @@ type ActivityItem = {
   id: string;
   createdAt: string;
   body: string;
+  bodyPreviewPlain: string;
   title: string | null;
   postId: string;
   postTitle: string | null;
+  postKind: string | null;
+  summary: string;
+  verb: "published" | "commented";
 };
 
 type MemberProfile = {
@@ -196,9 +200,7 @@ export default function CommunityMemberPage() {
     return (
       <AppShell>
         <AppHeader title="Member" showBack backHref="/community" showNotifications />
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
+        <MemberProfileSkeleton />
       </AppShell>
     );
   }
@@ -283,6 +285,14 @@ export default function CommunityMemberPage() {
                 </p>
               ) : null}
               <ProfileBadges profile={profile} />
+              {user?.id && user.id !== profile.id ? (
+                <Button asChild className="mt-3 h-10 w-full rounded-xl text-sm font-semibold" size="default">
+                  <Link href={`/messages/start?peer=${profile.id}`}>
+                    <MessageCircle className="mr-2 h-4 w-4" />
+                    Send message
+                  </Link>
+                </Button>
+              ) : null}
               {!profile.showExtendedToViewer && user?.id !== profile.id ? (
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Pregnancy week details are hidden — this member has not enabled extended community profile.
@@ -347,7 +357,7 @@ export default function CommunityMemberPage() {
                       <p className="mt-1 font-display text-sm font-semibold leading-snug">{p.title}</p>
                     ) : null}
                     <div className={cn("mt-0.5 text-sm text-foreground/90", p.title ? "line-clamp-2" : "line-clamp-3")}>
-                      <CommunityPostBody body={p.body} bodyFormat={p.bodyFormat} />
+                      <CommunityPostBody body={p.body} bodyFormat={p.bodyFormat} collapseLines={4} />
                     </div>
                   </Card>
                 </Link>
@@ -358,21 +368,30 @@ export default function CommunityMemberPage() {
             {activity.length === 0 ? (
               <p className="text-sm text-muted-foreground">No recent community activity.</p>
             ) : (
-              activity.map((a) => (
+              activity.map((a, idx) => (
                 <Link key={`${a.kind}-${a.id}`} href={`/community/${a.postId}`} className="block">
-                  <Card className="p-3 transition-colors hover:bg-muted/40">
-                    <div className="flex items-center justify-between gap-2">
-                      <Badge variant="secondary" className="text-[10px] font-medium capitalize">
-                        {a.kind}
-                      </Badge>
-                      <span className="text-[11px] text-muted-foreground">
+                  <Card
+                    className={cn(
+                      "relative overflow-hidden border-l-[3px] border-l-primary/55 p-3 pl-3.5 transition-colors hover:bg-muted/40",
+                      idx === activity.length - 1 && "border-l-primary/40",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 text-sm font-semibold leading-snug text-foreground">{a.summary}</p>
+                      <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
                         {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
                       </span>
                     </div>
-                    {a.postTitle ? (
-                      <p className="mt-1 text-xs font-medium text-foreground/90 line-clamp-1">On: {a.postTitle}</p>
+                    {a.kind === "comment" && a.postTitle?.trim() && a.summary === "Commented on a thread" ? (
+                      <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                        Thread: <span className="font-medium text-foreground/80">{a.postTitle}</span>
+                      </p>
                     ) : null}
-                    <p className="mt-1 line-clamp-3 text-sm text-muted-foreground">{a.body}</p>
+                    {a.bodyPreviewPlain ? (
+                      <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                        {a.bodyPreviewPlain}
+                      </p>
+                    ) : null}
                   </Card>
                 </Link>
               ))

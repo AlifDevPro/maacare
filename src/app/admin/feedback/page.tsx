@@ -98,7 +98,7 @@ export default function AdminFeedbackPage() {
       <div>
         <h1 className="font-display text-2xl font-semibold tracking-tight">Feedback & errors</h1>
         <p className="text-sm text-muted-foreground">
-          Reports from the app (errors, feedback, navigation). Total: {total.toLocaleString()}
+          Reports from the app (errors, feedback, navigation, support tickets). Total: {total.toLocaleString()}
         </p>
       </div>
 

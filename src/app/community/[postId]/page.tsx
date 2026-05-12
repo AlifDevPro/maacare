@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
@@ -56,6 +56,7 @@ import {
 } from "@/components/community/community-comment-thread";
 import { CommunityPostBody } from "@/components/community/community-post-body";
 import { CommunityRichEditor } from "@/components/community/community-rich-editor";
+import { PostDetailSkeleton } from "./post-detail-skeleton";
 import { cn } from "@/lib/utils";
 import {
   COMMUNITY_ACTION,
@@ -121,7 +122,7 @@ export default function PostDetailPage() {
   >("spam");
   const [reportDetails, setReportDetails] = useState("");
   const [reporting, setReporting] = useState(false);
-  const [pendingLike, setPendingLike] = useState(false);
+  const likeRequestIdRef = useRef(0);
 
   const validId = UUID_RE.test(rawId);
 
@@ -196,18 +197,19 @@ export default function PostDetailPage() {
   }, [loadAll]);
 
   async function toggleLike() {
-    if (!post || pendingLike) return;
+    if (!post) return;
+    const reqId = ++likeRequestIdRef.current;
+    const postId = post.id;
     const prevLiked = post.likedByMe;
     const prevCount = post.likeCount;
     const nextLiked = !prevLiked;
-    setPendingLike(true);
     setPost((prev) =>
-      prev
+      prev && prev.id === postId
         ? { ...prev, likedByMe: nextLiked, likeCount: Math.max(0, prev.likeCount + (nextLiked ? 1 : -1)) }
         : prev,
     );
     try {
-      const res = await fetch(`/api/community/posts/${post.id}/like`, {
+      const res = await fetch(`/api/community/posts/${postId}/like`, {
         method: "POST",
         credentials: "include",
       });
@@ -217,8 +219,9 @@ export default function PostDetailPage() {
         message?: string;
       };
       if (!res.ok) throw new Error(j.message ?? "Could not update like");
+      if (likeRequestIdRef.current !== reqId) return;
       setPost((prev) =>
-        prev
+        prev && prev.id === postId
           ? {
               ...prev,
               likedByMe: !!j.liked,
@@ -228,10 +231,12 @@ export default function PostDetailPage() {
       );
       dispatchNotificationsUpdated();
     } catch (e) {
-      setPost((prev) => (prev ? { ...prev, likedByMe: prevLiked, likeCount: prevCount } : prev));
-      toast.error(e instanceof Error ? e.message : "Could not update like");
-    } finally {
-      setPendingLike(false);
+      if (likeRequestIdRef.current === reqId) {
+        setPost((prev) =>
+          prev && prev.id === postId ? { ...prev, likedByMe: prevLiked, likeCount: prevCount } : prev,
+        );
+        toast.error(e instanceof Error ? e.message : "Could not update like");
+      }
     }
   }
 
@@ -266,7 +271,6 @@ export default function PostDetailPage() {
       if (!res.ok) throw new Error(j.message ?? "Could not send reply");
       await refreshPostDetailSilent();
       dispatchNotificationsUpdated();
-      toast.success("Reply posted");
     } catch (err) {
       setComments((prev) => prev.filter((c) => c.id !== optimisticId));
       setPost((prev) => (prev ? { ...prev, commentCount: Math.max(0, prev.commentCount - 1) } : prev));
@@ -296,7 +300,6 @@ export default function PostDetailPage() {
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not update post");
-      toast.success("Post updated");
       setEditOpen(false);
       await refreshPostDetailSilent();
     } catch (e) {
@@ -316,7 +319,6 @@ export default function PostDetailPage() {
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not delete post");
-      toast.success("Post deleted");
       setDeleteOpen(false);
       router.replace("/community");
     } catch (e) {
@@ -338,7 +340,6 @@ export default function PostDetailPage() {
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not submit report");
-      toast.success("Report submitted. Admin will review it.");
       setReportOpen(false);
       setReportReason("spam");
       setReportDetails("");
@@ -370,7 +371,6 @@ export default function PostDetailPage() {
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not hide post");
-      toast.success("Post hidden from community.");
       router.replace("/community");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not hide post");
@@ -395,9 +395,7 @@ export default function PostDetailPage() {
     return (
       <AppShell>
         <AppHeader title="Post" showBack showNotifications />
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
+        <PostDetailSkeleton />
       </AppShell>
     );
   }
@@ -646,7 +644,10 @@ export default function PostDetailPage() {
                     <MoreHorizontal className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="z-[100]">
+                <DropdownMenuContent
+                  align="end"
+                  className="z-[100] border-border bg-popover text-popover-foreground"
+                >
                   <DropdownMenuItem onClick={() => openEditDialog()}>
                     <Pencil className="mr-2 h-4 w-4" /> Edit
                   </DropdownMenuItem>
@@ -664,7 +665,10 @@ export default function PostDetailPage() {
                     <Shield className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="z-[100]">
+                <DropdownMenuContent
+                  align="end"
+                  className="z-[100] border-border bg-popover text-popover-foreground"
+                >
                   <DropdownMenuItem
                     className="text-destructive"
                     onClick={() => void moderatePostHidden()}
@@ -704,7 +708,6 @@ export default function PostDetailPage() {
                 post.likedByMe ? "text-primary hover:bg-primary/10" : "text-muted-foreground",
               )}
               onClick={() => void toggleLike()}
-              disabled={pendingLike}
               aria-label={post.likedByMe ? "Unlike" : "Like"}
             >
               <Heart
@@ -712,7 +715,6 @@ export default function PostDetailPage() {
                   "h-5 w-5",
                   COMMUNITY_ACTION_ICON,
                   post.likedByMe && "fill-current",
-                  pendingLike && "scale-110 animate-pulse",
                 )}
               />
               <span>{post.likeCount}</span>

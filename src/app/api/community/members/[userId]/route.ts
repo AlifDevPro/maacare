@@ -4,18 +4,34 @@ import { z } from "zod";
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { gestationalWeekFromLmp } from "@/lib/profile/computed";
+import { htmlToPlainText, trimPlainPreview } from "@/lib/community/html-to-plain-text";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
+
+function kindLabel(kind: string): string {
+  if (kind === "question") return "Question";
+  if (kind === "tip") return "Tip";
+  return "Post";
+}
+
+function bodyPreviewPlain(body: string, bodyFormat: "plain" | "html"): string {
+  const full = bodyFormat === "html" ? htmlToPlainText(body) : body.replace(/\s+/g, " ").trim();
+  return trimPlainPreview(full, 200);
+}
 
 type ActivityItem = {
   kind: "post" | "comment";
   id: string;
   createdAt: string;
   body: string;
+  bodyPreviewPlain: string;
   title: string | null;
   postId: string;
   postTitle: string | null;
+  postKind: string | null;
+  summary: string;
+  verb: "published" | "commented";
 };
 
 export async function GET(
@@ -134,26 +150,46 @@ export async function GET(
     for (const row of commentRowsSafe) {
       const meta = visiblePostMeta.get(row.post_id);
       if (!meta) continue;
+      const postTitle = meta.title;
+      const postTitlePlain = postTitle ? trimPlainPreview(postTitle.replace(/\s+/g, " ").trim(), 120) : null;
+      const preview = bodyPreviewPlain(row.body, "plain");
+      const summary = postTitlePlain
+        ? `Commented on “${postTitlePlain}”`
+        : "Commented on a thread";
       commentActivity.push({
         kind: "comment",
         id: row.id,
         createdAt: row.created_at,
         body: row.body,
+        bodyPreviewPlain: preview,
         title: null,
         postId: row.post_id,
-        postTitle: meta.title,
+        postTitle,
+        postKind: null,
+        summary,
+        verb: "commented",
       });
     }
 
-    const postActivity: ActivityItem[] = posts.map((p) => ({
-      kind: "post" as const,
-      id: p.id,
-      createdAt: p.createdAt,
-      body: p.body,
-      title: p.title,
-      postId: p.id,
-      postTitle: p.title,
-    }));
+    const postActivity: ActivityItem[] = posts.map((p) => {
+      const fmt = p.bodyFormat === "html" ? "html" : "plain";
+      const preview = bodyPreviewPlain(p.body, fmt);
+      const titlePart = p.title?.trim() ? ` — ${trimPlainPreview(p.title.trim(), 72)}` : "";
+      const summary = `Published · ${kindLabel(p.postKind)}${titlePart}`;
+      return {
+        kind: "post" as const,
+        id: p.id,
+        createdAt: p.createdAt,
+        body: p.body,
+        bodyPreviewPlain: preview,
+        title: p.title,
+        postId: p.id,
+        postTitle: p.title,
+        postKind: p.postKind,
+        summary,
+        verb: "published" as const,
+      };
+    });
 
     const activity = [...postActivity, ...commentActivity]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())

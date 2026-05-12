@@ -15,6 +15,19 @@ export type AuthUser = {
   avatarUrl?: string | null;
 };
 
+function sessionUserShallowEqual(a: AuthUser | null, b: AuthUser | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.id === b.id &&
+    a.email === b.email &&
+    a.name === b.name &&
+    a.role === b.role &&
+    a.language === b.language &&
+    (a.avatarUrl ?? null) === (b.avatarUrl ?? null)
+  );
+}
+
 const AUTH_EVENT = "maacare:auth";
 
 export async function refreshSession(): Promise<AuthUser | null> {
@@ -30,10 +43,16 @@ export function useUser(): AuthUser | null {
   useEffect(() => {
     let cancelled = false;
     void refreshSession().then((u) => {
-      if (!cancelled) setUser(u);
+      if (!cancelled) {
+        setUser((prev) => (sessionUserShallowEqual(prev, u) ? prev : u));
+      }
     });
     const onAuth = () => {
-      void refreshSession().then(setUser);
+      void refreshSession().then((u) => {
+        if (!cancelled) {
+          setUser((prev) => (sessionUserShallowEqual(prev, u) ? prev : u));
+        }
+      });
     };
     window.addEventListener(AUTH_EVENT, onAuth);
     return () => {
@@ -54,13 +73,15 @@ export function useSession() {
     let cancelled = false;
     void refreshSession().then((u) => {
       if (!cancelled) {
-        setUser(u);
+        setUser((prev) => (sessionUserShallowEqual(prev, u) ? prev : u));
         setLoading(false);
       }
     });
     const onAuth = () => {
       void refreshSession().then((u) => {
-        if (!cancelled) setUser(u);
+        if (!cancelled) {
+          setUser((prev) => (sessionUserShallowEqual(prev, u) ? prev : u));
+        }
       });
     };
     window.addEventListener(AUTH_EVENT, onAuth);

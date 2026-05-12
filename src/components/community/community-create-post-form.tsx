@@ -12,13 +12,7 @@ import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CommunityRichEditor } from "@/components/community/community-rich-editor";
 import { isRichPostBodyEmpty } from "@/lib/community/rich-post-empty";
 import { useSession } from "@/lib/auth-client";
@@ -63,7 +57,6 @@ export function CommunityCreatePostForm() {
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not publish");
-      toast.success("Posted");
       router.push("/community");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not publish");
@@ -97,20 +90,40 @@ export function CommunityCreatePostForm() {
       <AppHeader title="Create post" showBack backHref="/community" />
       <form id={FORM_ID} className="flex min-h-0 flex-1 flex-col" onSubmit={onSubmit}>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-4 pb-32">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Label htmlFor="create-kind" className="sr-only">
-              Post type
-            </Label>
-            <Select value={postKind} onValueChange={(v) => setPostKind(v as typeof postKind)}>
-              <SelectTrigger id="create-kind" className="h-9 w-[min(100%,11rem)] rounded-xl text-xs sm:text-sm">
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent position="popper" className="z-[100]">
-                <SelectItem value="post">Post</SelectItem>
-                <SelectItem value="question">Question</SelectItem>
-                <SelectItem value="tip">Tip</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="space-y-2">
+            <Label className="text-xs font-medium text-muted-foreground">Post type</Label>
+            <ToggleGroup
+              type="single"
+              value={postKind}
+              onValueChange={(v) => {
+                if (v === "post" || v === "question" || v === "tip") setPostKind(v);
+              }}
+              className="grid w-full grid-cols-3 gap-1.5 rounded-2xl border border-border/70 bg-muted/25 p-1"
+              variant="outline"
+              size="sm"
+            >
+              <ToggleGroupItem
+                value="post"
+                className="h-11 flex-col gap-0 rounded-xl px-1 py-1.5 text-xs font-semibold data-[state=on]:border-primary/40 data-[state=on]:bg-background data-[state=on]:shadow-sm sm:text-sm"
+              >
+                Post
+                <span className="text-[10px] font-normal text-muted-foreground">Share</span>
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="question"
+                className="h-11 flex-col gap-0 rounded-xl px-1 py-1.5 text-xs font-semibold data-[state=on]:border-primary/40 data-[state=on]:bg-background data-[state=on]:shadow-sm sm:text-sm"
+              >
+                Question
+                <span className="text-[10px] font-normal text-muted-foreground">Ask</span>
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="tip"
+                className="h-11 flex-col gap-0 rounded-xl px-1 py-1.5 text-xs font-semibold data-[state=on]:border-primary/40 data-[state=on]:bg-background data-[state=on]:shadow-sm sm:text-sm"
+              >
+                Tip
+                <span className="text-[10px] font-normal text-muted-foreground">Idea</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="create-title" className="text-xs text-muted-foreground">

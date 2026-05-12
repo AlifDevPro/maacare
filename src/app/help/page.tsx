@@ -1,20 +1,129 @@
 "use client";
 
 import Link from "next/link";
-import { MessageCircle, MessagesSquare, Phone, Users, Mail, LifeBuoy, BookOpen } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { MessageCircle, MessagesSquare, Phone, Users, Mail, LifeBuoy, BookOpen, Ticket } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { useSession } from "@/lib/auth-client";
 
 const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim();
+
+function SupportTicketCard() {
+  const { user } = useSession();
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!user) {
+      toast.error("Please sign in to submit a ticket.");
+      return;
+    }
+    const sub = subject.trim();
+    const msg = message.trim();
+    if (!sub || !msg) {
+      toast.error("Add a subject and a short message.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "support_ticket",
+          message: msg,
+          context: { subject: sub },
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { message?: string; issues?: { path: string[] }[] };
+      if (!res.ok) {
+        throw new Error(j.message ?? "Could not send ticket");
+      }
+      toast.success("Ticket sent. We will follow up when we can.");
+      setSubject("");
+      setMessage("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not send ticket");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden rounded-2xl border-border/80 shadow-none">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 font-display text-base">
+          <Ticket className="h-4 w-4 text-primary" />
+          Support ticket
+        </CardTitle>
+        <CardDescription>
+          For account access, something broken in the app, or billing — not for medical emergencies.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {user ? (
+          <form className="space-y-3" onSubmit={(e) => void onSubmit(e)}>
+            <div className="space-y-1.5">
+              <Label htmlFor="ticket-subject" className="text-xs font-medium">
+                Subject
+              </Label>
+              <Input
+                id="ticket-subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                maxLength={200}
+                placeholder="Short summary"
+                className="rounded-xl"
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ticket-message" className="text-xs font-medium">
+                Message
+              </Label>
+              <Textarea
+                id="ticket-message"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                rows={4}
+                maxLength={8000}
+                placeholder="What happened, what you expected, and any steps to reproduce."
+                className="rounded-xl resize-y min-h-[100px]"
+              />
+            </div>
+            <Button type="submit" className="h-11 w-full rounded-xl" disabled={submitting}>
+              {submitting ? "Sending…" : "Submit ticket"}
+            </Button>
+          </form>
+        ) : (
+          <p className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Sign in to open a ticket.{" "}
+            <Link href="/login" className="font-medium text-primary underline-offset-2 hover:underline">
+              Log in
+            </Link>
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function HelpPage() {
   const mailHref = SUPPORT_EMAIL ? `mailto:${SUPPORT_EMAIL}` : null;
@@ -86,6 +195,8 @@ export default function HelpPage() {
             ) : null}
           </CardContent>
         </Card>
+
+        <SupportTicketCard />
 
         <Card className="overflow-hidden rounded-2xl border-border/80 shadow-none">
           <CardHeader className="pb-2">

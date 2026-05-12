@@ -76,6 +76,7 @@ export function NotificationsPageClient({ initial }: { initial: NotificationsPay
       <AppHeader
         title="Notifications"
         showBack
+        showNotifications
         right={
           unreadCount > 0 ? (
             <Button

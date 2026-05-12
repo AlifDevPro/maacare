@@ -46,9 +46,17 @@ export default function SymptomsPage() {
     setSelected((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]));
   }
 
+  const canSubmit = selected.length > 0 || other.trim().length > 0;
+
   async function analyze() {
     const level = severity >= 7 ? "high" : severity >= 4 ? "medium" : "low";
-    const title = selected.length > 0 ? selected.slice(0, 2).join(", ") : "Symptom check";
+    const otherTrim = other.trim();
+    const title =
+      selected.length > 0
+        ? selected.slice(0, 2).join(", ")
+        : otherTrim
+          ? otherTrim.split(/\r?\n/).find((l) => l.trim())?.slice(0, 80).trim() || "Custom symptoms"
+          : "Symptom check";
     setSaving(true);
     let logId: string | null = null;
     try {
@@ -68,8 +76,9 @@ export default function SymptomsPage() {
     } finally {
       setSaving(false);
     }
+    const countParam = selected.length > 0 ? selected.length : otherTrim ? 1 : 0;
     router.push(
-      `/symptoms/result?level=${level}&count=${selected.length}&severity=${severity}${logId ? `&logId=${encodeURIComponent(logId)}` : ""}`,
+      `/symptoms/result?level=${level}&count=${countParam}&severity=${severity}${logId ? `&logId=${encodeURIComponent(logId)}` : ""}`,
     );
   }
 
@@ -163,7 +172,7 @@ export default function SymptomsPage() {
         <Button
           size="lg"
           className="w-full rounded-2xl"
-          disabled={selected.length === 0 || saving}
+          disabled={!canSubmit || saving}
           onClick={() => void analyze()}
         >
           {saving ? "Saving..." : "Analyze risk"}

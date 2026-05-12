@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { ArrowLeft, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MessageBell } from "./MessageBell";
 import { NotificationBell } from "./NotificationBell";
 import { ProfileMenu } from "./ProfileMenu";
 
@@ -16,6 +17,8 @@ interface AppHeaderProps {
   /** When set, back navigates here instead of browser history. */
   backHref?: string;
   showNotifications?: boolean;
+  /** When omitted, follows `showNotifications` (bell and messages together). */
+  showMessages?: boolean;
   showMenu?: boolean;
   right?: ReactNode;
   brand?: boolean;
@@ -27,12 +30,14 @@ export function AppHeader({
   showBack,
   backHref,
   showNotifications,
+  showMessages,
   showMenu,
   right,
   brand,
   className,
 }: AppHeaderProps) {
   const router = useRouter();
+  const messagesEnabled = showMessages ?? showNotifications ?? false;
   return (
     <header
       className={cn(
@@ -78,6 +83,7 @@ export function AppHeader({
       <div className="flex items-center gap-1.5">
         {right}
         {showNotifications && <NotificationBell />}
+        {messagesEnabled && <MessageBell />}
         <ProfileMenu />
       </div>
     </header>

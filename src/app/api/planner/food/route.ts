@@ -4,6 +4,7 @@ import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type MealSuggestion = {
   label: "Breakfast" | "Lunch" | "Dinner";
@@ -40,10 +41,79 @@ function coerceMeals(input: unknown): MealSuggestion[] {
   return valid;
 }
 
+async function persistMealsForToday(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string,
+  meals: MealSuggestion[],
+  source: string,
+) {
+  const planDate = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase.from("planner_food_suggestions").upsert(
+    {
+      user_id: userId,
+      plan_date: planDate,
+      meals,
+      source,
+    },
+    { onConflict: "user_id,plan_date" },
+  );
+  if (error) console.warn("[planner_food] persist meals", error.message);
+}
+
+function avoidRepeatPromptFromPrior(prior: { meals: unknown }[] | null | undefined): string {
+  const lines: string[] = [];
+  for (const row of prior ?? []) {
+    const arr = coerceMeals(row.meals);
+    for (const m of arr) lines.push(`${m.label}: ${m.body}`);
+  }
+  if (lines.length === 0) return "";
+  const capped = lines.slice(0, 24);
+  return [
+    "The member already saw these meal ideas in the last 7 days. Generate clearly different dishes, ingredients, and cooking styles (still practical for home cooking):",
+    ...capped,
+  ].join("\n");
+}
+
+function yesterdayMealsPrompt(row: { meals: unknown } | null | undefined): string {
+  if (!row) return "";
+  const arr = coerceMeals(row.meals);
+  if (arr.length === 0) return "";
+  return [
+    "Yesterday's planned meals for this member — do NOT repeat the same main dishes or identical ingredients; rotate cuisines and proteins while staying culturally appropriate and practical:",
+    ...arr.map((m) => `${m.label}: ${m.body}`),
+  ].join("\n");
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getSessionFromCookies();
     if (!session) return failJson(401, "Sign in.");
+
+    const supabase = await createSupabaseServerClient();
+    const uid = session.id;
+
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - 7);
+    const sinceStr = since.toISOString().slice(0, 10);
+    const { data: priorRows } = await supabase
+      .from("planner_food_suggestions")
+      .select("meals")
+      .eq("user_id", uid)
+      .gte("plan_date", sinceStr)
+      .order("plan_date", { ascending: false });
+
+    const yest = new Date();
+    yest.setUTCDate(yest.getUTCDate() - 1);
+    const yesterdayStr = yest.toISOString().slice(0, 10);
+    const { data: yesterdayRow } = await supabase
+      .from("planner_food_suggestions")
+      .select("meals")
+      .eq("user_id", uid)
+      .eq("plan_date", yesterdayStr)
+      .maybeSingle();
+
+    const avoidBlock = avoidRepeatPromptFromPrior(priorRows ?? null);
+    const yesterdayBlock = yesterdayMealsPrompt(yesterdayRow ?? null);
 
     const weekRaw = req.nextUrl.searchParams.get("week");
     const week = weekRaw ? Math.max(1, Math.min(40, Number(weekRaw) || 0)) : null;
@@ -57,6 +127,7 @@ export async function GET(req: NextRequest) {
       categories: ["food"],
     });
     if (hits.length === 0) {
+      await persistMealsForToday(supabase, uid, FALLBACK_MEALS, "fallback");
       return Response.json({ meals: FALLBACK_MEALS, source: "fallback" });
     }
 
@@ -69,7 +140,8 @@ export async function GET(req: NextRequest) {
       "Using ONLY provided FOOD context, produce exactly 3 items: Breakfast, Lunch, Dinner.",
       "Return ONLY JSON array with objects: label, body, tag.",
       "body: one short meal suggestion; tag: nutrient focus like 'Iron · Protein'.",
-      "",
+      avoidBlock ? `${avoidBlock}\n` : "",
+      yesterdayBlock ? `${yesterdayBlock}\n` : "",
       "FOOD CONTEXT:",
       context,
     ].join("\n");
@@ -80,8 +152,11 @@ export async function GET(req: NextRequest) {
     const parsed = json ? JSON.parse(json) : null;
     const meals = coerceMeals(parsed);
     if (meals.length !== 3) {
+      await persistMealsForToday(supabase, uid, FALLBACK_MEALS, "fallback");
       return Response.json({ meals: FALLBACK_MEALS, source: "fallback" });
     }
+
+    await persistMealsForToday(supabase, uid, meals, "food-rag");
 
     return Response.json({ meals, source: "food-rag" });
   } catch (e) {

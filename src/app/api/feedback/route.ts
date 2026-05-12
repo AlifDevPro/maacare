@@ -5,11 +5,30 @@ import { validationJsonResponse, failJson, serverErrorJson } from "@/lib/api/err
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-const bodySchema = z.object({
-  kind: z.enum(["error", "feedback", "navigation"]),
-  message: z.string().min(1).max(8000),
-  context: z.record(z.unknown()).optional(),
-});
+const bodySchema = z
+  .object({
+    kind: z.enum(["error", "feedback", "navigation", "support_ticket"]),
+    message: z.string().min(1).max(8000),
+    context: z.record(z.unknown()).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.kind !== "support_ticket") return;
+    const raw = data.context?.subject;
+    const subject = typeof raw === "string" ? raw.trim() : "";
+    if (!subject) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Subject is required for support tickets.",
+        path: ["context", "subject"],
+      });
+    } else if (subject.length > 200) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Subject must be at most 200 characters.",
+        path: ["context", "subject"],
+      });
+    }
+  });
 
 const MAX_PER_HOUR = 20;
 
@@ -44,8 +63,14 @@ export async function POST(req: NextRequest) {
       return failJson(429, "Too many reports this hour. Try again later.");
     }
 
+    const baseCtx = { ...(parsed.data.context ?? {}) };
+    if (parsed.data.kind === "support_ticket") {
+      const sub = typeof baseCtx.subject === "string" ? baseCtx.subject.trim() : "";
+      baseCtx.subject = sub;
+    }
+
     const ctx = {
-      ...(parsed.data.context ?? {}),
+      ...baseCtx,
       path: req.headers.get("referer") ?? req.nextUrl.pathname,
       userAgent: req.headers.get("user-agent") ?? undefined,
     };

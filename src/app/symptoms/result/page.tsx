@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
-import { AlertCircle, CheckCircle2, MessageCircle, MapPin, Shield } from "lucide-react";
+import { CheckCircle2, MapPin, MessageCircle, Shield, Sparkles } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
@@ -57,9 +57,11 @@ function SymptomsResultFallback() {
 function SymptomsResultInner() {
   const searchParams = useSearchParams();
   const [logInsight, setLogInsight] = useState<string | null>(null);
+  const [logSuggestions, setLogSuggestions] = useState<string[]>([]);
+  const [levelFromLog, setLevelFromLog] = useState<"low" | "medium" | "high" | null>(null);
   const [logMeta, setLogMeta] = useState<{ title: string | null; loggedAt: string } | null>(null);
 
-  const { level } = useMemo(() => {
+  const { level: levelFromUrl } = useMemo(() => {
     const parsed = search.safeParse(Object.fromEntries(searchParams.entries()));
     return parsed.success ? parsed.data : search.parse({});
   }, [searchParams]);
@@ -69,6 +71,8 @@ function SymptomsResultInner() {
     let alive = true;
     if (!logId) {
       setLogInsight(null);
+      setLogSuggestions([]);
+      setLevelFromLog(null);
       setLogMeta(null);
       return;
     }
@@ -79,16 +83,22 @@ function SymptomsResultInner() {
         });
         const j = (await res.json().catch(() => ({}))) as {
           insight?: string;
+          level?: string;
+          suggestions?: string[];
           log?: { title: string | null; loggedAt: string };
         };
-        if (!res.ok || !j.insight) return;
+        if (!res.ok) return;
         if (!alive) return;
-        setLogInsight(j.insight);
+        if (j.level === "low" || j.level === "medium" || j.level === "high") {
+          setLevelFromLog(j.level);
+        }
+        setLogInsight(typeof j.insight === "string" ? j.insight : null);
+        setLogSuggestions(Array.isArray(j.suggestions) ? j.suggestions.filter((s) => typeof s === "string" && s.trim()) : []);
         if (j.log) {
           setLogMeta({ title: j.log.title ?? null, loggedAt: j.log.loggedAt });
         }
       } catch {
-        // Keep fallback static copy when detail fetch fails.
+        /* keep URL-level fallback */
       }
     }
     void loadLog();
@@ -97,7 +107,12 @@ function SymptomsResultInner() {
     };
   }, [logId]);
 
-  const c = COPY[level as keyof typeof COPY];
+  const displayLevel = (levelFromLog ?? levelFromUrl) as keyof typeof COPY;
+  const c = COPY[displayLevel] ?? COPY.low;
+
+  const showAiInsight = Boolean(logInsight?.trim());
+  const showAiSuggestions = logSuggestions.length > 0;
+  const showStaticTips = !showAiInsight && !showAiSuggestions;
 
   return (
     <AppShell>
@@ -114,37 +129,58 @@ function SymptomsResultInner() {
               <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-card/40 backdrop-blur">
                 <Shield className="h-7 w-7" />
               </span>
-              <p className="text-xs font-semibold uppercase tracking-widest opacity-80">AI assessment</p>
+              <p className="text-xs font-semibold uppercase tracking-widest opacity-80">Risk result</p>
               <h1 className="font-display text-3xl font-semibold tracking-tight">{c.title}</h1>
               <p className="max-w-[28ch] text-sm leading-relaxed opacity-90">{c.explain}</p>
             </div>
           </Card>
         </motion.div>
 
-        <Card className="p-4 shadow-soft">
-          <h2 className="mb-3 font-display text-sm font-semibold">Recommended next steps</h2>
-          <ul className="space-y-2.5">
-            {c.tips.map((t: string) => (
-              <li key={t} className="flex items-start gap-2.5 text-sm">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
-                <span>{t}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-
-        {logInsight ? (
-          <Card className="p-4 shadow-soft">
-            <div className="mb-2 flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-accent" />
-              <h2 className="font-display text-sm font-semibold">Latest log insight</h2>
+        {showAiInsight ? (
+          <Card className="relative overflow-hidden border border-violet-500/25 bg-gradient-to-br from-violet-500/[0.07] via-background to-sky-500/[0.05] p-4 shadow-soft">
+            <div className="absolute right-3 top-3 flex items-center gap-1 rounded-full border border-violet-500/20 bg-background/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-200">
+              <Sparkles className="h-3 w-3" aria-hidden />
+              AI
             </div>
+            <h2 className="mb-2 pr-16 font-display text-sm font-semibold text-foreground">Personalized insight</h2>
             {logMeta ? (
-              <p className="mb-1 text-xs text-muted-foreground">
+              <p className="mb-2 text-xs text-muted-foreground">
                 {logMeta.title || "Symptom log"} · {new Date(logMeta.loggedAt).toLocaleString()}
               </p>
             ) : null}
             <p className="text-sm leading-relaxed text-foreground/90">{logInsight}</p>
+          </Card>
+        ) : null}
+
+        {showAiSuggestions ? (
+          <Card className="relative overflow-hidden border border-sky-500/25 bg-gradient-to-br from-sky-500/[0.06] via-background to-muted/40 p-4 shadow-soft">
+            <div className="absolute right-3 top-3 flex items-center gap-1 rounded-full border border-sky-500/20 bg-background/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800 dark:text-sky-100">
+              <Sparkles className="h-3 w-3" aria-hidden />
+              AI
+            </div>
+            <h2 className="mb-3 pr-16 font-display text-sm font-semibold">Suggested next steps</h2>
+            <ul className="space-y-2.5">
+              {logSuggestions.map((t) => (
+                <li key={t} className="flex items-start gap-2.5 text-sm">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-300" />
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ) : null}
+
+        {showStaticTips ? (
+          <Card className="p-4 shadow-soft">
+            <h2 className="mb-3 font-display text-sm font-semibold">Recommended next steps</h2>
+            <ul className="space-y-2.5">
+              {c.tips.map((t: string) => (
+                <li key={t} className="flex items-start gap-2.5 text-sm">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ul>
           </Card>
         ) : null}
 
