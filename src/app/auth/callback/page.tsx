@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { safeInternalPath } from "@/lib/auth/safe-internal-path";
@@ -18,8 +18,12 @@ const EMAIL_LINK_TYPES = new Set([
   "email",
 ]);
 
+/** Full page load so middleware + RSC see cookies set by `exchangeCodeForSession` / `verifyOtp`. */
+function completeAuthRedirect(next: string) {
+  window.location.assign(next);
+}
+
 function AuthCallbackInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -48,7 +52,7 @@ function AuthCallbackInner() {
           setErrorMsg(error.message || "This link is invalid or has expired.");
           return;
         }
-        router.replace(next);
+        completeAuthRedirect(next);
         return;
       }
 
@@ -65,7 +69,7 @@ function AuthCallbackInner() {
           setErrorMsg(error.message || "This link is invalid or has expired.");
           return;
         }
-        router.replace(next);
+        completeAuthRedirect(next);
         return;
       }
 
@@ -85,7 +89,7 @@ function AuthCallbackInner() {
           if (typeof window !== "undefined") {
             window.history.replaceState(null, "", window.location.pathname + window.location.search);
           }
-          router.replace(next);
+          completeAuthRedirect(next);
           return;
         }
       }
@@ -101,7 +105,7 @@ function AuthCallbackInner() {
     return () => {
       cancelled = true;
     };
-  }, [router, searchParams]);
+  }, [searchParams]);
 
   if (!errorMsg) {
     return (
