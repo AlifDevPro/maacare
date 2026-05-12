@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Heart,
   Loader2,
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -55,9 +57,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useSession } from "@/lib/auth-client";
 import { dispatchNotificationsUpdated } from "@/lib/notifications/events";
+import { CommunityAvatar } from "@/components/community/community-avatar";
+import { CommunityPostBody } from "@/components/community/community-post-body";
+import { CommunityRichEditor } from "@/components/community/community-rich-editor";
+import { isRichPostBodyEmpty } from "@/lib/community/rich-post-empty";
 import { cn } from "@/lib/utils";
-
-const TABS = ["Posts", "Questions", "Tips"] as const;
 
 const FEED_SCROLL_KEY = "maacare:community-feed-scroll-y";
 
@@ -66,11 +70,13 @@ export type FeedPost = {
   authorId: string;
   title: string | null;
   body: string;
+  bodyFormat?: "plain" | "html";
   postKind: string;
   gestationalWeekSnapshot: number | null;
   createdAt: string;
   authorDisplayName: string;
   authorRole: string;
+  authorAvatarUrl?: string | null;
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
@@ -82,30 +88,20 @@ function kindLabel(kind: string): string {
   return "Post";
 }
 
-function avatarLetter(name: string): string {
-  const t = name.trim();
-  return t ? t[0]!.toUpperCase() : "?";
-}
-
 export default function CommunityPageClient({ initialPosts }: { initialPosts: FeedPost[] }) {
+  const router = useRouter();
   const { user } = useSession();
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Posts");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [posts, setPosts] = useState<FeedPost[]>(initialPosts);
   const [loading, setLoading] = useState(false);
   const usedInitialRef = useRef(true);
-  const [composeOpen, setComposeOpen] = useState(false);
-
-  const [newTitle, setNewTitle] = useState("");
-  const [newBody, setNewBody] = useState("");
-  const [newKind, setNewKind] = useState<"post" | "question" | "tip">("post");
-  const [saving, setSaving] = useState(false);
 
   const [editPost, setEditPost] = useState<FeedPost | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
   const [editKind, setEditKind] = useState<"post" | "question" | "tip">("post");
+  const [editRich, setEditRich] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletePost, setDeletePost] = useState<FeedPost | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -180,8 +176,6 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
       if (showLoader) setLoading(true);
       try {
         const params = new URLSearchParams();
-        if (tab === "Questions") params.set("kind", "question");
-        if (tab === "Tips") params.set("kind", "tip");
         if (debouncedSearch) params.set("q", debouncedSearch);
         if (feedSort === "trending") params.set("sort", "trending");
 
@@ -209,17 +203,17 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
         if (showLoader) setLoading(false);
       }
     },
-    [tab, debouncedSearch, feedSort],
+    [debouncedSearch, feedSort],
   );
 
   useEffect(() => {
-    const onDefaultFeed = tab === "Posts" && !debouncedSearch && feedSort === "new";
+    const onDefaultFeed = !debouncedSearch && feedSort === "new";
     if (usedInitialRef.current && onDefaultFeed) {
       usedInitialRef.current = false;
       return;
     }
     void loadPosts();
-  }, [loadPosts, tab, debouncedSearch, feedSort]);
+  }, [loadPosts, debouncedSearch, feedSort]);
 
   async function toggleLike(postId: string) {
     if (pendingLikeIds.has(postId)) return;
@@ -270,57 +264,8 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
     }
   }
 
-  async function submitPost() {
-    if (!newBody.trim()) {
-      toast.error("Write something for your post.");
-      return;
-    }
-    setSaving(true);
-    const tempId = `temp-${Date.now()}`;
-    const optimistic: FeedPost = {
-      id: tempId,
-      authorId: user?.id ?? "me",
-      title: newTitle.trim() || null,
-      body: newBody.trim(),
-      postKind: newKind,
-      gestationalWeekSnapshot: null,
-      createdAt: new Date().toISOString(),
-      authorDisplayName: user?.name ?? "You",
-      authorRole: user?.role ?? "user",
-      likeCount: 0,
-      commentCount: 0,
-      likedByMe: false,
-    };
-    setPosts((prev) => [optimistic, ...prev]);
-    setComposeOpen(false);
-    setNewTitle("");
-    setNewBody("");
-    setNewKind("post");
-    try {
-      const res = await fetch("/api/community/posts", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newTitle.trim() || null,
-          body: newBody.trim(),
-          postKind: newKind,
-        }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { message?: string };
-      if (!res.ok) throw new Error(j.message ?? "Could not publish");
-      toast.success("Posted");
-      void loadPosts({ showLoader: false });
-    } catch (e) {
-      setPosts((prev) => prev.filter((p) => p.id !== tempId));
-      toast.error(e instanceof Error ? e.message : "Could not publish");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function saveEdit() {
-    if (!editPost || !editBody.trim()) {
+    if (!editPost || (editRich ? isRichPostBodyEmpty(editBody) : !editBody.trim())) {
       toast.error("Message cannot be empty.");
       return;
     }
@@ -334,6 +279,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
           title: editTitle.trim() ? editTitle.trim() : null,
           body: editBody.trim(),
           postKind: editKind,
+          bodyFormat: editRich ? "html" : "plain",
         }),
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
@@ -372,6 +318,7 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
     setEditPost(post);
     setEditTitle(post.title ?? "");
     setEditBody(post.body);
+    setEditRich(post.bodyFormat === "html");
     const k = post.postKind;
     setEditKind(k === "question" || k === "tip" ? k : "post");
   }
@@ -399,6 +346,14 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
     }
   }
 
+  function openCreatePost() {
+    if (!user) {
+      router.push(`/login?next=${encodeURIComponent("/community/create")}`);
+      return;
+    }
+    router.push("/community/create");
+  }
+
   return (
     <AppShell>
       <AppHeader
@@ -415,79 +370,13 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
               className="h-9 w-9"
               aria-label="New post"
               type="button"
-              onClick={() => setComposeOpen(true)}
+              onClick={() => openCreatePost()}
             >
               <Plus className="h-5 w-5" />
             </Button>
           </div>
         }
       />
-
-      {/* dialogs unchanged */}
-      <Dialog open={composeOpen} onOpenChange={setComposeOpen}>
-        <DialogContent className="max-h-[90vh] gap-4 overflow-y-auto sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-display">New community post</DialogTitle>
-          </DialogHeader>
-          <form
-            className="grid gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void submitPost();
-            }}
-          >
-            <div className="grid gap-2">
-              <Label>Type</Label>
-              <Select value={newKind} onValueChange={(v) => setNewKind(v as typeof newKind)}>
-                <SelectTrigger className="rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent position="popper" className="z-[100]">
-                  <SelectItem value="post">Post</SelectItem>
-                  <SelectItem value="question">Question</SelectItem>
-                  <SelectItem value="tip">Tip</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="pt">Title (optional)</Label>
-              <Input
-                id="pt"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="Short headline"
-                className="rounded-xl"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="pb">Message</Label>
-              <Textarea
-                id="pb"
-                rows={6}
-                value={newBody}
-                onChange={(e) => setNewBody(e.target.value)}
-                placeholder="Share kindly — this is not medical advice."
-                className="rounded-xl"
-                required
-              />
-            </div>
-            <DialogFooter className="gap-2 pt-2 sm:gap-0">
-              <Button type="button" variant="outline" className="rounded-xl" onClick={() => setComposeOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" className="rounded-xl" disabled={saving}>
-                {saving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Publishing…
-                  </>
-                ) : (
-                  "Publish"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={!!editPost} onOpenChange={(o) => !o && setEditPost(null)}>
         <DialogContent className="max-h-[90vh] gap-4 overflow-y-auto sm:max-w-md">
@@ -510,9 +399,62 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
               <Label htmlFor="et">Title (optional)</Label>
               <Input id="et" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Short headline" className="rounded-xl" />
             </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 px-3 py-2">
+              <div>
+                <Label htmlFor="edit-rich" className="text-sm font-medium">
+                  Rich text and photos
+                </Label>
+                <p className="text-[11px] text-muted-foreground">Bold, lists, and images from your device.</p>
+              </div>
+              <Switch
+                id="edit-rich"
+                checked={editRich}
+                disabled={!user?.id}
+                onCheckedChange={(c) => {
+                  if (c) {
+                    setEditRich(true);
+                    setEditBody((prev) => {
+                      const t = prev.trim();
+                      if (!t) return "<p></p>";
+                      if (/<[a-z][\s\S]*>/i.test(prev)) return prev;
+                      const esc = t
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;");
+                      return `<p>${esc.replace(/\n\n+/g, "</p><p>").replace(/\n/g, "<br/>")}</p>`;
+                    });
+                  } else {
+                    setEditRich(false);
+                    setEditBody((prev) =>
+                      prev
+                        .replace(/<br\s*\/?>/gi, "\n")
+                        .replace(/<\/p>/gi, "\n\n")
+                        .replace(/<[^>]+>/g, " ")
+                        .replace(/\s+/g, " ")
+                        .trim(),
+                    );
+                  }
+                }}
+              />
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="eb">Message</Label>
-              <Textarea id="eb" rows={6} value={editBody} onChange={(e) => setEditBody(e.target.value)} className="rounded-xl" required />
+              {editRich && user?.id && editPost ? (
+                <CommunityRichEditor
+                  key={`edit-${editPost.id}-${editRich}`}
+                  userId={user.id}
+                  content={editBody}
+                  onChange={setEditBody}
+                />
+              ) : (
+                <Textarea
+                  id="eb"
+                  rows={6}
+                  value={editBody}
+                  onChange={(e) => setEditBody(e.target.value)}
+                  className="rounded-xl"
+                />
+              )}
             </div>
             <DialogFooter className="gap-2 pt-2 sm:gap-0">
               <Button type="button" variant="outline" className="rounded-xl" onClick={() => setEditPost(null)}>Cancel</Button>
@@ -616,48 +558,47 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-1 rounded-2xl bg-muted p-1">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={cn(
-                "flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
-                tab === t ? "bg-card text-foreground" : "text-muted-foreground",
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-2 py-1.5">
-          <span className="pl-2 text-xs font-medium text-muted-foreground">Sort</span>
-          <div className="flex flex-1 gap-1">
-            <button
-              type="button"
-              onClick={() => setFeedSort("new")}
-              className={cn(
-                "flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                feedSort === "new" ? "bg-primary-soft text-primary" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              New
-            </button>
-            <button
-              type="button"
-              onClick={() => setFeedSort("trending")}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                feedSort === "trending"
-                  ? "bg-primary-soft text-primary"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <TrendingUp className="h-3.5 w-3.5 shrink-0" />
-              Trending
-            </button>
-          </div>
+        <button
+          type="button"
+          onClick={() => openCreatePost()}
+          className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-3 text-left shadow-sm transition-colors hover:bg-muted/40"
+        >
+          <CommunityAvatar
+            url={user?.avatarUrl}
+            name={user?.name ?? "You"}
+            className="h-10 w-10 shrink-0"
+            fallbackClassName="bg-primary-soft text-sm font-semibold"
+          />
+          <span className="min-w-0 flex-1 truncate rounded-full border border-border/60 bg-muted/40 px-4 py-2.5 text-left text-sm text-muted-foreground">
+            Share anything…
+          </span>
+        </button>
+        <div className="flex border-b border-border">
+          <button
+            type="button"
+            onClick={() => setFeedSort("new")}
+            className={cn(
+              "flex-1 border-b-2 pb-2 text-xs font-semibold transition-colors",
+              feedSort === "new"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            New
+          </button>
+          <button
+            type="button"
+            onClick={() => setFeedSort("trending")}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1 border-b-2 pb-2 text-xs font-semibold transition-colors",
+              feedSort === "trending"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+            Trending
+          </button>
         </div>
         {forYouLoaded && forYouPosts.length > 0 ? (
           <div className="space-y-2">
@@ -680,9 +621,14 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                   {p.title ? (
                     <p className="mt-1 line-clamp-2 font-display text-sm font-semibold leading-snug">{p.title}</p>
                   ) : null}
-                  <p className={cn("mt-0.5 text-xs leading-relaxed text-foreground/85", p.title ? "line-clamp-2" : "line-clamp-3")}>
-                    {p.body}
-                  </p>
+                  <div
+                    className={cn(
+                      "mt-0.5 text-xs leading-relaxed text-foreground/85 line-clamp-3",
+                      p.title && "line-clamp-2",
+                    )}
+                  >
+                    <CommunityPostBody body={p.body} bodyFormat={p.bodyFormat} />
+                  </div>
                 </Link>
               ))}
             </div>
@@ -691,7 +637,9 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
         {loading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
         ) : posts.length === 0 ? (
-          <Card className="p-8 text-center text-sm text-muted-foreground">No posts yet. Be the first to share — tap + to create one.</Card>
+          <Card className="p-8 text-center text-sm text-muted-foreground">
+            No posts yet. Be the first to share — tap above to start a post.
+          </Card>
         ) : (
           <div className="space-y-3">
             {posts.map((p) => {
@@ -719,9 +667,12 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                       onClick={saveFeedScroll}
                       className="mb-2 flex items-center gap-2.5 rounded-xl py-0.5 outline-none ring-offset-background transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-soft font-display text-sm font-semibold text-primary">
-                        {avatarLetter(p.authorDisplayName)}
-                      </span>
+                      <CommunityAvatar
+                        url={p.authorAvatarUrl}
+                        name={p.authorDisplayName}
+                        className="h-9 w-9"
+                        fallbackClassName="bg-primary-soft text-sm font-semibold"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <p className="truncate text-sm font-semibold">{p.authorDisplayName}</p>
@@ -738,7 +689,9 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
                       className="block rounded-lg outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       {p.title ? <p className="mb-1 font-display text-sm font-semibold leading-snug">{p.title}</p> : null}
-                      <p className="line-clamp-4 text-sm leading-relaxed text-foreground/90">{p.body}</p>
+                      <div className="line-clamp-4 text-sm leading-relaxed text-foreground/90 [&_.prose]:line-clamp-4">
+                        <CommunityPostBody body={p.body} bodyFormat={p.bodyFormat} />
+                      </div>
                     </Link>
                   </div>
                   <div className="flex items-center gap-4 px-4 pb-4 pt-1 text-xs text-muted-foreground">
@@ -776,15 +729,6 @@ export default function CommunityPageClient({ initialPosts }: { initialPosts: Fe
           </div>
         )}
       </div>
-
-      <button
-        type="button"
-        className="fixed bottom-24 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground transition-transform hover:scale-105"
-        aria-label="Create post"
-        onClick={() => setComposeOpen(true)}
-      >
-        <Plus className="h-6 w-6" />
-      </button>
     </AppShell>
   );
 }

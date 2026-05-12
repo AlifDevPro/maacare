@@ -14,6 +14,10 @@ export type ProfileBundle = {
     notify_daily_reminders?: boolean | null;
     /** Self-reported: parent_caregiver | clinician | other — not the auth `role`. */
     profession?: string | null;
+    /** When true, community member page shows week/EDD summary to other signed-in users. */
+    community_show_extended_profile?: boolean | null;
+    /** Admin-set: verified clinician badge in community (with profession clinician). */
+    verified_professional?: boolean | null;
   } | null;
   health: {
     blood_type: string | null;

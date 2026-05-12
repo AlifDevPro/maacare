@@ -8,6 +8,7 @@ type ProfileRow = {
   email: string | null;
   role: string;
   language: string | null;
+  avatar_url: string | null;
 };
 
 function mapRow(row: ProfileRow, authUserId: string, fallbackEmail: string | null): PublicUser {
@@ -17,6 +18,7 @@ function mapRow(row: ProfileRow, authUserId: string, fallbackEmail: string | nul
     email: row.email ?? fallbackEmail ?? "",
     role: row.role as PublicUser["role"],
     language: row.language === "bn" ? "bn" : "en",
+    avatarUrl: row.avatar_url ?? null,
   };
 }
 
@@ -26,7 +28,7 @@ async function fetchProfile(
 ): Promise<ProfileRow | null> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("display_name, email, role, language")
+    .select("display_name, email, role, language, avatar_url")
     .eq("id", authUserId)
     .maybeSingle();
 
@@ -66,6 +68,7 @@ export function buildSyntheticPublicUser(authUser: User): PublicUser {
     email: authUser.email ?? "",
     role: "user",
     language: languageFromUser(authUser),
+    avatarUrl: null,
   };
 }
 
@@ -158,7 +161,7 @@ async function writeProfileWithServiceRole(
 
   const { data, error: readErr } = await svc
     .from("profiles")
-    .select("display_name, email, role, language")
+    .select("display_name, email, role, language, avatar_url")
     .eq("id", authUser.id)
     .maybeSingle();
 

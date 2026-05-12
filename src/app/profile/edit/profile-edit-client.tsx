@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Camera, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
@@ -16,6 +16,7 @@ import {
 } from "@/components/profile/journey-profession-pickers";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { PublicUser } from "@/lib/auth/types";
 import { refreshSession, useSession } from "@/lib/auth-client";
 import { pregnancyFieldVisibility } from "@/lib/profile/journey-fields";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 const tabListClass =
@@ -73,6 +75,17 @@ const SECTION_META: Record<SectionKey, { title: string; subtitle: string }> = {
   },
 };
 
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
+function extFromMime(mime: string): string | null {
+  const m = mime.toLowerCase();
+  if (m === "image/jpeg" || m === "image/jpg") return "jpg";
+  if (m === "image/png") return "png";
+  if (m === "image/webp") return "webp";
+  if (m === "image/gif") return "gif";
+  return null;
+}
+
 export function ProfileEditClient({
   initialBundle,
   session,
@@ -84,6 +97,8 @@ export function ProfileEditClient({
   const { user } = useSession();
   const [bundle, setBundle] = useState(initialBundle);
   const [saving, setSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
@@ -164,6 +179,91 @@ export function ProfileEditClient({
   function goSection(step: number) {
     const idx = Math.max(0, Math.min(SECTION_ORDER.length - 1, step));
     setActiveSection(SECTION_ORDER[idx]!);
+  }
+
+  async function onAvatarFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const uid = user?.id;
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !uid) return;
+
+    const ext = extFromMime(file.type);
+    if (!ext) {
+      toast.error("Use a JPEG, PNG, WebP, or GIF image.");
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      toast.error("Image must be 5MB or smaller.");
+      return;
+    }
+
+    setAvatarUploading(true);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const path = `${uid}/avatar.${ext}`;
+      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
+        upsert: true,
+        contentType: file.type,
+      });
+      if (upErr) {
+        console.error(upErr);
+        toast.error(upErr.message || "Could not upload photo.");
+        return;
+      }
+      const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+      const publicUrl = pub.publicUrl;
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatarUrl: publicUrl }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { message?: string };
+        toast.error(j.message ?? "Could not save profile photo.");
+        return;
+      }
+      setBundle((prev) => {
+        if (!prev.profile) return prev;
+        return { ...prev, profile: { ...prev.profile, avatar_url: publicUrl } };
+      });
+      toast.success("Profile photo updated");
+      await refreshSession();
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not upload photo.");
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  async function removeAvatar() {
+    if (!bundle.profile) return;
+    setAvatarUploading(true);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatarUrl: null }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { message?: string };
+        toast.error(j.message ?? "Could not remove photo.");
+        return;
+      }
+      setBundle((prev) => {
+        if (!prev.profile) return prev;
+        return { ...prev, profile: { ...prev.profile, avatar_url: null } };
+      });
+      toast.success("Profile photo removed");
+      await refreshSession();
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not remove photo.");
+    } finally {
+      setAvatarUploading(false);
+    }
   }
 
   async function save() {
@@ -331,6 +431,63 @@ export function ProfileEditClient({
                   <CardDescription>Basic identity used across MaaCare.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4">
+                  <div className="flex flex-col gap-3 rounded-md border border-border/60 bg-muted/15 p-4 sm:flex-row sm:items-center">
+                    <Avatar className="h-16 w-16 shrink-0 rounded-2xl border border-border/50">
+                      {bundle.profile?.avatar_url ? (
+                        <AvatarImage src={bundle.profile.avatar_url} alt="" className="rounded-2xl object-cover" />
+                      ) : null}
+                      <AvatarFallback className="rounded-2xl text-lg font-semibold">
+                        {(displayName.trim().slice(0, 1) || user?.name?.slice(0, 1) || "?").toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <p className="text-sm font-medium text-foreground">Profile photo</p>
+                      <p className="text-xs text-muted-foreground">
+                        Shown on your profile and in the community when you post or comment.
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="min-h-9 rounded-md"
+                          disabled={avatarUploading || !user?.id}
+                          onClick={() => avatarInputRef.current?.click()}
+                        >
+                          {avatarUploading ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Working…
+                            </>
+                          ) : (
+                            <>
+                              <Camera className="mr-2 h-4 w-4" />
+                              Upload photo
+                            </>
+                          )}
+                        </Button>
+                        {bundle.profile?.avatar_url ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="min-h-9 rounded-md text-muted-foreground"
+                            disabled={avatarUploading}
+                            onClick={() => void removeAvatar()}
+                          >
+                            Remove photo
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      onChange={(e) => void onAvatarFileChange(e)}
+                    />
+                  </div>
                   <div className="grid gap-2">
                     <FieldLabel htmlFor="dn">Full name</FieldLabel>
                     <Input
@@ -680,19 +837,19 @@ export function ProfileEditClient({
           <Button
             type="button"
             variant="outline"
-            className="rounded-sm px-3"
+            className="min-h-11 rounded-md px-3"
             onClick={() => goSection(activeIdx - 1)}
             disabled={activeIdx === 0}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" className="flex-1 rounded-sm" asChild>
+          <Button variant="outline" className="min-h-11 flex-1 rounded-md" asChild>
             <Link href="/profile">Cancel</Link>
           </Button>
           <Button
             type="button"
             variant="outline"
-            className="rounded-sm px-3"
+            className="min-h-11 rounded-md px-3"
             onClick={() => goSection(activeIdx + 1)}
             disabled={activeIdx === SECTION_ORDER.length - 1}
           >
@@ -700,7 +857,7 @@ export function ProfileEditClient({
           </Button>
           <Button
             type="button"
-            className="flex-1 rounded-sm"
+            className="min-h-11 flex-1 rounded-md"
             onClick={() => void save()}
             disabled={saving}
           >

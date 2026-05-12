@@ -529,6 +529,7 @@ function ChatPageContent() {
             partial={voice.partial}
             muted={voiceMuted}
             micMuted={voiceMicMuted}
+            introPending={voiceIntroPending}
             onToggleMuted={() => setVoiceMuted((v) => !v)}
             onToggleMicMuted={() => {
               setVoiceMicMuted((m) => !m);

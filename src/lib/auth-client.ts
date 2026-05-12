@@ -12,6 +12,7 @@ export type AuthUser = {
   email: string;
   role: Role;
   language: "en" | "bn";
+  avatarUrl?: string | null;
 };
 
 const AUTH_EVENT = "maacare:auth";

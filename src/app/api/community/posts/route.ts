@@ -8,12 +8,14 @@ import { unwrapProfileEmbed } from "@/lib/community/profile-embed";
 import { communityTrendingScore } from "@/lib/community/trending-score";
 import { isMissingOptionalCommunityColumn } from "@/lib/community/schema-errors";
 import { gestationalWeekFromLmp } from "@/lib/profile/computed";
+import { communityPostImagePublicPrefix, sanitizeCommunityPostHtml } from "@/lib/community/sanitize-post-html";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const SELECT_POSTS_FULL = `
   id,
   title,
   body,
+  body_format,
   post_kind,
   gestational_week_snapshot,
   created_at,
@@ -32,6 +34,7 @@ const SELECT_POSTS_MINIMAL = `
   id,
   title,
   body,
+  body_format,
   created_at,
   updated_at,
   author_id,
@@ -44,18 +47,30 @@ const SELECT_POSTS_MINIMAL = `
   )
 `;
 
-const createSchema = z.object({
-  title: z
-    .union([z.string().max(200), z.null()])
-    .optional()
-    .transform((v) => {
-      if (v == null || v === "") return null;
-      const t = typeof v === "string" ? v.trim() : "";
-      return t.length ? t : null;
-    }),
-  body: z.string().min(1).max(10_000),
-  postKind: z.enum(["post", "question", "tip"]).optional(),
-});
+const createSchema = z
+  .object({
+    title: z
+      .union([z.string().max(200), z.null()])
+      .optional()
+      .transform((v) => {
+        if (v == null || v === "") return null;
+        const t = typeof v === "string" ? v.trim() : "";
+        return t.length ? t : null;
+      }),
+    body: z.string().min(1).max(65_000),
+    postKind: z.enum(["post", "question", "tip"]).optional(),
+    bodyFormat: z.enum(["plain", "html"]).optional().default("plain"),
+  })
+  .superRefine((data, ctx) => {
+    const fmt = data.bodyFormat ?? "plain";
+    if (fmt === "plain" && data.body.length > 10_000) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Plain posts are limited to 10,000 characters.",
+        path: ["body"],
+      });
+    }
+  });
 
 export async function GET(req: NextRequest) {
   try {
@@ -186,6 +201,7 @@ export async function GET(req: NextRequest) {
         authorDisplayName: profile?.display_name ?? "Member",
         authorRole: profile?.role ?? "user",
         authorAvatarUrl: profile?.avatar_url ?? null,
+        bodyFormat: typeof row.body_format === "string" && row.body_format === "html" ? "html" : "plain",
         likeCount: likesByPost[id] ?? 0,
         commentCount: commentsByPost[id] ?? 0,
         likedByMe: likedSet.has(id),
@@ -264,8 +280,17 @@ export async function POST(req: NextRequest) {
     }
 
     const title = parsed.data.title?.trim() || null;
-    const body = parsed.data.body.trim();
+    let body = parsed.data.body.trim();
     const postKind = parsed.data.postKind ?? "post";
+    const bodyFormat = parsed.data.bodyFormat ?? "plain";
+
+    if (bodyFormat === "html") {
+      const prefix = communityPostImagePublicPrefix();
+      if (!prefix) {
+        return failJson(503, "Rich posts require NEXT_PUBLIC_SUPABASE_URL to be configured.");
+      }
+      body = sanitizeCommunityPostHtml(body, prefix);
+    }
 
     const { error: ensureErr } = await supabase.rpc("ensure_profile_for_current_user");
     if (ensureErr) {
@@ -276,6 +301,7 @@ export async function POST(req: NextRequest) {
       author_id: uid,
       title,
       body,
+      body_format: bodyFormat,
       post_kind: postKind,
       gestational_week_snapshot: weekSnap,
       moderation_status: "visible" as const,
@@ -286,7 +312,7 @@ export async function POST(req: NextRequest) {
     const msg = inserted.error?.message ?? "";
     const missingCol =
       inserted.error &&
-      (/post_kind|gestational_week_snapshot|schema cache/i.test(msg) ||
+      (/post_kind|gestational_week_snapshot|body_format|schema cache/i.test(msg) ||
         inserted.error.code === "42703");
 
     if (inserted.error && missingCol) {

@@ -14,6 +14,7 @@ import {
   Home,
   LogOut,
   Menu,
+  Inbox,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import { adminFormFieldClasses } from "./admin-form-styles";
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/admin/users", label: "Users", icon: Users },
+  { to: "/admin/feedback", label: "Feedback", icon: Inbox },
   { to: "/admin/community", label: "Community", icon: MessageSquare },
   { to: "/admin/knowledge", label: "Knowledge base", icon: BookOpen },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },

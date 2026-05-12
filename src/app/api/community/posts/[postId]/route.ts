@@ -5,20 +5,36 @@ import { validationJsonResponse, failJson, serverErrorJson } from "@/lib/api/err
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { unwrapProfileEmbed } from "@/lib/community/profile-embed";
 import { isMissingOptionalCommunityColumn } from "@/lib/community/schema-errors";
+import { communityPostImagePublicPrefix, sanitizeCommunityPostHtml } from "@/lib/community/sanitize-post-html";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
 
-const patchPostSchema = z.object({
-  title: z.union([z.string().max(200), z.null()]).optional(),
-  body: z.string().min(1).max(10_000).optional(),
-  postKind: z.enum(["post", "question", "tip"]).optional(),
-});
+const patchPostSchema = z
+  .object({
+    title: z.union([z.string().max(200), z.null()]).optional(),
+    body: z.string().min(1).max(65_000).optional(),
+    postKind: z.enum(["post", "question", "tip"]).optional(),
+    bodyFormat: z.enum(["plain", "html"]).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.body !== undefined) {
+      const fmt = data.bodyFormat ?? "plain";
+      if (fmt === "plain" && data.body.length > 10_000) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Plain posts are limited to 10,000 characters.",
+          path: ["body"],
+        });
+      }
+    }
+  });
 
 const SELECT_DETAIL_FULL = `
   id,
   title,
   body,
+  body_format,
   post_kind,
   gestational_week_snapshot,
   created_at,
@@ -37,6 +53,7 @@ const SELECT_DETAIL_MINIMAL = `
   id,
   title,
   body,
+  body_format,
   created_at,
   updated_at,
   author_id,
@@ -129,6 +146,7 @@ export async function GET(
         id: row.id as string,
         title: row.title as string | null,
         body: row.body as string,
+        bodyFormat: typeof row.body_format === "string" && row.body_format === "html" ? "html" : "plain",
         postKind: typeof row.post_kind === "string" ? row.post_kind : "post",
         gestationalWeekSnapshot:
           typeof row.gestational_week_snapshot === "number"
@@ -179,7 +197,21 @@ export async function PATCH(
     if (parsed.data.title !== undefined) {
       updates.title = parsed.data.title === null ? null : parsed.data.title.trim() || null;
     }
-    if (parsed.data.body !== undefined) updates.body = parsed.data.body.trim();
+    if (parsed.data.body !== undefined) {
+      const fmt = parsed.data.bodyFormat ?? "plain";
+      let b = parsed.data.body.trim();
+      if (fmt === "html") {
+        const prefix = communityPostImagePublicPrefix();
+        if (!prefix) {
+          return failJson(503, "Rich posts require NEXT_PUBLIC_SUPABASE_URL to be configured.");
+        }
+        b = sanitizeCommunityPostHtml(b, prefix);
+      }
+      updates.body = b;
+    }
+    if (parsed.data.bodyFormat !== undefined) {
+      updates.body_format = parsed.data.bodyFormat;
+    }
     if (parsed.data.postKind !== undefined) updates.post_kind = parsed.data.postKind;
 
     if (Object.keys(updates).length === 0) {
@@ -246,4 +278,3 @@ export async function DELETE(
     return serverErrorJson("community_post DELETE", e);
   }
 }
-

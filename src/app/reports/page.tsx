@@ -21,7 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 
 type Finding = {
   name: string;
@@ -69,11 +70,10 @@ export default function ReportsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [stage, setStage] = useState<"input" | "loading" | "result">("input");
   const [inputMode, setInputMode] = useState<"file" | "text">("file");
-  const [reportTitle, setReportTitle] = useState("");
   const [reportText, setReportText] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [saveVitals, setSaveVitals] = useState(true);
-  const [saveProfileInsights, setSaveProfileInsights] = useState(true);
+  /** When true, save extracted vitals and profile insights for the signed-in user. */
+  const [reportForSelf, setReportForSelf] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [limitMessage, setLimitMessage] = useState<string | null>(null);
@@ -85,22 +85,26 @@ export default function ReportsPage() {
   const loadingStepsFile = [
     "Reading your file on the server (PDF text or local OCR when available)...",
     "Running the clinical simplifier — this usually takes 15–60 seconds...",
-    "Finishing up: applying results and saving anything you opted into...",
+    reportForSelf
+      ? "Finishing up: saving vitals and insights to your profile when found..."
+      : "Finishing up: generating your summary (not saving to your profile)...",
   ];
   const loadingStepsText = [
     "Preparing your pasted report text...",
     "Running the clinical simplifier — this usually takes 15–60 seconds...",
-    "Finishing up: applying results and saving anything you opted into...",
+    reportForSelf
+      ? "Finishing up: saving vitals and insights to your profile when found..."
+      : "Finishing up: generating your summary (not saving to your profile)...",
   ];
   const RATE_LIMIT_RE = /\b(resource_exhausted|quota|rate[\s_-]*limit|too many requests|429)\b/i;
 
   function resetToFreshInput() {
     setStage("input");
     setAnalysis(null);
-    setReportTitle("");
     setReportText("");
     setFile(null);
     setInputMode("file");
+    setReportForSelf(true);
     setCooldownSeconds(0);
     setLimitMessage(null);
     setLoadingStep(0);
@@ -190,10 +194,10 @@ export default function ReportsPage() {
       startCreep(88, 420);
 
       const fd = new FormData();
-      fd.append("reportTitle", reportTitle.trim());
+      fd.append("reportTitle", "");
       fd.append("reportText", inputMode === "text" ? reportText.trim() : "");
-      fd.append("saveVitals", String(saveVitals));
-      fd.append("saveProfileInsights", String(saveProfileInsights));
+      fd.append("saveVitals", String(reportForSelf));
+      fd.append("saveProfileInsights", String(reportForSelf));
       if (inputMode === "file" && file) fd.append("file", file);
 
       const res = await fetch("/api/reports/analyze", {
@@ -256,61 +260,80 @@ export default function ReportsPage() {
               transition={{ duration: 0.22, ease: "easeOut" }}
             >
               <Card className="p-4">
-                <div className="grid gap-3">
-                  <div className="rounded-xl border border-border/70 bg-muted/30 p-1">
-                    <div className="grid grid-cols-2 gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setInputMode("file")}
-                        className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                          inputMode === "file"
-                            ? "bg-card text-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        Upload file
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setInputMode("text")}
-                        className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                          inputMode === "text"
-                            ? "bg-card text-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        Paste text
-                      </button>
+                <div className="grid gap-4">
+                  <div className="flex items-center gap-4 rounded-xl border border-border/70 bg-muted/20 px-4 py-3.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Report subject
+                      </p>
+                      <p className="mt-1 text-sm font-semibold leading-snug text-foreground">
+                        {reportForSelf ? "My report" : "Another person's report"}
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {reportForSelf
+                          ? "We can save vitals and clinical insights to your profile after analysis."
+                          : "Preview only — nothing is saved to your account. Turn the switch off if this is your own report."}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center">
+                      <Switch
+                        checked={!reportForSelf}
+                        onCheckedChange={(c) => setReportForSelf(!Boolean(c))}
+                        aria-label={
+                          reportForSelf
+                            ? "This is my report; turn on if it is for someone else"
+                            : "This is another person's report; turn off for my report"
+                        }
+                      />
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-border bg-card p-2">
-                    <Input
-                      value={reportTitle}
-                      onChange={(e) => setReportTitle(e.target.value)}
-                      placeholder="Report title (optional) — e.g. CBC panel"
-                      className="mb-2 border-0 shadow-none focus-visible:ring-0"
-                    />
-                    {inputMode === "text" ? (
-                      <Textarea
-                        value={reportText}
-                        onChange={(e) => setReportText(e.target.value)}
-                        placeholder="Paste full report text here..."
-                        className="min-h-[180px] border-0 shadow-none focus-visible:ring-0"
-                      />
-                    ) : (
-                      <p className="px-3 pb-2 pt-1 text-xs text-muted-foreground">
-                        Upload your report file below. For best accuracy, switch to <strong>Paste text</strong> when possible.
-                      </p>
-                    )}
+                  <div className="flex border-b border-border">
+                    <button
+                      type="button"
+                      onClick={() => setInputMode("file")}
+                      className={cn(
+                        "flex-1 border-b-2 pb-2 text-sm font-semibold transition-colors",
+                        inputMode === "file"
+                          ? "border-primary text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      Upload file
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInputMode("text")}
+                      className={cn(
+                        "flex-1 border-b-2 pb-2 text-sm font-semibold transition-colors",
+                        inputMode === "text"
+                          ? "border-primary text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      Paste text
+                    </button>
                   </div>
 
+                  {inputMode === "text" ? (
+                    <Textarea
+                      value={reportText}
+                      onChange={(e) => setReportText(e.target.value)}
+                      placeholder="Paste full report text here..."
+                      className="min-h-[180px] rounded-xl border border-border/80 bg-background px-3 py-2 text-sm"
+                    />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Upload your report file below. For best accuracy, use <strong>Paste text</strong> when you can.
+                    </p>
+                  )}
+
                   {inputMode === "file" ? (
-                    <div className="rounded-2xl border-2 border-dashed border-border bg-muted/25 p-4">
+                    <div className="rounded-2xl border border-dashed border-border/80 p-4">
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="flex w-full flex-col items-center justify-center rounded-xl border border-border/60 bg-background/70 px-4 py-6 text-center transition-colors hover:bg-muted"
+                        className="flex w-full flex-col items-center justify-center rounded-xl px-4 py-6 text-center transition-colors hover:bg-muted/50"
                       >
                         <span className="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary-soft text-primary">
                           <Upload className="h-5 w-5" />
@@ -344,31 +367,10 @@ export default function ReportsPage() {
                       )}
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-emerald-300/50 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200">
-                      Pasted text usually gives the best extraction quality and saves AI usage.
-                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Pasted text usually gives the best extraction quality and uses less AI quota than files.
+                    </p>
                   )}
-
-                  <div className="flex items-center gap-2 rounded-xl bg-accent-soft/40 px-3 py-2">
-                    <Checkbox
-                      id="save-vitals"
-                      checked={saveVitals}
-                      onCheckedChange={(v) => setSaveVitals(Boolean(v))}
-                    />
-                    <label htmlFor="save-vitals" className="text-sm">
-                      Save extracted vitals (heart rate, BP, glucose, SpO2, temperature, weight) to my tracker
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-xl bg-primary-soft/40 px-3 py-2">
-                    <Checkbox
-                      id="save-profile-insights"
-                      checked={saveProfileInsights}
-                      onCheckedChange={(v) => setSaveProfileInsights(Boolean(v))}
-                    />
-                    <label htmlFor="save-profile-insights" className="text-sm">
-                      Save extracted conditions, allergies, medications, and insights to profile for personalization
-                    </label>
-                  </div>
 
                   {cooldownSeconds > 0 ? (
                     <div className="rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">
@@ -546,7 +548,7 @@ export default function ReportsPage() {
                 <Link
                   href={`/chat?reportContext=${encodeURIComponent(
                     JSON.stringify({
-                      title: reportTitle || "Medical report",
+                      title: "Medical report",
                       summary: analysis.summary,
                       plainExplanation: analysis.plainExplanation,
                       findings: analysis.findings,

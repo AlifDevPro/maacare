@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -15,12 +15,14 @@ import {
   ChevronRight,
   Pencil,
   Loader2,
+  Users,
 } from "lucide-react";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
 import type { PublicUser } from "@/lib/auth/types";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -33,9 +35,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatIsoDate } from "@/lib/profile/computed";
 import { refreshSession, signOut, updateUserLanguage, useSession } from "@/lib/auth-client";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
 const PREFS_KEY = "maacare:notification-prefs";
+
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
+function extFromMime(mime: string): string | null {
+  const m = mime.toLowerCase();
+  if (m === "image/jpeg" || m === "image/jpg") return "jpg";
+  if (m === "image/png") return "png";
+  if (m === "image/webp") return "webp";
+  if (m === "image/gif") return "gif";
+  return null;
+}
 
 type Prefs = { dailyReminders: boolean; communityNotifications: boolean };
 
@@ -64,6 +78,8 @@ export function ProfilePageClient({
   const [isPending, startTransition] = useTransition();
   const { user } = useSession();
   const [bundle, setBundle] = useState(initialBundle);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const [prefs, setPrefs] = useState<Prefs>({
     dailyReminders: true,
     communityNotifications: true,
@@ -77,9 +93,12 @@ export function ProfilePageClient({
     setPrefs(loadPrefs());
   }, []);
 
+  const [communityExtended, setCommunityExtended] = useState(false);
+
   useEffect(() => {
     const p = bundle?.profile;
     if (!p) return;
+    setCommunityExtended(!!p.community_show_extended_profile);
     const local = loadPrefs();
     const next: Prefs = {
       dailyReminders:
@@ -127,6 +146,7 @@ export function ProfilePageClient({
 
   const displayName = bundle?.profile?.display_name ?? user?.name ?? session.name ?? "Your profile";
   const email = bundle?.profile?.email ?? user?.email ?? session.email ?? "";
+  const avatarUrl = bundle?.profile?.avatar_url ?? null;
   const langLabel = bundle?.profile?.language === "bn" ? "বাংলা" : "English";
   const preg = bundle?.pregnancy;
   const health = bundle?.health;
@@ -140,6 +160,62 @@ export function ProfilePageClient({
         ? preg.pregnancy_status.replace("_", " ")
         : "Tap edit to add pregnancy details";
 
+  async function onAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const uid = user?.id;
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !uid) return;
+
+    const ext = extFromMime(file.type);
+    if (!ext) {
+      toast.error("Use a JPEG, PNG, WebP, or GIF image.");
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      toast.error("Image must be 5MB or smaller.");
+      return;
+    }
+
+    setAvatarUploading(true);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const path = `${uid}/avatar.${ext}`;
+      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
+        upsert: true,
+        contentType: file.type,
+      });
+      if (upErr) {
+        console.error(upErr);
+        toast.error(upErr.message || "Could not upload photo.");
+        return;
+      }
+      const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+      const publicUrl = pub.publicUrl;
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatarUrl: publicUrl }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { message?: string };
+        toast.error(j.message ?? "Could not save profile photo.");
+        return;
+      }
+      setBundle((prev) => {
+        if (!prev.profile) return prev;
+        return { ...prev, profile: { ...prev.profile, avatar_url: publicUrl } };
+      });
+      toast.success("Profile photo updated");
+      refreshFromServer();
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not upload photo.");
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
   return (
     <AppShell>
       <AppHeader title="Profile" showBack />
@@ -148,16 +224,33 @@ export function ProfilePageClient({
         <Card className="overflow-hidden border-0 bg-gradient-hero p-5 shadow-card">
           <div className="flex items-center gap-4">
             <div className="relative">
-              <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-card font-display text-xl font-semibold shadow-soft">
-                {initials(displayName)}
-              </div>
+              <Avatar className="h-20 w-20 rounded-3xl border border-border/50 shadow-soft">
+                {avatarUrl ? (
+                  <AvatarImage src={avatarUrl} alt="" className="rounded-3xl object-cover" />
+                ) : null}
+                <AvatarFallback className="rounded-3xl bg-card font-display text-xl font-semibold">
+                  {initials(displayName)}
+                </AvatarFallback>
+              </Avatar>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={(ev) => void onAvatarFileChange(ev)}
+              />
               <button
                 type="button"
-                className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-soft opacity-60"
-                aria-label="Photo coming soon"
-                disabled
+                className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-soft disabled:opacity-50"
+                aria-label="Change profile photo"
+                disabled={avatarUploading || !user?.id}
+                onClick={() => avatarInputRef.current?.click()}
               >
-                <Camera className="h-3.5 w-3.5" />
+                {avatarUploading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Camera className="h-3.5 w-3.5" />
+                )}
               </button>
             </div>
             <div className="min-w-0 flex-1">
@@ -166,8 +259,8 @@ export function ProfilePageClient({
               <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
               <Button
                 variant="outline"
-                size="sm"
-                className="mt-2 h-7 rounded-full text-xs"
+                size="default"
+                className="mt-2 min-h-11 w-full rounded-md px-4 text-sm sm:w-auto"
                 type="button"
                 disabled={isPending}
                 asChild
@@ -280,6 +373,28 @@ export function ProfilePageClient({
               else refreshFromServer();
             }}
           />
+          <ToggleRow
+            icon={Users}
+            label="Show extended info on my community profile"
+            description="Week and due date summary visible to other signed-in members when they open your profile."
+            checked={communityExtended}
+            onCheckedChange={async (v) => {
+              setCommunityExtended(v);
+              const res = await fetch("/api/profile", {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ communityShowExtendedProfile: v }),
+              });
+              if (!res.ok) {
+                setCommunityExtended(!v);
+                toast.error("Could not update community profile visibility");
+                return;
+              }
+              toast.success(v ? "Extended profile is visible to members" : "Extended profile is hidden");
+              refreshFromServer();
+            }}
+          />
         </Section>
 
         <Section title="Data & account">
@@ -359,21 +474,26 @@ function Row({
 function ToggleRow({
   icon: Icon,
   label,
+  description,
   checked,
   onCheckedChange,
 }: {
   icon: typeof Heart;
   label: string;
+  description?: string;
   checked: boolean;
   onCheckedChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex w-full items-center gap-3 px-4 py-3">
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+    <div className="flex w-full items-start gap-3 px-4 py-3">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
         <Icon className="h-4 w-4" />
       </span>
-      <span className="flex-1 text-sm font-medium">{label}</span>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{label}</p>
+        {description ? <p className="mt-0.5 text-xs text-muted-foreground">{description}</p> : null}
+      </div>
+      <Switch className="mt-1 shrink-0" checked={checked} onCheckedChange={onCheckedChange} />
     </div>
   );
 }

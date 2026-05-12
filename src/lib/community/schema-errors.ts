@@ -8,6 +8,6 @@ export function isMissingOptionalCommunityColumn(err: {
   const m = `${err.message ?? ""} ${err.details ?? ""}`;
   return (
     err.code === "42703" ||
-    /post_kind|gestational_week_snapshot|community_post_likes|schema cache|PGRST205/i.test(m)
+    /post_kind|gestational_week_snapshot|body_format|community_post_likes|schema cache|PGRST205/i.test(m)
   );
 }

@@ -20,6 +20,7 @@ export function VoiceCallPanel({
   showTranscript,
   onToggleTranscript,
   disabled,
+  introPending = false,
 }: {
   state: VoiceCallState;
   partial: string;
@@ -32,13 +33,29 @@ export function VoiceCallPanel({
   showTranscript: boolean;
   onToggleTranscript: () => void;
   disabled?: boolean;
+  /** Welcome TTS is playing; mic is not started yet — avoid showing "Ready" / not listening. */
+  introPending?: boolean;
 }) {
   const listening = state === "listening";
   const thinking = state === "thinking";
   const speaking = state === "speaking";
-  const connected = state !== "idle";
+  /** Brief idle while recognition restarts, or before first start after intro — still in a voice session. */
+  const sessionIdleExpectListen = state === "idle" && !introPending && !disabled;
+  const listenUi = listening || sessionIdleExpectListen;
+  const starting = introPending;
 
-  const status = thinking ? "Thinking" : speaking ? "Speaking" : listening ? "Listening" : connected ? "Connected" : "Ready";
+  const status =
+    state === "error"
+      ? "Microphone issue"
+      : starting
+        ? "Starting…"
+        : thinking
+          ? "Thinking"
+          : speaking
+            ? "Speaking"
+            : listenUi
+              ? "Listening"
+              : "Ready";
 
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
@@ -93,24 +110,24 @@ export function VoiceCallPanel({
             }}
             className={cn(
               "relative flex h-32 w-32 items-center justify-center rounded-full shadow-card transition-colors",
-              thinking
+              thinking || starting
                 ? "bg-muted text-muted-foreground"
                 : speaking
                   ? "bg-gradient-hero text-primary"
-                  : listening
+                  : listenUi
                     ? "bg-primary-soft text-primary"
                     : "bg-card text-foreground",
               disabled && "opacity-60",
             )}
             initial={false}
             animate={{
-              scale: listening ? [1, 1.03, 1] : speaking ? [1, 1.06, 1] : 1,
+              scale: listenUi ? [1, 1.03, 1] : speaking ? [1, 1.06, 1] : 1,
             }}
-            transition={{ duration: 1.05, repeat: listening || speaking ? Infinity : 0, ease: "easeInOut" }}
+            transition={{ duration: 1.05, repeat: listenUi || speaking ? Infinity : 0, ease: "easeInOut" }}
             aria-label={micMuted ? "Microphone muted" : "Microphone active"}
           >
             <span className="absolute inset-0 rounded-full bg-gradient-rose opacity-20 blur-2xl" />
-            {thinking ? (
+            {thinking || starting ? (
               <Loader2 className="relative h-10 w-10 animate-spin" />
             ) : micMuted ? (
               <MicOff className="relative h-12 w-12" />
@@ -120,8 +137,8 @@ export function VoiceCallPanel({
           </motion.button>
         </div>
 
-        {/* Listening dots */}
-        {listening ? (
+        {/* Listening dots (include intro + brief idle between recognition cycles) */}
+        {listenUi && !thinking && !speaking && !starting ? (
           <div className="mt-6 flex items-center gap-2">
             <Dot delay={0} />
             <Dot delay={0.15} />

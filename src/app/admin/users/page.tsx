@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { formatDistanceToNow } from "date-fns";
@@ -10,6 +11,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJsonCached, invalidateByPrefix } from "@/lib/client/request-cache";
@@ -308,6 +310,12 @@ export default function UsersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem asChild>
+                            <Link href={`/admin/users/${r.id}`} className="cursor-pointer">
+                              <ExternalLink className="mr-2 h-4 w-4" /> Open detail
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => void setRole(r.id, "user")}>
                             Set as user
                           </DropdownMenuItem>

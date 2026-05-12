@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { formatDistanceToNow } from "date-fns";
-import { CornerDownRight, Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Trash2 } from "lucide-react";
+import { CornerDownRight, Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Stethoscope, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { dispatchNotificationsUpdated } from "@/lib/notifications/events";
 import { Card } from "@/components/ui/card";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -46,6 +48,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useSession } from "@/lib/auth-client";
+import { CommunityAvatar } from "@/components/community/community-avatar";
+import { CommunityPostBody } from "@/components/community/community-post-body";
+import { CommunityRichEditor } from "@/components/community/community-rich-editor";
 import { cn } from "@/lib/utils";
 
 type PostPayload = {
@@ -53,11 +58,13 @@ type PostPayload = {
   authorId: string;
   title: string | null;
   body: string;
+  bodyFormat?: "plain" | "html";
   postKind: string;
   gestationalWeekSnapshot: number | null;
   createdAt: string;
   authorDisplayName: string;
   authorRole: string;
+  authorAvatarUrl?: string | null;
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
@@ -71,6 +78,9 @@ type CommentRow = {
   authorId?: string;
   authorDisplayName: string;
   authorRole: string;
+  authorAvatarUrl?: string | null;
+  authorProfession?: string | null;
+  authorVerifiedProfessional?: boolean;
 };
 
 type CommentNode = CommentRow & { children: CommentNode[] };
@@ -81,9 +91,9 @@ function kindLabel(kind: string): string {
   return "Post";
 }
 
-function avatarLetter(name: string): string {
-  const t = name.trim();
-  return t ? t[0]!.toUpperCase() : "?";
+function isRichPostBodyEmpty(html: string): boolean {
+  const t = html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").trim();
+  return !t;
 }
 
 const UUID_RE =
@@ -106,6 +116,7 @@ export default function PostDetailPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
   const [editKind, setEditKind] = useState<"post" | "question" | "tip">("post");
+  const [editRich, setEditRich] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -221,6 +232,7 @@ export default function PostDetailPage() {
       authorId: user?.id,
       authorDisplayName: user?.name ?? "You",
       authorRole: user?.role ?? "user",
+      authorAvatarUrl: user?.avatarUrl ?? null,
     };
     setComments((prev) => [...prev, optimisticComment]);
     setPost((prev) => (prev ? { ...prev, commentCount: prev.commentCount + 1 } : prev));
@@ -248,7 +260,7 @@ export default function PostDetailPage() {
   }
 
   async function saveEdit() {
-    if (!post || !editBody.trim()) {
+    if (!post || (editRich ? isRichPostBodyEmpty(editBody) : !editBody.trim())) {
       toast.error("Message cannot be empty.");
       return;
     }
@@ -262,6 +274,7 @@ export default function PostDetailPage() {
           title: editTitle.trim() ? editTitle.trim() : null,
           body: editBody.trim(),
           postKind: editKind,
+          bodyFormat: editRich ? "html" : "plain",
         }),
       });
       const j = (await res.json().catch(() => ({}))) as { message?: string };
@@ -323,6 +336,7 @@ export default function PostDetailPage() {
     if (!post) return;
     setEditTitle(post.title ?? "");
     setEditBody(post.body);
+    setEditRich(post.bodyFormat === "html");
     const k = post.postKind;
     setEditKind(k === "question" || k === "tip" ? k : "post");
     setEditOpen(true);
@@ -448,16 +462,62 @@ export default function PostDetailPage() {
                 className="rounded-xl"
               />
             </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 px-3 py-2">
+              <div>
+                <Label htmlFor="det-rich" className="text-sm font-medium">
+                  Rich text and photos
+                </Label>
+                <p className="text-[11px] text-muted-foreground">Bold, lists, and images from your device.</p>
+              </div>
+              <Switch
+                id="det-rich"
+                checked={editRich}
+                disabled={!user?.id}
+                onCheckedChange={(c) => {
+                  if (c) {
+                    setEditRich(true);
+                    setEditBody((prev) => {
+                      const t = prev.trim();
+                      if (!t) return "<p></p>";
+                      if (/<[a-z][\s\S]*>/i.test(prev)) return prev;
+                      const esc = t
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;");
+                      return `<p>${esc.replace(/\n\n+/g, "</p><p>").replace(/\n/g, "<br/>")}</p>`;
+                    });
+                  } else {
+                    setEditRich(false);
+                    setEditBody((prev) =>
+                      prev
+                        .replace(/<br\s*\/?>/gi, "\n")
+                        .replace(/<\/p>/gi, "\n\n")
+                        .replace(/<[^>]+>/g, " ")
+                        .replace(/\s+/g, " ")
+                        .trim(),
+                    );
+                  }
+                }}
+              />
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="det-eb">Message</Label>
-              <Textarea
-                id="det-eb"
-                rows={6}
-                value={editBody}
-                onChange={(e) => setEditBody(e.target.value)}
-                className="rounded-xl"
-                required
-              />
+              {editRich && user?.id && post ? (
+                <CommunityRichEditor
+                  key={`detail-edit-${post.id}-${editRich}`}
+                  userId={user.id}
+                  content={editBody}
+                  onChange={setEditBody}
+                />
+              ) : (
+                <Textarea
+                  id="det-eb"
+                  rows={6}
+                  value={editBody}
+                  onChange={(e) => setEditBody(e.target.value)}
+                  className="rounded-xl"
+                />
+              )}
             </div>
             <DialogFooter className="gap-2 pt-2 sm:gap-0">
               <Button type="button" variant="outline" className="rounded-xl" onClick={() => setEditOpen(false)}>
@@ -599,9 +659,12 @@ export default function PostDetailPage() {
             </div>
           ) : null}
           <div className={cn("mb-2 flex items-center gap-2.5", (isOwner || isModerator) && "pr-10")}>
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-soft font-display text-sm font-semibold text-primary">
-              {avatarLetter(post.authorDisplayName)}
-            </span>
+            <CommunityAvatar
+              url={post.authorAvatarUrl}
+              name={post.authorDisplayName}
+              className="h-9 w-9"
+              fallbackClassName="bg-primary-soft text-sm font-semibold"
+            />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
                 <Link
@@ -615,7 +678,7 @@ export default function PostDetailPage() {
             </div>
           </div>
           {post.title ? <p className="mb-2 font-display text-base font-semibold">{post.title}</p> : null}
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">{post.body}</p>
+          <CommunityPostBody body={post.body} bodyFormat={post.bodyFormat} className="text-sm" />
           <div className="mt-3 flex items-center gap-4 text-sm text-muted-foreground">
             <button
               type="button"
@@ -684,8 +747,13 @@ export default function PostDetailPage() {
           onSubmit={(e) => void sendReply(e)}
           className="flex items-center gap-2 rounded-2xl border border-border bg-card px-2 py-1.5"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft font-display text-xs font-semibold text-primary">
-            {avatarLetter(user?.name ?? user?.email ?? "You")}
+          <span className="flex h-8 w-8 shrink-0">
+            <CommunityAvatar
+              url={user?.avatarUrl}
+              name={user?.name ?? user?.email ?? "You"}
+              className="h-8 w-8"
+              fallbackClassName="bg-primary-soft text-xs font-semibold"
+            />
           </span>
           <input
             placeholder={replyToCommentId ? "Write a reply…" : "Add a kind comment…"}
@@ -726,6 +794,8 @@ function CommentTree({
 }) {
   const safeDepth = Math.min(depth, 4);
 
+  const verifiedDoctor = node.authorVerifiedProfessional && node.authorProfession === "clinician";
+
   async function hideComment() {
     try {
       const res = await fetch(`/api/community/posts/${postId}/comments/${node.id}/moderate`, {
@@ -746,11 +816,19 @@ function CommentTree({
   return (
     <div className={safeDepth > 0 ? "ml-5 border-l-2 border-border/80 pl-3" : ""}>
       <div className="flex items-start gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-xs font-semibold text-accent">
-          {avatarLetter(node.authorDisplayName)}
-        </span>
+        <CommunityAvatar
+          url={node.authorAvatarUrl}
+          name={node.authorDisplayName}
+          className="h-8 w-8"
+          fallbackClassName="bg-accent-soft text-xs font-semibold text-accent"
+        />
         <div className="min-w-0 flex-1">
-          <div className="rounded-2xl bg-muted px-3 py-2">
+          <div
+            className={cn(
+              "rounded-2xl bg-muted px-3 py-2",
+              verifiedDoctor && "ring-1 ring-sky-500/40 shadow-[0_0_0_1px_rgba(14,165,233,0.12)]",
+            )}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-1.5">
                 {node.authorId ? (
@@ -763,6 +841,29 @@ function CommentTree({
                 ) : (
                   <p className="text-sm font-semibold">{node.authorDisplayName}</p>
                 )}
+                {node.authorRole === "admin" ? (
+                  <Badge
+                    variant="outline"
+                    className="h-5 gap-0.5 border-amber-500/50 bg-amber-500/10 px-1.5 text-[10px] font-semibold uppercase text-amber-900 shadow-[0_0_8px_rgba(245,158,11,0.25)] dark:text-amber-100"
+                  >
+                    <Shield className="h-3 w-3" />
+                    Admin
+                  </Badge>
+                ) : null}
+                {node.authorRole === "moderator" ? (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-semibold uppercase">
+                    Mod
+                  </Badge>
+                ) : null}
+                {node.authorVerifiedProfessional && node.authorProfession === "clinician" ? (
+                  <Badge
+                    variant="outline"
+                    className="h-5 gap-0.5 border-sky-500/50 bg-sky-500/10 px-1.5 text-[10px] font-semibold uppercase text-sky-900 shadow-[0_0_10px_rgba(14,165,233,0.3)] dark:text-sky-100"
+                  >
+                    <Stethoscope className="h-3 w-3" />
+                    Verified
+                  </Badge>
+                ) : null}
               </div>
               <span className="text-[11px] text-muted-foreground">
                 {formatDistanceToNow(new Date(node.createdAt), { addSuffix: true })}

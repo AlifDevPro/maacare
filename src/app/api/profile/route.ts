@@ -38,6 +38,8 @@ const patchSchema = z.object({
   notifyCommunityActivity: z.boolean().optional(),
   notifyDailyReminders: z.boolean().optional(),
   profession: z.string().max(64).nullable().optional(),
+  communityShowExtendedProfile: z.boolean().optional(),
+  avatarUrl: z.union([z.string().url().max(2048), z.literal(""), z.null()]).optional(),
 });
 
 export async function GET() {
@@ -91,6 +93,13 @@ export async function PATCH(req: Request) {
     }
     if (body.profession !== undefined) {
       profileUpdates.profession = body.profession?.trim() || null;
+    }
+    if (body.communityShowExtendedProfile !== undefined) {
+      profileUpdates.community_show_extended_profile = body.communityShowExtendedProfile;
+    }
+    if (body.avatarUrl !== undefined) {
+      const v = body.avatarUrl;
+      profileUpdates.avatar_url = v === "" || v === null ? null : v;
     }
     if (Object.keys(profileUpdates).length > 0) {
       const { error } = await supabase.from("profiles").update(profileUpdates).eq("id", uid);
