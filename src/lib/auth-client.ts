@@ -141,38 +141,80 @@ export async function registerAccount(
   | { ok: false; error: string }
   | { ok: true; needsEmailConfirmation: true; message: string }
 > {
-  const res = await fetch("/api/auth/register", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ name, email, password }),
-  });
+  /**
+   * Must run in the browser (`createBrowserClient`) so PKCE for the confirmation email matches
+   * `exchangeCodeForSession` on `/auth/callback`. Server-side `signUp` breaks that flow.
+   */
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const origin = window.location.origin.replace(/\/+$/, "");
+    const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/app")}`;
 
-  const data = (await res.json().catch(() => ({}))) as {
-    user?: AuthUser;
-    error?: string;
-    message?: string;
-    needsEmailConfirmation?: boolean;
-  };
+    const { data, error } = await supabase.auth.signUp({
+      email: email.toLowerCase().trim(),
+      password,
+      options: {
+        emailRedirectTo,
+        data: {
+          display_name: name.trim(),
+          name: name.trim(),
+        },
+      },
+    });
 
-  if (!res.ok) {
-    return { ok: false, error: data.message ?? data.error ?? "Registration failed" };
+    if (error) {
+      const msg = error.message.toLowerCase();
+      const dup =
+        msg.includes("already") ||
+        msg.includes("registered") ||
+        msg.includes("exists") ||
+        msg.includes("duplicate") ||
+        (error as { status?: number }).status === 422;
+      if (dup) {
+        return { ok: false, error: "This email is already registered. Try signing in instead." };
+      }
+      console.error("[auth/register] signUp:", error.message);
+      return {
+        ok: false,
+        error: "We couldn't finish setting up your account. Please try again in a moment.",
+      };
+    }
+
+    if (!data.user) {
+      console.error("[auth/register] no user returned from signUp");
+      return {
+        ok: false,
+        error: "We couldn't finish setting up your account. Please try again in a moment.",
+      };
+    }
+
+    if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return { ok: false, error: "This email is already registered. Try signing in instead." };
+    }
+
+    if (!data.session) {
+      return {
+        ok: true,
+        needsEmailConfirmation: true,
+        message:
+          "We've sent you a confirmation email. Open the link to confirm your address — you'll be signed in when it completes.",
+      };
+    }
+
+    const user = await refreshSession();
+    if (!user) {
+      return {
+        ok: false,
+        error: "Signed up but we couldn't load your profile. Try refreshing the page.",
+      };
+    }
+
+    notifyAuth();
+    return { ok: true, user };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Registration failed";
+    return { ok: false, error: message };
   }
-
-  if (data.needsEmailConfirmation) {
-    return {
-      ok: true,
-      needsEmailConfirmation: true,
-      message: data.message ?? "Check your email to confirm your account.",
-    };
-  }
-
-  if (!data.user) {
-    return { ok: false, error: "Registration failed" };
-  }
-
-  notifyAuth();
-  return { ok: true, user: data.user };
 }
 
 /** “Log in with email” OTP for an existing user (`signInWithOtp`). Uses the “Magic Link” email template;
