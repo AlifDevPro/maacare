@@ -11,6 +11,7 @@ const PUBLIC_PATHS = new Set([
   "/reset-password",
   "/verify-otp",
   "/emergency",
+  "/auth/callback",
 ]);
 
 function isPublicPath(pathname: string): boolean {
@@ -26,12 +27,27 @@ function shouldRedirectAuthedToApp(pathname: string): boolean {
 }
 
 export async function proxy(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  const searchParams = request.nextUrl.searchParams;
+
+  /**
+   * Supabase may send users to the Site URL root with `?code=` when `redirect_to`
+   * is not allowlisted. Forward to `/auth/callback` so PKCE exchange runs.
+   * If `next` is missing, default to password reset (see `.env.example`).
+   */
+  if (pathname === "/" && searchParams.has("code")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/auth/callback";
+    if (!url.searchParams.has("next")) {
+      url.searchParams.set("next", "/reset-password");
+    }
+    return NextResponse.redirect(url);
+  }
+
   let response = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  const pathname = request.nextUrl.pathname;
 
   if (!url || !anon) {
     if (pathname.startsWith("/admin")) {
