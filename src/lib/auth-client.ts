@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
 export type Role = "user" | "moderator" | "admin";
 
 export type AuthUser = {
@@ -173,17 +175,66 @@ export async function registerAccount(
   return { ok: true, user: data.user };
 }
 
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+/** “Log in with email” OTP for an existing user (`signInWithOtp`). Uses the “Magic Link” email template;
+ * `postAuthPath` is used if they tap the link. Forgot password uses `resetPasswordForEmail` instead. */
+async function signInEmailOtpForExistingUser(
+  email: string,
+  postAuthPath: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const origin = window.location.origin.replace(/\/+$/, "");
+    const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent(postAuthPath)}`;
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.toLowerCase().trim(),
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo,
+      },
+    });
+
+    if (error) {
+      const msg = error.message.toLowerCase();
+      const rateLimited =
+        msg.includes("rate") || msg.includes("too many") || (error as { status?: number }).status === 429;
+      if (rateLimited) {
+        return { ok: false, error: "Too many attempts. Please wait a few minutes before trying again." };
+      }
+      const notFound =
+        msg.includes("signups not allowed") ||
+        msg.includes("user not found") ||
+        (error as { code?: string }).code === "otp_disabled";
+      if (notFound) {
+        return {
+          ok: false,
+          error:
+            "No account found for that email, or passwordless email sign-in is disabled in your Supabase project.",
+        };
+      }
+      return {
+        ok: false,
+        error:
+          error.message ||
+          "Could not send the email. Check Supabase Auth email / SMTP settings and try again.",
+      };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Request failed.";
+    return { ok: false, error: message };
+  }
+}
 
 export async function requestPasswordReset(
   email: string,
 ): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  /**
+   * Supabase **recovery** flow (`resetPasswordForEmail`) — uses the “Reset password” email template,
+   * not the “Magic Link” template. Run in the browser so PKCE lines up with `/auth/callback`.
+   */
   try {
-    /**
-     * Must run in the browser so the PKCE code verifier is stored in the same
-     * cookie/storage that `exchangeCodeForSession` uses on `/auth/callback`.
-     * Server-initiated `resetPasswordForEmail` breaks the link flow (verifier missing).
-     */
     const supabase = createSupabaseBrowserClient();
     const origin = window.location.origin.replace(/\/+$/, "");
     const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/reset-password")}`;
@@ -213,7 +264,7 @@ export async function requestPasswordReset(
     return {
       ok: true,
       message:
-        "If an account exists for that email, we've sent a reset link. Check your inbox and spam folder.",
+        "If an account exists for that email, check your inbox for a password reset message. Use the one-time code if your email shows it (often 6 or 8 digits), or the reset link.",
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not send reset email.";
@@ -224,69 +275,52 @@ export async function requestPasswordReset(
 export async function sendLoginEmailOtp(
   email: string,
 ): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
-  try {
-    const supabase = createSupabaseBrowserClient();
-    const origin = window.location.origin.replace(/\/+$/, "");
-    const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/app")}`;
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.toLowerCase().trim(),
-      options: {
-        shouldCreateUser: false,
-        emailRedirectTo,
-      },
-    });
-
-    if (error) {
-      console.warn("[auth/send-login-otp]", error.message);
-      const msg = error.message.toLowerCase();
-      const notFound =
-        msg.includes("signups not allowed") ||
-        msg.includes("user not found") ||
-        (error as { code?: string }).code === "otp_disabled";
-      if (notFound) {
-        return {
-          ok: false,
-          error:
-            "No account found for that email, or passwordless sign-in is disabled. Try signing up or use your password.",
-        };
-      }
-      return { ok: false, error: error.message || "Could not send a code. Try again in a moment." };
-    }
-
-    return {
-      ok: true,
-      message: "Check your email for a sign-in code or link.",
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Could not send a code.";
-    return { ok: false, error: message };
+  const inner = await signInEmailOtpForExistingUser(email, "/app");
+  if (!inner.ok) {
+    return { ok: false, error: inner.error };
   }
+  return {
+    ok: true,
+    message: "Check your email — use the one-time code if shown (often 6 or 8 digits), or the sign-in link in the same message.",
+  };
 }
 
 export async function verifyLoginEmailOtp(
   email: string,
   token: string,
+  opts?: { flow?: "sign-in" | "password-reset" },
 ): Promise<{ ok: true; user: AuthUser } | { ok: false; error: string }> {
-  const res = await fetch("/api/auth/verify-login-otp", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ email, token }),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
-    user?: AuthUser;
-    error?: string;
-    message?: string;
-  };
-  if (!res.ok) {
-    return { ok: false, error: data.message ?? data.error ?? "Verification failed" };
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const otpType = opts?.flow === "password-reset" ? "recovery" : "email";
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: email.toLowerCase().trim(),
+      token,
+      type: otpType,
+    });
+
+    if (error || !data.user) {
+      console.warn("[auth/verify-email-otp]", otpType, error?.message ?? "no user");
+      return {
+        ok: false,
+        error: error?.message ?? "That code doesn't match or has expired. Request a new code.",
+      };
+    }
+
+    const user = await refreshSession();
+    if (!user) {
+      return {
+        ok: false,
+        error: "You're signed in but we couldn't load your profile. Try refreshing the page.",
+      };
+    }
+
+    notifyAuth();
+    return { ok: true, user };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Verification failed";
+    return { ok: false, error: message };
   }
-  if (!data.user) {
-    return { ok: false, error: "Verification failed" };
-  }
-  notifyAuth();
-  return { ok: true, user: data.user };
 }
 
 export async function updatePassword(

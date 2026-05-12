@@ -28,7 +28,7 @@ export default function ResetPage() {
   return (
     <AuthShell
       title="Set a new password"
-      subtitle="Open the reset link from your email first — this page only works after that link signs you in for a one-time password change."
+      subtitle="After you enter the one-time code from your email (forgot password flow), you land here to choose a new password."
       footer={
         <>
           <Link href="/login" className="font-medium text-primary">
@@ -39,9 +39,12 @@ export default function ResetPage() {
     >
       {sessionReady === false ? (
         <div className="space-y-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-foreground">
-          <p>You are not signed in with a recovery session yet. Use the link in your reset email (it should open this site), then return to this page.</p>
+          <p>
+            You are not signed in yet. Request a code from forgot password, enter it on the verify screen, then
+            return here to set your password.
+          </p>
           <Button asChild variant="outline" className="w-full rounded-full">
-            <Link href="/forgot-password">Request a new reset link</Link>
+            <Link href="/forgot-password">Get a new code</Link>
           </Button>
         </div>
       ) : null}

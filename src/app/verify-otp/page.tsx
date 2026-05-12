@@ -6,18 +6,32 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { AuthShell } from "@/components/app/AuthShell";
 import { Button } from "@/components/ui/button";
+import { REGEXP_ONLY_DIGITS } from "input-otp";
+
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { safeInternalPath } from "@/lib/auth/safe-internal-path";
-import { sendLoginEmailOtp, verifyLoginEmailOtp } from "@/lib/auth-client";
+import { requestPasswordReset, sendLoginEmailOtp, verifyLoginEmailOtp } from "@/lib/auth-client";
 import { toast } from "sonner";
 
 const RESEND_SECONDS = 60;
+/** Supabase email OTPs are numeric; hosted projects may use 6 or 8 digits. */
+const OTP_MAX_LEN = 8;
+
+function isValidEmailOtpToken(raw: string): boolean {
+  const digits = raw.replace(/\D/g, "");
+  return /^\d{6}$/.test(digits) || /^\d{8}$/.test(digits);
+}
+
+function normalizeEmailOtp(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
 
 function VerifyOtpInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const emailParam = searchParams.get("email")?.trim() ?? "";
-  const next = safeInternalPath(searchParams.get("next"), "/app");
+  const isReset = searchParams.get("flow") === "reset";
+  const next = safeInternalPath(searchParams.get("next"), isReset ? "/reset-password" : "/app");
 
   const [code, setCode] = useState("");
   const [seconds, setSeconds] = useState(RESEND_SECONDS);
@@ -32,19 +46,33 @@ function VerifyOtpInner() {
 
   const submit = async () => {
     if (!emailParam) {
-      toast.error("Missing email. Go back to log in and request a code again.");
+      toast.error(
+        isReset
+          ? "Missing email. Go back to forgot password and request a code again."
+          : "Missing email. Go back to log in and request a code again.",
+      );
       return;
     }
-    if (code.length !== 6) return toast.error("Enter the 6-digit code");
+    const token = normalizeEmailOtp(code);
+    if (!isValidEmailOtpToken(code)) {
+      return toast.error("Enter the full code from your email (6 or 8 digits, numbers only).");
+    }
     setVerifying(true);
     try {
-      const result = await verifyLoginEmailOtp(emailParam, code);
+      const result = await verifyLoginEmailOtp(emailParam, token, {
+        flow: isReset ? "password-reset" : "sign-in",
+      });
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
-      toast.success("Signed in");
-      router.push(next);
+      if (isReset) {
+        toast.success("Code verified — choose a new password.");
+        router.replace(next);
+      } else {
+        toast.success("Signed in");
+        router.push(next);
+      }
     } finally {
       setVerifying(false);
     }
@@ -54,7 +82,7 @@ function VerifyOtpInner() {
     if (!emailParam) return;
     setResending(true);
     try {
-      const result = await sendLoginEmailOtp(emailParam);
+      const result = isReset ? await requestPasswordReset(emailParam) : await sendLoginEmailOtp(emailParam);
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -69,11 +97,15 @@ function VerifyOtpInner() {
   if (!emailParam) {
     return (
       <AuthShell
-        title="Verify your email"
-        subtitle="Request a code from the log in page first."
+        title="Missing email"
+        subtitle={
+          isReset
+            ? "Start from forgot password so we know which email to send the code to."
+            : "Request a code from the log in page first."
+        }
         footer={
-          <Link href="/login" className="font-medium text-primary">
-            Back to log in
+          <Link href={isReset ? "/forgot-password" : "/login"} className="font-medium text-primary">
+            {isReset ? "Back to forgot password" : "Back to log in"}
           </Link>
         }
       >
@@ -84,31 +116,49 @@ function VerifyOtpInner() {
 
   return (
     <AuthShell
-      title="Verify your email"
+      title={isReset ? "Verify to reset password" : "Verify your email"}
       subtitle={
-        <>
-          We sent a sign-in code to <span className="font-medium text-foreground">{emailParam}</span>. Enter it
-          below (or use the link in the same email).
-        </>
+        isReset ? (
+          <>
+            We sent a code to <span className="font-medium text-foreground">{emailParam}</span>. Enter every digit
+            below (Supabase may send 6 or 8), then set a new password (or use the link in the same email).
+          </>
+        ) : (
+          <>
+            We sent a sign-in code to <span className="font-medium text-foreground">{emailParam}</span>. Enter every
+            digit below — 6 or 8 digits, depending on your project — or use the link in the same email.
+          </>
+        )
       }
       footer={
-        <Link href="/login" className="font-medium text-primary">
-          Back to log in
+        <Link href={isReset ? "/forgot-password" : "/login"} className="font-medium text-primary">
+          {isReset ? "Back to forgot password" : "Back to log in"}
         </Link>
       }
     >
       <div className="space-y-5">
-        <div className="flex justify-center">
-          <InputOTP maxLength={6} value={code} onChange={setCode}>
+        <div className="flex flex-col items-center gap-2">
+          <InputOTP
+            maxLength={OTP_MAX_LEN}
+            pattern={REGEXP_ONLY_DIGITS}
+            pasteTransformer={(pasted) => pasted.replace(/\D/g, "").slice(0, OTP_MAX_LEN)}
+            value={code}
+            onChange={setCode}
+          >
             <InputOTPGroup>
-              {Array.from({ length: 6 }).map((_, i) => (
+              {Array.from({ length: OTP_MAX_LEN }).map((_, i) => (
                 <InputOTPSlot key={i} index={i} />
               ))}
             </InputOTPGroup>
           </InputOTP>
+          <p className="text-center text-xs text-muted-foreground">6 or 8 digits — use the full code from the email.</p>
         </div>
-        <Button onClick={() => void submit()} className="w-full rounded-full" disabled={verifying}>
-          {verifying ? "Verifying…" : "Verify & continue"}
+        <Button
+          onClick={() => void submit()}
+          className="w-full rounded-full"
+          disabled={verifying || !isValidEmailOtpToken(code)}
+        >
+          {verifying ? "Verifying…" : isReset ? "Verify & set new password" : "Verify & continue"}
         </Button>
         <p className="text-center text-xs text-muted-foreground">
           {seconds > 0 ? (
