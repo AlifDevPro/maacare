@@ -306,11 +306,13 @@ function TeamSpotCard({
   emphasis: "primary" | "secondary";
 }) {
   const primary = emphasis === "primary";
+  const prefersReducedMotion = useReducedMotion();
+  const revealBio = prefersReducedMotion === true;
   return (
     <div className={TEAM_CARD_OUTER}>
       <Card
         className={cn(
-          "h-full overflow-hidden border-0 p-0 transition-shadow duration-500",
+          "group/card h-full overflow-hidden border-0 p-0 transition-shadow duration-500",
           primary ? "shadow-xl ring-1 ring-black/15 dark:ring-white/10" : "shadow-card ring-1 ring-black/10 dark:ring-white/5",
         )}
       >
@@ -329,12 +331,28 @@ function TeamSpotCard({
           </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 min-w-0 p-4 pt-14 sm:pt-16">
+        <div className="absolute inset-x-0 bottom-0 flex min-w-0 flex-col justify-end p-4 pt-14 sm:pt-16">
+          {m.bio ? (
+            <div
+              className={cn(
+                "overflow-hidden rounded-xl border border-white/10 bg-black/50 px-3 shadow-lg backdrop-blur-md",
+                "transition-[max-height,opacity,margin-bottom,padding-top,padding-bottom] duration-300 ease-out motion-reduce:transition-none",
+                revealBio
+                  ? "mb-2 max-h-[min(13rem,42vh)] py-2.5 opacity-100"
+                  : cn(
+                      "mb-0 max-h-0 py-0 opacity-0 group-hover/card:mb-2 group-hover/card:max-h-[min(13rem,42vh)] group-hover/card:py-2.5 group-hover/card:opacity-100 group-focus-within/card:mb-2 group-focus-within/card:max-h-[min(13rem,42vh)] group-focus-within/card:py-2.5 group-focus-within/card:opacity-100",
+                      "[@media(hover:none)]:mb-2 [@media(hover:none)]:max-h-[min(10rem,38vh)] [@media(hover:none)]:py-2.5 [@media(hover:none)]:opacity-100",
+                    ),
+              )}
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-white/55">About</p>
+              <p className="mt-1 max-h-[min(11rem,36vh)] overflow-y-auto text-sm leading-relaxed text-white/90 [scrollbar-width:thin]">
+                {m.bio}
+              </p>
+            </div>
+          ) : null}
           <h3 className="font-display text-lg font-semibold leading-tight text-white drop-shadow-sm sm:text-xl">{m.name}</h3>
           <p className="mt-1 text-sm font-medium text-white/90">{m.jobTitle}</p>
-          {m.bio ? (
-            <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-white/75 sm:line-clamp-4">{m.bio}</p>
-          ) : null}
           <div className="mt-3 flex flex-wrap gap-1.5">
             {m.social.github ? (
               <Button
