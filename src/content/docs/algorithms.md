@@ -4,12 +4,9 @@ This page describes **non-secret** logic that shapes product behavior. For file-
 
 ## Chat reply language
 
-The chat route inspects the latest user message:
+Before RAG, the chat route runs **`prepareMultilingualChatTurn`** ([`src/lib/chat/multilingual-prep.ts`](src/lib/chat/multilingual-prep.ts)): one **LLM** call returns strict **JSON** (validated with **Zod**) containing an **IETF language tag** (BCP-47) for the user’s latest message, an **English retrieval query** for embedding over the English-only corpus, and an optional **human-readable language hint** for the answer model. On parse failure it falls back to **English** and the **raw** user text for retrieval.
 
-1. **Unicode Bangla** range detection for native script.
-2. **Banglish** heuristic: Latin tokens matched against a curated hint word set; requires multiple hits to reduce false positives.
-
-If either matches, replies prefer **Bangla**; otherwise **English**. Users can still mix languages naturally.
+The **final** model call is instructed to reply in that language while **retrieved passages** stay in English. Users may still mix languages in conversation; the latest turn drives detection.
 
 ## Transcript budgeting
 
@@ -18,7 +15,7 @@ Long conversations are trimmed with a **token budget heuristic** (character leng
 ## Retrieval-augmented generation (RAG)
 
 1. User (or server) issues a query relevant to medical knowledge.
-2. Optional **English normalization** path for retrieval when the question is Roman-script Banglish.
+2. A **multilingual prep** step produces an **English retrieval query** (any source language → concise English for semantic search).
 3. **Embedding** via the configured Gemini embedding model.
 4. **Vector search** in Postgres (`rag_chunks`) through a SQL RPC matcher.
 5. Retrieved passages are injected into the system or tool context with citations-style provenance where implemented.

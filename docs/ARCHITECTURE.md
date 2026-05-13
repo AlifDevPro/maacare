@@ -27,7 +27,7 @@ flowchart TB
 - **Browser** runs the React client (including `createSupabaseBrowserClient` for auth-aware operations and **Realtime** subscriptions). The browser **does not** call Gemini or Groq directly; only **Next.js Route Handlers** hold API keys.
 - **Next.js** server handles Route Handlers under `src/app/api/**`, server components, and `proxy` (see `src/proxy.ts`) for cookie session refresh and route gating.
 - **Supabase** is the system of record: Auth, Postgres, Row Level Security, Storage buckets, optional **Realtime** publication on selected tables.
-- **Gemini** is used for **chat completion** (`@google/generative-ai`), **embeddings** (REST `text-embedding-004` style, see `src/lib/gemini/embeddings.ts`), and small **translation-for-retrieval** calls inside chat (`generateTextWithGeminiGroqFailover` in `normalizeQueryForEnglishRetrieval`).
+- **Gemini** is used for **chat completion** (`@google/generative-ai`), **embeddings** (REST `text-embedding-004` style, see `src/lib/gemini/embeddings.ts`), and a small **multilingual prep** call before RAG (`prepareMultilingualChatTurn` in [`src/lib/chat/multilingual-prep.ts`](src/lib/chat/multilingual-prep.ts) via `generateTextWithGeminiGroqFailover`).
 - **Groq** (`https://api.groq.com/openai/v1/chat/completions`) is the **OpenAI-compatible fallback** when Gemini chat fails or returns empty text, using the same system/user envelope where possible (`src/lib/gemini/text-failover.ts`).
 
 ---
@@ -186,7 +186,7 @@ flowchart TB
 
 ## 6. AI chat, RAG, multilingual, and voice (full pipeline)
 
-Primary implementation: **`POST /api/chat`** in [`src/app/api/chat/route.ts`](src/app/api/chat/route.ts). Supporting modules: [`src/lib/rag/service.ts`](src/lib/rag/service.ts), [`src/lib/gemini/embeddings.ts`](src/lib/gemini/embeddings.ts), [`src/lib/gemini/text-failover.ts`](src/lib/gemini/text-failover.ts), [`src/lib/bd-facilities/chat-nearby-context.ts`](src/lib/bd-facilities/chat-nearby-context.ts).
+Primary implementation: **`POST /api/chat`** in [`src/app/api/chat/route.ts`](src/app/api/chat/route.ts). Supporting modules: [`src/lib/rag/service.ts`](src/lib/rag/service.ts), [`src/lib/gemini/embeddings.ts`](src/lib/gemini/embeddings.ts), [`src/lib/gemini/text-failover.ts`](src/lib/gemini/text-failover.ts), [`src/lib/chat/multilingual-prep.ts`](src/lib/chat/multilingual-prep.ts), [`src/lib/bd-facilities/chat-nearby-context.ts`](src/lib/bd-facilities/chat-nearby-context.ts).
 
 ### 6.1 Sequence: one chat turn (happy path)
 
@@ -201,12 +201,10 @@ sequenceDiagram
 
   C->>API: POST JSON messages replyChannel userLocation reportContext
   API->>API: getSessionFromCookies plus Zod bodySchema
-  API->>API: lastUser plus detectPreferredReplyLanguage
-  opt Preferred language is Bangla
-    API->>LLM: normalizeQueryForEnglishRetrieval translate query only
-    LLM-->>API: English retrieval string
-  end
-  API->>Emb: embedText on retrieval query
+  API->>API: lastUser plus prepareMultilingualChatTurn
+  API->>LLM: JSON language tag plus English retrieval query
+  LLM-->>API: ietfLanguageTag englishRetrievalQuery optional hint
+  API->>Emb: embedText on English retrieval query
   Emb-->>API: vector length 768
   API->>RPC: match_rag_chunks_for_user query_embedding
   RPC->>DB: pgvector similarity over rag_chunks
@@ -231,12 +229,8 @@ sequenceDiagram
 flowchart TD
   start[POST api chat] --> auth[Session plus Zod validate]
   auth --> last[Pick last user message]
-  last --> lang[detectPreferredReplyLanguage]
-  lang --> norm{Preferred Bangla}
-  norm -->|yes| tr[normalizeQueryForEnglishRetrieval via LLM]
-  norm -->|no| qe[Use raw query as retrieval string]
-  tr --> emb[embedText Gemini embedding model]
-  qe --> emb
+  last --> prep[prepareMultilingualChatTurn via LLM JSON Zod]
+  prep --> emb[embedText Gemini embedding model]
   emb --> rpc[RPC match_rag_chunks_for_user]
   rpc --> hits[Ranked chunk hits limit 8]
   hits --> ctx[Format CONTEXT block from hits]
@@ -249,7 +243,7 @@ flowchart TD
   near -->|no| skipbd[Skip BD block]
   ctx --> asm[Assemble systemInstruction]
   pc --> asm
-  trn --> usr[Assemble userMessage with latest original plus English line plus transcript]
+  trn --> usr[Assemble userMessage with latest original plus English retrieval line plus transcript]
   bd --> asm
   hint --> asm
   skipbd --> asm
@@ -258,30 +252,27 @@ flowchart TD
   llm --> out[JSON reply provider citations]
 ```
 
-### 6.3 Multilingual behavior (Bangla, Banglish, English)
+### 6.3 Multilingual behavior (any language in, English RAG, reply in user language)
 
 ```mermaid
 flowchart LR
-  u[Latest user text] --> d{Unicode Bangla script}
-  d -->|yes| bn[Preferred reply bn]
-  d -->|no| b2{Banglish heuristic}
-  b2 -->|likely| bn
-  b2 -->|not likely| en[Preferred reply en]
-  bn --> t[Translate question to English for retrieval only]
-  en --> r[Use raw text for retrieval]
-  t --> e[Embed English query]
-  r --> e
+  u[Latest user text] --> prep[prepareMultilingualChatTurn LLM JSON]
+  prep --> tag[IETF language tag plus optional hint]
+  prep --> qe[English retrieval query]
+  qe --> e[Embed English query]
   e --> rpc[RAG RPC]
-  bn --> sys[System lines instruct natural Bangla reply]
-  en --> sys2[System lines instruct clear English reply]
+  tag --> sys[Dynamic system lines reply in user language]
+  u --> usr[userMessage original plus English retrieval line]
+  usr --> fin[Final LLM answer]
+  sys --> fin
 ```
 
 **Implementation details:**
 
-- **Script detection:** Unicode range `\u0980-\u09FF` on the latest user message (`BANGLA_CHAR_RE`).
-- **Banglish:** Latin-token scan against a curated hint set (e.g. *ami, kemon, bhalo*); requires multiple hits to reduce false positives (`isLikelyBanglish`).
-- **Retrieval language:** If preferred reply is **Bangla**, `normalizeQueryForEnglishRetrieval` calls the same **Gemini-then-Groq** stack with a tiny translation system prompt so **semantic search** runs on English-like text while the user still sees answers in Bangla.
-- **User payload to the final model:** `userMessage` includes both **original** latest turn and **English-normalized** line so the model grounds intent without exposing pipeline steps in the reply.
+- **Prep step:** [`prepareMultilingualChatTurn`](src/lib/chat/multilingual-prep.ts) calls **`generateTextWithGeminiGroqFailover`** once with a JSON-only contract: **`ietfLanguageTag`** (BCP-47), **`englishRetrievalQuery`** (concise English for embedding over the English-only corpus), optional **`languageHintForPrompt`**. The immediately prior **assistant** snippet (when present) is passed in to disambiguate very short user replies.
+- **Validation / fallback:** Response is parsed with **Zod**; on failure the server falls back to **`en`** and uses the **raw** latest user message as the retrieval string so chat never hard-fails.
+- **Retrieval:** `searchKnowledge` always embeds the **English retrieval query**; chunk text in Postgres remains English.
+- **Final model:** `systemInstruction` tells the model to answer in the detected language while **CONTEXT** stays English; `userMessage` includes **original** latest turn plus the **English retrieval query** so intent is grounded without mentioning pipeline steps in the reply.
 
 ### 6.4 Voice channel (`replyChannel: "voice"`)
 
@@ -312,7 +303,7 @@ flowchart TD
 | **Embeddings for RAG** | `text-embedding-004`, **768-D** vector stored in Postgres | `GEMINI_EMBEDDING_MODEL` (`embeddings.ts`) |
 | **RAG match RPC** | `match_rag_chunks_for_user` | Defined in Supabase SQL migrations; called from `searchKnowledge` |
 
-### 6.6 Provider failover (chat and mini-translate)
+### 6.6 Provider failover (chat and multilingual prep)
 
 ```mermaid
 flowchart TD
@@ -331,7 +322,7 @@ flowchart TD
 
 - **Gemini keys:** Tried in order; **429 / quota** errors continue to the next key; other errors can short-circuit the Gemini loop (see `generateTextWithGeminiGroqFailover`).
 - **Groq keys:** Same pattern after all Gemini attempts fail or return empty.
-- **Same helper** powers the **full chat answer** and the **Bangla-to-English retrieval query** translation, so operational behavior (keys, models, limits) stays consistent.
+- **Same helper** powers the **full chat answer** and the **multilingual prep** JSON step (language tag + English retrieval query), so operational behavior (keys, models, limits) stays consistent.
 
 ### 6.7 Context, safety, and budgets
 

@@ -6,6 +6,7 @@ import {
   buildNearbyFacilitiesContextForChat,
   detectNearbyFacilitiesIntent,
 } from "@/lib/bd-facilities/chat-nearby-context";
+import { prepareMultilingualChatTurn } from "@/lib/chat/multilingual-prep";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 import { searchKnowledge } from "@/lib/rag/service";
@@ -39,46 +40,6 @@ const bodySchema = z.object({
 
 const MAX_TRANSCRIPT_TOKENS = 2600;
 const MAX_MESSAGE_CHARS_IN_TRANSCRIPT = 1200;
-const BANGLA_CHAR_RE = /[\u0980-\u09FF]/;
-const BANGLISH_HINT_WORDS = new Set([
-  "ami",
-  "apni",
-  "tumi",
-  "amar",
-  "tomar",
-  "ki",
-  "kemon",
-  "kibhabe",
-  "kivabe",
-  "keno",
-  "hobe",
-  "hoy",
-  "hocche",
-  "korbo",
-  "korchi",
-  "korle",
-  "khabo",
-  "khawa",
-  "ghum",
-  "pani",
-  "pete",
-  "byatha",
-  "matha",
-  "baccha",
-  "bacha",
-  "soptaho",
-  "mas",
-  "jonno",
-  "valo",
-  "bhalo",
-  "nai",
-  "ache",
-  "ase",
-  "nibo",
-  "parbo",
-  "dorkar",
-  "doctor",
-]);
 
 function line(label: string, value: string | null | undefined): string {
   return `${label}: ${value && value.trim() ? value.trim() : "n/a"}`;
@@ -89,8 +50,26 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-function detectPreferredReplyLanguage(text: string): "bn" | "en" {
-  return BANGLA_CHAR_RE.test(text) || isLikelyBanglish(text) ? "bn" : "en";
+function findLastUserMessageIndex(
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]!.role === "user") return i;
+  }
+  return -1;
+}
+
+function priorAssistantSnippetBefore(
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+  lastUserIndex: number,
+): string | null {
+  for (let i = lastUserIndex - 1; i >= 0; i -= 1) {
+    const m = messages[i]!;
+    if (m.role === "assistant") {
+      return m.content.length > 600 ? `${m.content.slice(0, 600)}…` : m.content;
+    }
+  }
+  return null;
 }
 
 function computeAgeFromDateOfBirth(dateOfBirthIso: string | null | undefined): number | null {
@@ -103,42 +82,6 @@ function computeAgeFromDateOfBirth(dateOfBirthIso: string | null | undefined): n
   if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) age -= 1;
   if (age < 0 || age > 120) return null;
   return age;
-}
-
-function isLikelyBanglish(text: string): boolean {
-  if (!text) return false;
-  const normalized = text.toLowerCase();
-  // If native Bangla is present, this detector is not needed.
-  if (BANGLA_CHAR_RE.test(normalized)) return false;
-
-  const tokens = normalized.match(/[a-z]+/g) ?? [];
-  if (tokens.length < 3) return false;
-  let hits = 0;
-  for (const t of tokens) {
-    if (BANGLISH_HINT_WORDS.has(t)) hits += 1;
-  }
-  // Require at least 2 strong hints to reduce false positives.
-  return hits >= 2;
-}
-
-async function normalizeQueryForEnglishRetrieval(
-  query: string,
-  opts?: { forceTranslate?: boolean },
-): Promise<string> {
-  const trimmed = query.trim();
-  if (!trimmed) return trimmed;
-  const shouldTranslate = opts?.forceTranslate ?? BANGLA_CHAR_RE.test(trimmed);
-  if (!shouldTranslate) return trimmed;
-
-  const out = await generateTextWithGeminiGroqFailover({
-    systemInstruction: [
-      "You translate Bangla user questions into concise English for semantic retrieval.",
-      "Return only the translated English query text.",
-      "Do not answer the question and do not add extra explanation.",
-    ].join("\n"),
-    userMessage: trimmed,
-  });
-  return out.text.trim() || trimmed;
 }
 
 function buildBudgetedTranscript(
@@ -219,14 +162,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No user message" }, { status: 400 });
     }
 
-    const preferredReplyLanguage = detectPreferredReplyLanguage(lastUser.content);
-    const retrievalQuery = await normalizeQueryForEnglishRetrieval(lastUser.content, {
-      forceTranslate: preferredReplyLanguage === "bn",
-    });
-    const latestUserOriginal = lastUser.content.trim();
-    const latestUserEnglish = retrievalQuery.trim();
+    const lastUserIndex = findLastUserMessageIndex(messages);
+    const priorAssistantSnippet =
+      lastUserIndex >= 0 ? priorAssistantSnippetBefore(messages, lastUserIndex) : null;
 
-    const hits = await searchKnowledge(retrievalQuery, {
+    const multilingualPrep = await prepareMultilingualChatTurn({
+      latestUserMessage: lastUser.content,
+      priorAssistantSnippet,
+    });
+    const ietfLanguageTag = multilingualPrep.ietfLanguageTag.trim().toLowerCase() || "en";
+    const retrievalQuery = multilingualPrep.englishRetrievalQuery.trim();
+    const latestUserOriginal = lastUser.content.trim();
+    const latestUserRetrievalQuery = retrievalQuery || latestUserOriginal;
+
+    const replyLanguageHint =
+      multilingualPrep.languageHintForPrompt?.trim() || ietfLanguageTag;
+
+    const hits = await searchKnowledge(latestUserRetrievalQuery, {
       limit: 8,
     });
     const context =
@@ -513,13 +465,20 @@ export async function POST(req: Request) {
             "If the latest user turn is a short acknowledgement (e.g., ok/thanks), respond with a brief natural continuation of the immediately previous assistant context.",
             "Do not switch topic to profile summary unless the latest turn clearly asks about identity/profile.",
           ]),
-      ...(preferredReplyLanguage === "bn"
-        ? [
-            "Reply in natural conversational Bangla (বাংলা), not literal translated English.",
-            "Match the user's tone and phrasing style when appropriate.",
-            "Keep important medical terms bilingual when useful, e.g., রক্তচাপ (blood pressure).",
-          ]
-        : ["Reply in clear English."]),
+      ...(ietfLanguageTag === "en"
+        ? ["Reply in clear English."]
+        : [
+            `Reply entirely in the user's language (IETF language tag: ${ietfLanguageTag}).`,
+            `The latest user message is in: ${replyLanguageHint}. Write naturally in that language — avoid stiff word-for-word translation from English.`,
+            "CONTEXT below is English-only. Use it for facts and citations; express the final answer in the user's language.",
+            "Do not paste large blocks of English from CONTEXT unless a proper noun, standard drug name, or short unavoidable phrase requires it.",
+            "When helpful, keep important clinical terms understandable in the user's language and add a brief English gloss in parentheses (especially for medications).",
+            ...(ietfLanguageTag === "bn"
+              ? [
+                  "For Bangla (বাংলা), prefer natural conversational Bangla; bilingual glosses like রক্তচাপ (blood pressure) are welcome when useful.",
+                ]
+              : []),
+          ]),
       ...voiceSpeechBlock,
       "",
       personalContext,
@@ -534,15 +493,15 @@ export async function POST(req: Request) {
       "LATEST USER TURN (original):",
       latestUserOriginal || "(empty)",
       "",
-      "LATEST USER TURN (English-normalized for retrieval semantics):",
-      latestUserEnglish || "(empty)",
+      "LATEST USER TURN (English retrieval query for embedding / RAG):",
+      latestUserRetrievalQuery || "(empty)",
       "",
       "Conversation so far:",
       transcript,
       "",
       "Use BOTH latest-turn versions to understand intent.",
-      "Generate one final answer in the user's preferred language naturally.",
-      "Do not mention translation steps.",
+      "Generate one final answer in the user's language as defined in the system instructions (IETF tag and hints).",
+      "Do not mention translation or retrieval preparation steps.",
     ].join("\n");
 
     const out = await generateTextWithGeminiGroqFailover({
