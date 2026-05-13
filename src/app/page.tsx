@@ -1,8 +1,13 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
+import type { Swiper as SwiperClass } from "swiper";
+import { Autoplay, EffectCoverflow } from "swiper/modules";
+import { Swiper, SwiperSlide } from "swiper/react";
+import "swiper/css";
+import "swiper/css/effect-coverflow";
 import {
   Heart, Sparkles, Stethoscope, Phone, Users, Calendar, FileText,
   ChevronRight, Check, Star, ShieldCheck, Globe, Github, Linkedin,
@@ -10,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from "@/components/ui/accordion";
@@ -269,12 +275,138 @@ type LandingTeamMember = {
   sortOrder: number;
 };
 
+/**
+ * Swiper loop + centeredSlides + slidesPerView:auto needs enough slides vs visible
+ * slots on wide screens, or the track locks / autoplay stops at the end.
+ * Below this count we repeat the roster (same members, stable keys) only for the carousel.
+ */
+const TEAM_LOOP_MIN_SLIDES = 12;
+
+function buildTeamCarouselSlides(members: LandingTeamMember[]): { member: LandingTeamMember; key: string }[] {
+  const n = members.length;
+  if (n < 2) return [];
+  if (n >= TEAM_LOOP_MIN_SLIDES) {
+    return members.map((m) => ({ member: m, key: m.userId }));
+  }
+  const total = Math.ceil(TEAM_LOOP_MIN_SLIDES / n) * n;
+  return Array.from({ length: total }, (_, idx) => {
+    const m = members[idx % n]!;
+    return { member: m, key: `${m.userId}-${idx}` };
+  });
+}
+
+/** Fixed portrait frame so every team card matches (1, 2, or many members). */
+const TEAM_CARD_OUTER = "w-[280px] max-w-[min(280px,calc(100vw-2rem))]";
+
+function TeamSpotCard({
+  member: m,
+  emphasis,
+}: {
+  member: LandingTeamMember;
+  emphasis: "primary" | "secondary";
+}) {
+  const primary = emphasis === "primary";
+  return (
+    <div className={TEAM_CARD_OUTER}>
+      <Card
+        className={cn(
+          "h-full overflow-hidden border-0 p-0 transition-shadow duration-500",
+          primary ? "shadow-xl ring-1 ring-black/15 dark:ring-white/10" : "shadow-card ring-1 ring-black/10 dark:ring-white/5",
+        )}
+      >
+      <div className="relative aspect-[3/4] w-full overflow-hidden bg-muted">
+        {m.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={m.imageUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/15 via-muted to-muted font-display text-4xl font-semibold text-primary/35 sm:text-5xl">
+            {m.name.slice(0, 1).toUpperCase()}
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 min-w-0 p-4 pt-14 sm:pt-16">
+          <h3 className="font-display text-lg font-semibold leading-tight text-white drop-shadow-sm sm:text-xl">{m.name}</h3>
+          <p className="mt-1 text-sm font-medium text-white/90">{m.jobTitle}</p>
+          {m.bio ? (
+            <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-white/75 sm:line-clamp-4">{m.bio}</p>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {m.social.github ? (
+              <Button
+                asChild
+                size="sm"
+                variant="secondary"
+                className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-white backdrop-blur hover:bg-white/25"
+              >
+                <a href={m.social.github} target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+                  <Github className="h-4 w-4" />
+                </a>
+              </Button>
+            ) : null}
+            {m.social.linkedin ? (
+              <Button
+                asChild
+                size="sm"
+                variant="secondary"
+                className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-white backdrop-blur hover:bg-white/25"
+              >
+                <a href={m.social.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
+                  <Linkedin className="h-4 w-4" />
+                </a>
+              </Button>
+            ) : null}
+            {m.social.twitter ? (
+              <Button
+                asChild
+                size="sm"
+                variant="secondary"
+                className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-xs font-semibold text-white backdrop-blur hover:bg-white/25"
+              >
+                <a href={m.social.twitter} target="_blank" rel="noopener noreferrer" aria-label="X">
+                  X
+                </a>
+              </Button>
+            ) : null}
+            {m.social.website ? (
+              <Button
+                asChild
+                size="sm"
+                variant="secondary"
+                className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-white backdrop-blur hover:bg-white/25"
+              >
+                <a href={m.social.website} target="_blank" rel="noopener noreferrer" aria-label="Website">
+                  <Globe className="h-4 w-4" />
+                </a>
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      </Card>
+    </div>
+  );
+}
+
+/** Pause on each spotlight before advancing. */
+const TEAM_ROTATE_MS = 6000;
+
 function TeamSection() {
   const [members, setMembers] = useState<LandingTeamMember[] | null>(null);
+  /** Physical slide index in the carousel (covers duplicated slides for seamless loop). */
+  const [activeIndex, setActiveIndex] = useState(0);
+  const prefersReducedMotion = useReducedMotion();
+  const swiperRef = useRef<SwiperClass | null>(null);
+
+  const carouselSlides = useMemo(() => (members ? buildTeamCarouselSlides(members) : []), [members]);
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/team")
+    void fetch("/api/team", { cache: "no-store" })
       .then((r) => r.json())
       .then((j: { members?: LandingTeamMember[] }) => {
         if (cancelled) return;
@@ -298,107 +430,127 @@ function TeamSection() {
 
   if (members.length === 0) return null;
 
-  return (
-    <section id="team" className="border-t border-border/50 bg-secondary/20 py-20 pb-24 md:py-28 md:pb-32">
-      <div className="mx-auto max-w-6xl px-4">
-        <div className="mb-12 max-w-2xl">
-          <p className="text-sm font-semibold uppercase tracking-wider text-primary">Team</p>
-          <h2 className="mt-2 font-display text-3xl font-semibold leading-tight md:text-4xl">The people building MaaCare.</h2>
-          <p className="mt-3 text-muted-foreground">
-            Engineers and operators behind the product — shown here when published by the team.
-          </p>
+  const n = members.length;
+
+  const subtitle = "Meet the people building MaaCare.";
+
+  const headerBlock = (
+    <div className="mx-auto mb-10 max-w-2xl text-center md:mb-12">
+      <p className="text-sm font-semibold uppercase tracking-wider text-primary">Team</p>
+      <h2 className="mt-2 font-display text-3xl font-semibold leading-tight md:text-4xl">The people building MaaCare.</h2>
+      <p className="mt-3 text-muted-foreground">{subtitle}</p>
+    </div>
+  );
+
+  if (n === 1) {
+    return (
+      <section
+        id="team"
+        className="border-t border-border/50 bg-gradient-to-b from-secondary/25 via-secondary/15 to-background py-20 pb-24 md:py-28 md:pb-32"
+      >
+        <div className="mx-auto max-w-6xl px-4">
+          {headerBlock}
+          <motion.div
+            className="flex justify-center"
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+            whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-20px" }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <TeamSpotCard member={members[0]!} emphasis="primary" />
+          </motion.div>
         </div>
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {members.map((m, i) => (
-            <motion.div
-              key={m.userId}
-              className="mx-auto w-full max-w-sm min-w-0 sm:max-w-none"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-40px" }}
-              transition={{ duration: 0.45, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <Card className="overflow-hidden border-0 p-0 shadow-card">
-                <div className="relative aspect-[3/4] w-full overflow-hidden bg-muted">
-                  {m.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={m.imageUrl}
-                      alt=""
-                      className="absolute inset-0 h-full w-full object-cover"
-                      width={480}
-                      height={640}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/15 via-muted to-muted font-display text-5xl font-semibold text-primary/35">
-                      {m.name.slice(0, 1).toUpperCase()}
-                    </div>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      id="team"
+      className="border-t border-border/50 bg-gradient-to-b from-secondary/25 via-secondary/15 to-background py-20 pb-24 md:py-28 md:pb-32"
+    >
+      <div className="mx-auto max-w-6xl px-4">
+        {headerBlock}
+
+        <div className="relative min-h-[420px] sm:min-h-[460px]">
+          <Swiper
+            key={members.map((m) => m.userId).join("|")}
+            modules={[Autoplay, EffectCoverflow]}
+            effect="coverflow"
+            grabCursor
+            centeredSlides
+            slidesPerView="auto"
+            loop={carouselSlides.length >= 2}
+            loopAdditionalSlides={4}
+            /* Prevents lock when all slides fit the row (default watchOverflow would stop autoplay). */
+            watchOverflow={false}
+            speed={prefersReducedMotion ? 300 : 700}
+            spaceBetween={20}
+            autoplay={
+              prefersReducedMotion
+                ? false
+                : {
+                    delay: TEAM_ROTATE_MS,
+                    disableOnInteraction: false,
+                    pauseOnMouseEnter: false,
+                    stopOnLastSlide: false,
+                  }
+            }
+            coverflowEffect={{
+              rotate: 0,
+              stretch: 0,
+              depth: 200,
+              modifier: 1,
+              slideShadows: false,
+            }}
+            onSwiper={(sw) => {
+              swiperRef.current = sw;
+              setActiveIndex(sw.activeIndex);
+            }}
+            onSlideChange={(sw) => setActiveIndex(sw.activeIndex)}
+            className="team-swiper w-full pt-2 pb-2"
+          >
+            {carouselSlides.map((slide, idx) => (
+              <SwiperSlide
+                key={slide.key}
+                className="!flex max-w-[min(280px,calc(100vw-2rem))] justify-center !py-6"
+                style={{ width: 280 }}
+              >
+                <TeamSpotCard member={slide.member} emphasis={idx === activeIndex ? "primary" : "secondary"} />
+              </SwiperSlide>
+            ))}
+          </Swiper>
+
+          <div
+            className="mx-auto mt-6 flex max-w-full flex-wrap items-center justify-center gap-2 px-2"
+            role="tablist"
+            aria-label="Team carousel slides"
+          >
+            {members.map((m, i) => {
+              const centeredId = carouselSlides[activeIndex]?.member.userId;
+              const active = centeredId === m.userId;
+              return (
+                <button
+                  key={m.userId}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  aria-label={`Show ${m.name}`}
+                  onClick={() => {
+                    const sw = swiperRef.current;
+                    if (!sw) return;
+                    sw.slideToLoop(i);
+                  }}
+                  className={cn(
+                    "h-2 shrink-0 rounded-full transition-all duration-500 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                    active
+                      ? "w-10 bg-primary shadow-sm ring-2 ring-primary/30 ring-offset-2 ring-offset-background"
+                      : "w-2 bg-muted-foreground/25 hover:bg-muted-foreground/45",
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                  <div className="absolute inset-x-0 bottom-0 min-w-0 p-4 pt-14 sm:p-5 sm:pt-16">
-                    <h3 className="font-display text-lg font-semibold leading-tight text-white drop-shadow-sm sm:text-xl">
-                      {m.name}
-                    </h3>
-                    <p className="mt-1 text-sm font-medium text-white/90">{m.jobTitle}</p>
-                    {m.bio ? (
-                      <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-white/75">{m.bio}</p>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {m.social.github ? (
-                        <Button
-                          asChild
-                          size="sm"
-                          variant="secondary"
-                          className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-white backdrop-blur hover:bg-white/25"
-                        >
-                          <a href={m.social.github} target="_blank" rel="noopener noreferrer" aria-label="GitHub">
-                            <Github className="h-4 w-4" />
-                          </a>
-                        </Button>
-                      ) : null}
-                      {m.social.linkedin ? (
-                        <Button
-                          asChild
-                          size="sm"
-                          variant="secondary"
-                          className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-white backdrop-blur hover:bg-white/25"
-                        >
-                          <a href={m.social.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
-                            <Linkedin className="h-4 w-4" />
-                          </a>
-                        </Button>
-                      ) : null}
-                      {m.social.twitter ? (
-                        <Button
-                          asChild
-                          size="sm"
-                          variant="secondary"
-                          className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-xs font-semibold text-white backdrop-blur hover:bg-white/25"
-                        >
-                          <a href={m.social.twitter} target="_blank" rel="noopener noreferrer" aria-label="X">
-                            X
-                          </a>
-                        </Button>
-                      ) : null}
-                      {m.social.website ? (
-                        <Button
-                          asChild
-                          size="sm"
-                          variant="secondary"
-                          className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-white backdrop-blur hover:bg-white/25"
-                        >
-                          <a href={m.social.website} target="_blank" rel="noopener noreferrer" aria-label="Website">
-                            <Globe className="h-4 w-4" />
-                          </a>
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </motion.div>
-          ))}
+                />
+              );
+            })}
+          </div>
         </div>
       </div>
     </section>

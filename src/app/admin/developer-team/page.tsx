@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { Loader2, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,8 @@ type Member = {
   socialWebsite: string | null;
   sortOrder: number;
   published: boolean;
+  /** Developer-controlled; when false they stay off the public team section even if published. */
+  showOnTeamSection: boolean;
   createdAt: string;
   profileDisplayName: string | null;
   profileEmail: string | null;
@@ -37,6 +40,82 @@ type AdminUserRow = {
   role: string | null;
 };
 
+async function patchMember(userId: string, body: Record<string, unknown>) {
+  const res = await fetch(`/api/admin/developer-team/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const j = (await res.json().catch(() => ({}))) as { message?: string };
+  if (!res.ok) throw new Error(j.message ?? "Update failed");
+}
+
+type DeveloperMemberRowProps = {
+  member: Member;
+  onTogglePublished: (userId: string, next: boolean) => void;
+  onSortBlur: (userId: string, raw: string) => void;
+  onRemove: (userId: string) => void;
+};
+
+const DeveloperMemberRow = memo(function DeveloperMemberRow({
+  member: m,
+  onTogglePublished,
+  onSortBlur,
+  onRemove,
+}: DeveloperMemberRowProps) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <p className="font-medium">
+            {m.cardDisplayName?.trim() || m.profileDisplayName || "Unnamed"}{" "}
+            <span className="text-muted-foreground">· {m.profileEmail ?? m.userId}</span>
+          </p>
+          <p className="text-sm text-muted-foreground">{m.jobTitle || "—"}</p>
+          <p className="line-clamp-2 text-xs text-muted-foreground">{m.bio || "—"}</p>
+          {!m.showOnTeamSection ? (
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+              Not listed publicly — developer opted out of the team section.
+            </p>
+          ) : null}
+          <Button asChild variant="link" className="h-auto px-0 text-xs">
+            <Link href={`/admin/users/${m.userId}`}>Open in Users</Link>
+          </Button>
+        </div>
+        <div className="flex shrink-0 flex-col gap-3 sm:items-end">
+          <div className="flex items-center gap-2">
+            <Label htmlFor={`pub-${m.userId}`} className="text-xs text-muted-foreground">
+              Published
+            </Label>
+            <Switch
+              id={`pub-${m.userId}`}
+              checked={m.published}
+              onCheckedChange={(v) => onTogglePublished(m.userId, v)}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor={`so-${m.userId}`} className="text-xs text-muted-foreground">
+              Sort order
+            </Label>
+            <Input
+              id={`so-${m.userId}`}
+              key={`${m.userId}-${m.sortOrder}`}
+              type="number"
+              className="h-9 w-24"
+              defaultValue={m.sortOrder}
+              onBlur={(e) => onSortBlur(m.userId, e.target.value)}
+            />
+          </div>
+          <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => onRemove(m.userId)}>
+            <Trash2 className="mr-1 h-4 w-4" /> Remove
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
+
 export default function AdminDeveloperTeamPage() {
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<Member[]>([]);
@@ -47,17 +126,21 @@ export default function AdminDeveloperTeamPage() {
   const [suggesting, setSuggesting] = useState(false);
   const [applying, setApplying] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     try {
-      const res = await fetch("/api/admin/developer-team", { credentials: "include" });
+      const res = await fetch("/api/admin/developer-team", {
+        credentials: "include",
+        cache: "no-store",
+      });
       const j = (await res.json().catch(() => ({}))) as { members?: Member[]; message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not load");
       setMembers(j.members ?? []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Load failed");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -77,6 +160,7 @@ export default function AdminDeveloperTeamPage() {
         try {
           const res = await fetch(`/api/admin/users?q=${encodeURIComponent(q)}&limit=8`, {
             credentials: "include",
+            cache: "no-store",
           });
           const j = (await res.json().catch(() => ({}))) as { users?: AdminUserRow[]; message?: string };
           if (!res.ok) throw new Error(j.message ?? "Search failed");
@@ -106,7 +190,7 @@ export default function AdminDeveloperTeamPage() {
       toast.success("Team member added");
       setEmailQuery("");
       setSearchResults([]);
-      await load();
+      await load({ silent: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Add failed");
     } finally {
@@ -114,40 +198,58 @@ export default function AdminDeveloperTeamPage() {
     }
   }
 
-  async function patchMember(userId: string, body: Record<string, unknown>) {
-    const res = await fetch(`/api/admin/developer-team/${encodeURIComponent(userId)}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const j = (await res.json().catch(() => ({}))) as { message?: string };
-    if (!res.ok) throw new Error(j.message ?? "Update failed");
-  }
-
-  async function togglePublished(m: Member, next: boolean) {
+  const togglePublished = useCallback(async (userId: string, next: boolean) => {
+    let prevPublished = false;
+    let found = false;
+    setMembers((list) =>
+      list.map((x) => {
+        if (x.userId !== userId) return x;
+        found = true;
+        prevPublished = x.published;
+        return { ...x, published: next };
+      }),
+    );
+    if (!found) return;
     try {
-      await patchMember(m.userId, { published: next });
+      await patchMember(userId, { published: next });
       toast.success(next ? "Published" : "Unpublished");
-      await load();
+      void load({ silent: true });
     } catch (e) {
+      setMembers((list) => list.map((x) => (x.userId === userId ? { ...x, published: prevPublished } : x)));
       toast.error(e instanceof Error ? e.message : "Update failed");
     }
-  }
+  }, [load]);
 
-  async function updateSort(m: Member, raw: string) {
+  const updateSort = useCallback(async (userId: string, raw: string) => {
     const n = Number.parseInt(raw, 10);
     if (Number.isNaN(n)) return;
+    let prevOrder = 0;
+    let found = false;
+    setMembers((list) =>
+      list.map((x) => {
+        if (x.userId !== userId) return x;
+        found = true;
+        prevOrder = x.sortOrder;
+        return { ...x, sortOrder: n };
+      }),
+    );
+    if (!found) return;
     try {
-      await patchMember(m.userId, { sortOrder: n });
-      await load();
+      await patchMember(userId, { sortOrder: n });
+      void load({ silent: true });
     } catch (e) {
+      setMembers((list) => list.map((x) => (x.userId === userId ? { ...x, sortOrder: prevOrder } : x)));
       toast.error(e instanceof Error ? e.message : "Update failed");
     }
-  }
+  }, [load]);
 
-  async function removeMember(userId: string) {
+  const removeMember = useCallback(async (userId: string) => {
     if (!confirm("Remove this person from the team directory?")) return;
+    let snapshot: Member[] = [];
+    setMembers((list) => {
+      snapshot = list;
+      return list.filter((x) => x.userId !== userId);
+    });
     try {
       const res = await fetch(`/api/admin/developer-team/${encodeURIComponent(userId)}`, {
         method: "DELETE",
@@ -156,11 +258,12 @@ export default function AdminDeveloperTeamPage() {
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Delete failed");
       toast.success("Removed");
-      await load();
+      void load({ silent: true });
     } catch (e) {
+      setMembers(snapshot);
       toast.error(e instanceof Error ? e.message : "Delete failed");
     }
-  }
+  }, [load]);
 
   async function suggestOrder() {
     setSuggesting(true);
@@ -186,7 +289,7 @@ export default function AdminDeveloperTeamPage() {
       const j2 = (await r2.json().catch(() => ({}))) as { message?: string };
       if (!r2.ok) throw new Error(j2.message ?? "Could not apply order");
       toast.success("Order updated from AI suggestion");
-      await load();
+      await load({ silent: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Suggest failed");
     } finally {
@@ -224,15 +327,18 @@ export default function AdminDeveloperTeamPage() {
             />
           </div>
           {emailQuery.trim().length >= 2 ? (
-            <div className="rounded-lg border border-border/80 bg-muted/30">
-              {searching ? (
-                <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> Searching…
+            <div className="relative min-h-[2.75rem] rounded-lg border border-border/80 bg-muted/30">
+              {searching && searchResults.length > 0 ? (
+                <div
+                  className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full border border-border/60 bg-background/95 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm"
+                  aria-live="polite"
+                >
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  <span>Updating</span>
                 </div>
-              ) : searchResults.length === 0 ? (
-                <p className="p-3 text-sm text-muted-foreground">No matches.</p>
-              ) : (
-                <ul className="divide-y divide-border/60">
+              ) : null}
+              {searchResults.length > 0 ? (
+                <ul className={cn("divide-y divide-border/60", searching && "opacity-75")}>
                   {searchResults.map((u) => (
                     <li key={u.id}>
                       <button
@@ -252,6 +358,17 @@ export default function AdminDeveloperTeamPage() {
                     </li>
                   ))}
                 </ul>
+              ) : (
+                <div className="p-3 text-sm text-muted-foreground">
+                  {searching ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      Searching…
+                    </span>
+                  ) : (
+                    "No matches."
+                  )}
+                </div>
               )}
             </div>
           ) : (
@@ -282,48 +399,13 @@ export default function AdminDeveloperTeamPage() {
       ) : (
         <div className="space-y-4">
           {members.map((m) => (
-            <Card key={m.userId}>
-              <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <p className="font-medium">
-                    {m.cardDisplayName?.trim() || m.profileDisplayName || "Unnamed"}{" "}
-                    <span className="text-muted-foreground">· {m.profileEmail ?? m.userId}</span>
-                  </p>
-                  <p className="text-sm text-muted-foreground">{m.jobTitle || "—"}</p>
-                  <p className="line-clamp-2 text-xs text-muted-foreground">{m.bio || "—"}</p>
-                  <Button asChild variant="link" className="h-auto px-0 text-xs">
-                    <Link href={`/admin/users/${m.userId}`}>Open in Users</Link>
-                  </Button>
-                </div>
-                <div className="flex shrink-0 flex-col gap-3 sm:items-end">
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor={`pub-${m.userId}`} className="text-xs text-muted-foreground">
-                      Published
-                    </Label>
-                    <Switch
-                      id={`pub-${m.userId}`}
-                      checked={m.published}
-                      onCheckedChange={(v) => void togglePublished(m, v)}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor={`so-${m.userId}`} className="text-xs text-muted-foreground">
-                      Sort order
-                    </Label>
-                    <Input
-                      id={`so-${m.userId}`}
-                      type="number"
-                      className="h-9 w-24"
-                      defaultValue={m.sortOrder}
-                      onBlur={(e) => void updateSort(m, e.target.value)}
-                    />
-                  </div>
-                  <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => void removeMember(m.userId)}>
-                    <Trash2 className="mr-1 h-4 w-4" /> Remove
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <DeveloperMemberRow
+              key={m.userId}
+              member={m}
+              onTogglePublished={togglePublished}
+              onSortBlur={updateSort}
+              onRemove={removeMember}
+            />
           ))}
         </div>
       )}

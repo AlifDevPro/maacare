@@ -20,6 +20,7 @@ const patchSchema = z.object({
   socialTwitter: optionalUrl,
   socialLinkedin: optionalUrl,
   socialWebsite: optionalUrl,
+  showOnTeamSection: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -43,6 +44,7 @@ export async function GET() {
         social_website,
         sort_order,
         published,
+        show_on_team_section,
         profiles ( display_name, avatar_url, email )
       `,
       )
@@ -68,6 +70,7 @@ export async function GET() {
       social_website: string | null;
       sort_order: number;
       published: boolean;
+      show_on_team_section: boolean;
       profiles: P | P[] | null;
     };
     const p = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
@@ -85,6 +88,7 @@ export async function GET() {
         socialWebsite: row.social_website,
         sortOrder: row.sort_order,
         published: row.published,
+        showOnTeamSection: row.show_on_team_section,
         profileDisplayName: p?.display_name ?? session.name,
         profileAvatarUrl: p?.avatar_url ?? session.avatarUrl ?? null,
         profileEmail: p?.email ?? session.email,
@@ -133,6 +137,7 @@ export async function PATCH(req: Request) {
     if (u.socialTwitter !== undefined) patch.social_twitter = u.socialTwitter;
     if (u.socialLinkedin !== undefined) patch.social_linkedin = u.socialLinkedin;
     if (u.socialWebsite !== undefined) patch.social_website = u.socialWebsite;
+    if (u.showOnTeamSection !== undefined) patch.show_on_team_section = u.showOnTeamSection;
 
     if (Object.keys(patch).length === 0) {
       return failJson(400, "No fields to update.");

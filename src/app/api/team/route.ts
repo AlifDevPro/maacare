@@ -1,7 +1,9 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 import { serverErrorJson } from "@/lib/api/error-response";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { tryCreateSupabaseServiceClient } from "@/lib/supabase/service";
 
 export type TeamMemberPublic = {
   userId: string;
@@ -18,13 +20,11 @@ export type TeamMemberPublic = {
   sortOrder: number;
 };
 
-export async function GET() {
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase
-      .from("developer_team_profiles")
-      .select(
-        `
+async function fetchPublishedTeamRows(supabase: SupabaseClient) {
+  return supabase
+    .from("developer_team_profiles")
+    .select(
+      `
         user_id,
         card_display_name,
         job_title,
@@ -37,9 +37,17 @@ export async function GET() {
         sort_order,
         profiles ( display_name, avatar_url )
       `,
-      )
-      .eq("published", true)
-      .order("sort_order", { ascending: true });
+    )
+    .eq("published", true)
+    .eq("show_on_team_section", true)
+    .order("sort_order", { ascending: true });
+}
+
+export async function GET() {
+  try {
+    const svc = tryCreateSupabaseServiceClient();
+    const supabase = svc ?? (await createSupabaseServerClient());
+    const { data, error } = await fetchPublishedTeamRows(supabase);
 
     if (error) {
       console.error("[api/team]", error);
@@ -85,7 +93,7 @@ export async function GET() {
       { members },
       {
         headers: {
-          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
         },
       },
     );

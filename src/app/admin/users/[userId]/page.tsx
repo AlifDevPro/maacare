@@ -23,6 +23,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { invalidateByPrefix } from "@/lib/client/request-cache";
 
+import { AdminUserDetailSkeleton } from "./admin-user-detail-skeleton";
+
 type Role = "user" | "moderator" | "admin";
 
 type AdminUserDetail = {
@@ -66,7 +68,8 @@ export default function AdminUserDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<AdminUserDetail | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [language, setLanguage] = useState("en");
   const [profession, setProfession] = useState<string>("");
@@ -76,14 +79,18 @@ export default function AdminUserDetailPage() {
   const [role, setRole] = useState<Role>("user");
   const [banReason, setBanReason] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     if (!rawId) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
-      const res = await fetch(`/api/admin/users/${rawId}`, { credentials: "include" });
+      const res = await fetch(`/api/admin/users/${rawId}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
       const j = (await res.json().catch(() => ({}))) as AdminUserDetail & { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not load user");
       setData(j);
@@ -101,7 +108,7 @@ export default function AdminUserDetailPage() {
       toast.error(e instanceof Error ? e.message : "Could not load user");
       setData(null);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [rawId]);
 
@@ -111,7 +118,7 @@ export default function AdminUserDetailPage() {
 
   async function saveProfile() {
     if (!rawId) return;
-    setSaving(true);
+    setSavingProfile(true);
     try {
       const res = await fetch(`/api/admin/users/${rawId}`, {
         method: "PATCH",
@@ -131,17 +138,17 @@ export default function AdminUserDetailPage() {
       if (!res.ok) throw new Error(j.message ?? "Save failed");
       toast.success("Saved");
       invalidateByPrefix("admin:users?");
-      await load();
+      await load({ silent: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
-      setSaving(false);
+      setSavingProfile(false);
     }
   }
 
   async function confirmEmail() {
     if (!rawId) return;
-    setSaving(true);
+    setAuthBusy(true);
     try {
       const res = await fetch(`/api/admin/users/${rawId}/confirm-email`, {
         method: "POST",
@@ -150,17 +157,17 @@ export default function AdminUserDetailPage() {
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not confirm email");
       toast.success("Email marked confirmed");
-      await load();
+      await load({ silent: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not confirm email");
     } finally {
-      setSaving(false);
+      setAuthBusy(false);
     }
   }
 
   async function setBanned(banned: boolean) {
     if (!rawId) return;
-    setSaving(true);
+    setAuthBusy(true);
     try {
       const res = await fetch(`/api/admin/users/${rawId}/ban`, {
         method: "POST",
@@ -172,20 +179,16 @@ export default function AdminUserDetailPage() {
       if (!res.ok) throw new Error(j.message ?? "Could not update ban");
       toast.success(banned ? "User banned" : "Ban lifted");
       invalidateByPrefix("admin:users?");
-      await load();
+      await load({ silent: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not update ban");
     } finally {
-      setSaving(false);
+      setAuthBusy(false);
     }
   }
 
   if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <AdminUserDetailSkeleton />;
   }
 
   if (!data?.profile) {
@@ -246,17 +249,17 @@ export default function AdminUserDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2 pt-2">
-          <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => void confirmEmail()}>
+          <Button type="button" variant="outline" size="sm" disabled={authBusy} onClick={() => void confirmEmail()}>
             <MailCheck className="mr-2 h-4 w-4" />
             Approve email (confirm)
           </Button>
           {!banned ? (
-            <Button type="button" variant="destructive" size="sm" disabled={saving} onClick={() => void setBanned(true)}>
+            <Button type="button" variant="destructive" size="sm" disabled={authBusy} onClick={() => void setBanned(true)}>
               <ShieldBan className="mr-2 h-4 w-4" />
               Ban user
             </Button>
           ) : (
-            <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => void setBanned(false)}>
+            <Button type="button" variant="outline" size="sm" disabled={authBusy} onClick={() => void setBanned(false)}>
               Lift ban
             </Button>
           )}
@@ -330,8 +333,8 @@ export default function AdminUserDetailPage() {
           <Label htmlFor="an">Internal admin note</Label>
           <Textarea id="an" rows={3} value={adminNote} onChange={(e) => setAdminNote(e.target.value)} className="rounded-xl" />
         </div>
-        <Button type="button" disabled={saving} onClick={() => void saveProfile()}>
-          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        <Button type="button" disabled={savingProfile} onClick={() => void saveProfile()}>
+          {savingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Save changes
         </Button>
       </Card>

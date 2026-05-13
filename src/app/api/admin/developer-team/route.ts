@@ -38,6 +38,7 @@ export async function GET() {
         social_website,
         sort_order,
         published,
+        show_on_team_section,
         created_at,
         profiles ( display_name, email, avatar_url )
       `,
@@ -62,6 +63,7 @@ export async function GET() {
       social_website: string | null;
       sort_order: number;
       published: boolean;
+      show_on_team_section: boolean;
       created_at: string;
       profiles: P | P[] | null;
     };
@@ -81,6 +83,7 @@ export async function GET() {
         socialWebsite: r.social_website,
         sortOrder: r.sort_order,
         published: r.published,
+        showOnTeamSection: r.show_on_team_section,
         createdAt: r.created_at,
         profileDisplayName: p?.display_name ?? null,
         profileEmail: p?.email ?? null,
