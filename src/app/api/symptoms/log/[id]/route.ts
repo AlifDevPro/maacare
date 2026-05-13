@@ -9,6 +9,22 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
 
+const DESC_TRUNC_RAG = 500;
+const DESC_TRUNC_HEURISTIC = 200;
+
+type SymptomLogInsightInput = {
+  symptomCodes: string[];
+  severity: number | null;
+  title: string | null;
+  description: string | null;
+};
+
+function truncateForDisplay(s: string | null, max: number): string | null {
+  const t = s?.trim() ?? "";
+  if (!t) return null;
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
 function riskLevelFromSeverity(severity: number | null): "low" | "medium" | "high" {
   if (!severity) return "low";
   if (severity >= 7) return "high";
@@ -16,11 +32,7 @@ function riskLevelFromSeverity(severity: number | null): "low" | "medium" | "hig
   return "low";
 }
 
-function buildInsight(input: {
-  symptomCodes: string[];
-  severity: number | null;
-  title: string | null;
-}): string {
+function buildInsight(input: SymptomLogInsightInput): string {
   const level = riskLevelFromSeverity(input.severity);
   const symptomPart =
     input.symptomCodes.length > 0
@@ -36,19 +48,19 @@ function buildInsight(input: {
       : level === "medium"
         ? "Monitor symptoms closely and contact your provider if this continues over the next 24 hours."
         : "Continue hydration, rest, and observation; re-log if symptoms increase.";
-  return `${symptomPart} ${sevPart} ${advice}`;
+  const desc = truncateForDisplay(input.description, DESC_TRUNC_HEURISTIC);
+  const notePart = desc ? ` You also noted: ${desc}` : "";
+  return `${symptomPart} ${sevPart} ${advice}${notePart}`;
 }
 
-async function fetchRiskRulesContext(input: {
-  symptomCodes: string[];
-  severity: number | null;
-  title: string | null;
-}): Promise<string | null> {
+async function fetchRiskRulesContext(input: SymptomLogInsightInput): Promise<string | null> {
+  const descQ = truncateForDisplay(input.description, DESC_TRUNC_RAG);
   const query = [
     "Pregnancy symptom risk rules and triage guidance.",
     input.title ? `Title: ${input.title}.` : "",
     input.symptomCodes.length > 0 ? `Symptoms: ${input.symptomCodes.join(", ")}.` : "",
     input.severity != null ? `Severity: ${input.severity}/10.` : "",
+    descQ ? `User additional notes: ${descQ}.` : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -63,37 +75,41 @@ async function fetchRiskRulesContext(input: {
     .join("\n\n---\n\n");
 }
 
-function buildUserMessageForRag(input: {
-  symptomCodes: string[];
-  severity: number | null;
-  title: string | null;
-}): string {
-  return [
+function buildUserMessageForRag(input: SymptomLogInsightInput): string {
+  const desc = truncateForDisplay(input.description, DESC_TRUNC_RAG);
+  const parts: string[] = [
     `Symptoms: ${input.symptomCodes.join(", ") || "not specified"}`,
     `Title: ${input.title ?? "n/a"}`,
     `Severity: ${input.severity != null ? `${input.severity}/10` : "n/a"}`,
+  ];
+  if (desc) parts.push(`Additional notes from user: ${desc}`);
+  parts.push(
     "",
+    "If additional notes describe symptoms or concerns, incorporate them together with the listed symptoms.",
     "Provide supportive assessment and next-step guidance.",
-  ].join("\n");
+  );
+  return parts.join("\n");
 }
 
 async function buildRagRiskInsightFromContext(
   context: string,
-  input: {
-    symptomCodes: string[];
-    severity: number | null;
-    title: string | null;
-  },
+  input: SymptomLogInsightInput,
 ): Promise<string | null> {
+  const hasFreeText = Boolean(input.description?.trim());
   const systemInstruction = [
     "You are a conservative maternal symptom triage assistant.",
     "Use only the provided RISK-RULES context.",
     "Give plain-language guidance in 3-5 sentences.",
     "Do not diagnose. If severe/red-flag risk appears, clearly advise urgent care.",
+    hasFreeText
+      ? "When the user message includes Additional notes, reflect those details together with the listed symptoms. For concerns not clearly covered by the context, advise the user to discuss them with their clinician without inventing specifics."
+      : "",
     "",
     "RISK-RULES CONTEXT:",
     context,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const reply = await generateChatReply({
     systemInstruction,
@@ -111,22 +127,24 @@ function extractJsonArray(text: string): string | null {
 
 async function buildRagSuggestionsFromContext(
   context: string,
-  input: {
-    symptomCodes: string[];
-    severity: number | null;
-    title: string | null;
-  },
+  input: SymptomLogInsightInput,
 ): Promise<string[]> {
+  const hasFreeText = Boolean(input.description?.trim());
   const systemInstruction = [
     "You are a conservative maternal symptom triage assistant.",
     "Use only the provided RISK-RULES context.",
     "Return ONLY a JSON array of 3 to 5 strings: short, practical next-step suggestions tailored to this log.",
     "No diagnoses. Prefer hydration, rest, monitoring, and when to escalate to a clinician.",
+    hasFreeText
+      ? "If the user message includes Additional notes, include at least one suggestion that addresses those notes when relevant."
+      : "",
     "Example: [\"Drink water and rest 20 minutes\",\"Track contractions for 1 hour\",\"Call your provider if pain worsens\"]",
     "",
     "RISK-RULES CONTEXT:",
     context,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const reply = await generateChatReply({
     systemInstruction,
@@ -175,14 +193,21 @@ export async function GET(
     const severity = (data.severity as number | null) ?? null;
     const level = riskLevelFromSeverity(severity);
     const title = (data.title as string | null) ?? null;
-    let insight = buildInsight({ symptomCodes, severity, title });
+    const description = (data.description as string | null) ?? null;
+    const insightInput: SymptomLogInsightInput = {
+      symptomCodes,
+      severity,
+      title,
+      description,
+    };
+    let insight = buildInsight(insightInput);
     let suggestions: string[] = [];
     try {
-      const ctx = await fetchRiskRulesContext({ symptomCodes, severity, title });
+      const ctx = await fetchRiskRulesContext(insightInput);
       if (ctx) {
         const [ragInsight, ragSuggestions] = await Promise.all([
-          buildRagRiskInsightFromContext(ctx, { symptomCodes, severity, title }),
-          buildRagSuggestionsFromContext(ctx, { symptomCodes, severity, title }),
+          buildRagRiskInsightFromContext(ctx, insightInput),
+          buildRagSuggestionsFromContext(ctx, insightInput),
         ]);
         if (ragInsight) insight = ragInsight;
         suggestions = ragSuggestions;
