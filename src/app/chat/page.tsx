@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { VoiceCallPanel } from "@/app/chat/voice-call-panel";
 import { speakNatural, stopSpeaking } from "@/lib/voice/speech";
 import { useVoiceCall } from "@/lib/voice/useVoiceCall";
@@ -42,6 +43,7 @@ const SEED: Msg[] = [
 ];
 
 export default function ChatPage() {
+  const { t } = useTranslation("health");
   return (
     <Suspense fallback={<ChatPageLoading />}>
       <ChatPageContent />
@@ -627,9 +629,10 @@ function ChatPageContent() {
 }
 
 function ChatPageLoading() {
+  const { t } = useTranslation("health");
   return (
     <AppShell>
-      <AppHeader title="AI Assistant" showBack />
+      <AppHeader title={t("chat_ai_title")} showBack />
       <div className="flex justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>

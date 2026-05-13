@@ -1,0 +1,18 @@
+{
+  "dashboard_title": "অ্যাডমিন ড্যাশবোর্ড",
+  "dashboard_heading": "ড্যাশবোর্ড",
+  "dashboard_subtitle": "সম্প্রদায় ও কন্টেন্টের সংক্ষিপ্ত চিত্র।",
+  "loading": "ড্যাশবোর্ড লোড হচ্ছে…",
+  "toast_error": "ড্যাশবোর্ড লোড করা যায়নি",
+  "kpi_total_users": "মোট ব্যবহারকারী",
+  "kpi_active_week": "এই সপ্তাহে সক্রিয়",
+  "kpi_community_posts": "সম্প্রদায়ের পোস্ট",
+  "kpi_rag_docs": "RAG নথি",
+  "kpi_all_time": "সর্বকালীন",
+  "chart_signups": "নিবন্ধন · শেষ ৭ দিন",
+  "chart_symptom_volume": "লক্ষণ লগের পরিমাণ",
+  "badge_vs_prev": "আগের সপ্তাহের তুলনায় {{pct}}",
+  "activity_title": "সাম্প্রতিক কার্যকলাপ",
+  "activity_loading": "কার্যকলাপ লোড হচ্ছে…",
+  "activity_empty": "এখনো কোনো কার্যকলাপ নেই।"
+}

@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 type Finding = {
   name: string;
@@ -67,6 +68,7 @@ type AnalysisResult = {
 };
 
 export default function ReportsPage() {
+  const { t } = useTranslation("health");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [stage, setStage] = useState<"input" | "loading" | "result">("input");
   const [inputMode, setInputMode] = useState<"file" | "text">("file");
@@ -248,7 +250,7 @@ export default function ReportsPage() {
 
   return (
     <AppShell>
-      <AppHeader title="Understand your report" showBack />
+      <AppHeader title={t("reports_understand_title")} showBack />
       <div className="space-y-5 px-4 pt-4">
         <AnimatePresence mode="wait">
           {stage === "input" ? (

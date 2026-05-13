@@ -9,8 +9,10 @@ import { AiSignupChat } from "@/components/signup/ai-signup-chat";
 import { SignupModeToggle, type SignupMode } from "@/components/signup/signup-mode-toggle";
 
 import { ManualSignupWizard } from "./manual-signup-wizard";
+import { useTranslation } from "react-i18next";
 
 export function SignupPageClient() {
+  const { t } = useTranslation("auth");
   const searchParams = useSearchParams();
   const [mode, setMode] = useState<SignupMode>("manual");
 
@@ -25,17 +27,15 @@ export function SignupPageClient() {
 
   return (
     <AuthShell
-      title="Create your account"
+      title={t("signup_title")}
       subtitle={
-        isAi
-          ? "Answer a few questions in chat, then finish with your email and password on the secure step."
-          : "Add your details in a few steps. Optional sections can be skipped and completed anytime in Profile."
+        isAi ? t("signup_subtitle_ai") : t("signup_subtitle_manual")
       }
       footer={
         <>
-          Already have an account?{" "}
+          {t("signup_footer_have")}{" "}
           <Link href="/login" className="font-medium text-primary">
-            Log in
+            {t("signup_footer_login")}
           </Link>
         </>
       }

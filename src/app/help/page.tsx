@@ -19,6 +19,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { useSession } from "@/lib/auth-client";
+import { useTranslation } from "react-i18next";
 
 const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim();
 
@@ -126,11 +127,12 @@ function SupportTicketCard() {
 }
 
 export default function HelpPage() {
+  const { t } = useTranslation("health");
   const mailHref = SUPPORT_EMAIL ? `mailto:${SUPPORT_EMAIL}` : null;
 
   return (
     <AppShell>
-      <AppHeader title="Help & support" showBack backHref="/app" />
+      <AppHeader title={t("help_header")} showBack backHref="/app" />
       <div className="space-y-4 px-4 pt-4 pb-8">
         <Card className="rounded-2xl border-amber-300/40 bg-amber-50/90 shadow-none dark:border-amber-500/35 dark:bg-amber-500/10">
           <CardContent className="flex gap-3 pt-4 text-sm text-amber-950 dark:text-amber-100">

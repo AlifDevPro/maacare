@@ -14,6 +14,7 @@ import {
   Weight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -54,6 +55,7 @@ function tinySparkline(values: number[]) {
 }
 
 export function VitalsPageClient({ initialItems }: { initialItems: VitalListItem[] }) {
+  const { t } = useTranslation("health");
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [saving, setSaving] = useState(false);
@@ -125,8 +127,8 @@ export function VitalsPageClient({ initialItems }: { initialItems: VitalListItem
         }),
       });
       const j = (await res.json().catch(() => ({}))) as { vital?: VitalListItem; message?: string };
-      if (!res.ok || !j.vital) throw new Error(j.message ?? "Could not save vitals");
-      toast.success("Vitals logged");
+      if (!res.ok || !j.vital) throw new Error(j.message ?? t("vitals_toast_error"));
+      toast.success(t("vitals_toast_saved"));
       setItems((prev) => [j.vital!, ...prev]);
       startTransition(() => router.refresh());
       setSystolicBp("");
@@ -138,7 +140,7 @@ export function VitalsPageClient({ initialItems }: { initialItems: VitalListItem
       setSpo2Pct("");
       setNotes("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save vitals");
+      toast.error(e instanceof Error ? e.message : t("vitals_toast_error"));
     } finally {
       setSaving(false);
     }
@@ -146,25 +148,25 @@ export function VitalsPageClient({ initialItems }: { initialItems: VitalListItem
 
   return (
     <AppShell>
-      <AppHeader title="Vitals dashboard" showBack showNotifications />
+      <AppHeader title={t("vitals_title")} showBack showNotifications />
       <div className="space-y-4 px-4 pt-4">
         <Card className="p-5 shadow-soft">
           <div className="mb-3 flex items-center justify-between">
-            <h1 className="font-display text-base font-semibold">Today at a glance</h1>
+            <h1 className="font-display text-base font-semibold">{t("vitals_today_glance")}</h1>
             <span className="text-xs text-muted-foreground">
-              {latest ? format(new Date(latest.recordedAt), "MMM d, hh:mm a") : "No records"}
+              {latest ? format(new Date(latest.recordedAt), "MMM d, hh:mm a") : t("vitals_no_records")}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <VitalTile
               icon={HeartPulse}
-              label="Heart rate"
+              label={t("vitals_label_hr")}
               value={latest?.heartRateBpm != null ? `${latest.heartRateBpm} bpm` : "—"}
               spark={tinySparkline(hrSeries)}
             />
             <VitalTile
               icon={Activity}
-              label="Blood pressure"
+              label={t("vitals_label_bp")}
               value={
                 latest?.systolicBp != null && latest?.diastolicBp != null
                   ? `${latest.systolicBp}/${latest.diastolicBp}`
@@ -174,74 +176,79 @@ export function VitalsPageClient({ initialItems }: { initialItems: VitalListItem
             />
             <VitalTile
               icon={Thermometer}
-              label="Temperature"
+              label={t("vitals_label_temp")}
               value={latest?.temperatureC != null ? `${latest.temperatureC} °C` : "—"}
               spark={tinySparkline(tempSeries)}
             />
             <VitalTile
               icon={Droplets}
-              label="SpO₂"
+              label={t("vitals_label_spo2")}
               value={latest?.spo2Pct != null ? `${latest.spo2Pct}%` : "—"}
             />
           </div>
         </Card>
 
         <Card className="p-5 shadow-soft">
-          <h2 className="mb-3 font-display text-base font-semibold">Log new vitals</h2>
+          <h2 className="mb-3 font-display text-base font-semibold">{t("vitals_log_new")}</h2>
           <form className="grid gap-2.5" onSubmit={(e) => void save(e)}>
             <div className="grid grid-cols-2 gap-2.5">
               <div>
-                <Label>Systolic BP</Label>
+                <Label>{t("vitals_systolic")}</Label>
                 <Input value={systolicBp} onChange={(e) => setSystolicBp(e.target.value)} type="number" placeholder="120" />
               </div>
               <div>
-                <Label>Diastolic BP</Label>
+                <Label>{t("vitals_diastolic")}</Label>
                 <Input value={diastolicBp} onChange={(e) => setDiastolicBp(e.target.value)} type="number" placeholder="80" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2.5">
               <div>
-                <Label>Heart rate (bpm)</Label>
+                <Label>{t("vitals_hr_bpm")}</Label>
                 <Input value={heartRateBpm} onChange={(e) => setHeartRateBpm(e.target.value)} type="number" placeholder="78" />
               </div>
               <div>
-                <Label>Weight (kg)</Label>
+                <Label>{t("vitals_weight_kg")}</Label>
                 <Input value={weightKg} onChange={(e) => setWeightKg(e.target.value)} type="number" placeholder="62.4" />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2.5">
               <div>
-                <Label>Temp (°C)</Label>
+                <Label>{t("vitals_temp")}</Label>
                 <Input value={temperatureC} onChange={(e) => setTemperatureC(e.target.value)} type="number" placeholder="36.8" />
               </div>
               <div>
-                <Label>SpO₂ (%)</Label>
+                <Label>{t("vitals_spo2")}</Label>
                 <Input value={spo2Pct} onChange={(e) => setSpo2Pct(e.target.value)} type="number" placeholder="98" />
               </div>
               <div>
-                <Label>Glucose</Label>
+                <Label>{t("vitals_glucose")}</Label>
                 <Input value={glucoseMgDl} onChange={(e) => setGlucoseMgDl(e.target.value)} type="number" placeholder="95" />
               </div>
             </div>
             <div>
-              <Label>Notes</Label>
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[70px]" placeholder="Optional note" />
+              <Label>{t("vitals_notes")}</Label>
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="min-h-[70px]"
+                placeholder={t("vitals_notes_placeholder")}
+              />
             </div>
             <Button type="submit" disabled={saving || !canSave}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Save vitals
+              {saving ? t("vitals_saving") : t("vitals_save")}
             </Button>
           </form>
         </Card>
 
         <Card className="p-5 shadow-soft">
-          <h2 className="mb-2 font-display text-base font-semibold">Recent entries</h2>
+          <h2 className="mb-2 font-display text-base font-semibold">{t("vitals_recent")}</h2>
           {isPending ? (
             <div className="flex items-center justify-center py-6 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
           ) : items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No vitals logged yet.</p>
+            <p className="text-sm text-muted-foreground">{t("vitals_empty")}</p>
           ) : (
             <div className="space-y-2">
               {items.slice(0, 8).map((v) => (
@@ -250,12 +257,32 @@ export function VitalsPageClient({ initialItems }: { initialItems: VitalListItem
                     <span>{format(new Date(v.recordedAt), "MMM d, yyyy · hh:mm a")}</span>
                   </div>
                   <div className="flex flex-wrap gap-2 text-foreground/90">
-                    <Tag icon={Activity} text={v.systolicBp != null && v.diastolicBp != null ? `${v.systolicBp}/${v.diastolicBp}` : "BP —"} />
-                    <Tag icon={HeartPulse} text={v.heartRateBpm != null ? `${v.heartRateBpm} bpm` : "HR —"} />
-                    <Tag icon={Thermometer} text={v.temperatureC != null ? `${v.temperatureC}°C` : "Temp —"} />
-                    <Tag icon={Droplets} text={v.spo2Pct != null ? `${v.spo2Pct}%` : "SpO₂ —"} />
-                    <Tag icon={Weight} text={v.weightKg != null ? `${v.weightKg} kg` : "Wt —"} />
-                    <Tag icon={Gauge} text={v.glucoseMgDl != null ? `${v.glucoseMgDl} mg/dL` : "Glucose —"} />
+                    <Tag
+                      icon={Activity}
+                      text={t("vitals_readout_bp", {
+                        v: v.systolicBp != null && v.diastolicBp != null ? `${v.systolicBp}/${v.diastolicBp}` : "—",
+                      })}
+                    />
+                    <Tag
+                      icon={HeartPulse}
+                      text={t("vitals_readout_hr", { v: v.heartRateBpm != null ? `${v.heartRateBpm} bpm` : "—" })}
+                    />
+                    <Tag
+                      icon={Thermometer}
+                      text={t("vitals_readout_temp", { v: v.temperatureC != null ? `${v.temperatureC}` : "—" })}
+                    />
+                    <Tag
+                      icon={Droplets}
+                      text={t("vitals_readout_spo2", { v: v.spo2Pct != null ? `${v.spo2Pct}%` : "—" })}
+                    />
+                    <Tag
+                      icon={Weight}
+                      text={t("vitals_readout_wt", { v: v.weightKg != null ? `${v.weightKg}` : "—" })}
+                    />
+                    <Tag
+                      icon={Gauge}
+                      text={t("vitals_readout_glucose", { v: v.glucoseMgDl != null ? `${v.glucoseMgDl}` : "—" })}
+                    />
                   </div>
                 </div>
               ))}

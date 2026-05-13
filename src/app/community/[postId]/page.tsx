@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Stethoscope, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -96,6 +97,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function PostDetailPage() {
+  const { t } = useTranslation("health");
   const params = useParams();
   const router = useRouter();
   const { user } = useSession();
@@ -380,7 +382,7 @@ export default function PostDetailPage() {
   if (!validId) {
     return (
       <AppShell>
-        <AppHeader title="Post" showBack showNotifications />
+        <AppHeader title={t("community_post_title")} showBack showNotifications />
         <div className="px-4 pt-8 text-center text-sm text-muted-foreground">
           Invalid link.{" "}
           <Link href="/community" className="font-medium text-primary">
@@ -394,7 +396,7 @@ export default function PostDetailPage() {
   if (loading) {
     return (
       <AppShell>
-        <AppHeader title="Post" showBack showNotifications />
+        <AppHeader title={t("community_post_title")} showBack showNotifications />
         <PostDetailSkeleton />
       </AppShell>
     );
@@ -403,7 +405,7 @@ export default function PostDetailPage() {
   if (!post) {
     return (
       <AppShell>
-        <AppHeader title="Post" showBack showNotifications />
+        <AppHeader title={t("community_post_title")} showBack showNotifications />
         <div className="px-4 pt-8 text-center text-sm text-muted-foreground">
           This post may have been removed.{" "}
           <Link href="/community" className="font-medium text-primary">
@@ -441,7 +443,7 @@ export default function PostDetailPage() {
 
   return (
     <AppShell>
-      <AppHeader title="Post" showBack showNotifications />
+      <AppHeader title={t("community_post_title")} showBack showNotifications />
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-h-[90vh] gap-4 overflow-y-auto sm:max-w-md">

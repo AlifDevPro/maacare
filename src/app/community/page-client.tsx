@@ -64,6 +64,7 @@ import { isRichPostBodyEmpty } from "@/lib/community/rich-post-empty";
 import { cn } from "@/lib/utils";
 import { COMMUNITY_ACTION, COMMUNITY_ACTION_ICON } from "@/lib/community/action-row-styles";
 import { useCommunityFeedRealtime } from "@/hooks/use-community-feed-realtime";
+import { useTranslation } from "react-i18next";
 
 const FEED_SCROLL_KEY = "maacare:community-feed-scroll-y";
 const FEED_PAGE_SIZE = 15;
@@ -129,6 +130,7 @@ export default function CommunityPageClient({
   initialHasMore: boolean;
   initialNextCursor: string | null;
 }) {
+  const { t } = useTranslation("community");
   const router = useRouter();
   const { user } = useSession();
   const [search, setSearch] = useState("");
@@ -249,7 +251,7 @@ export default function CommunityPageClient({
         });
 
         if (res.status === 401) {
-          toast.error("Please sign in to view community.");
+          toast.error(t("toast_sign_in"));
           setPosts([]);
           setHasMore(false);
           setNextCursor(null);
@@ -258,7 +260,7 @@ export default function CommunityPageClient({
 
         if (!res.ok) {
           const j = (await res.json().catch(() => ({}))) as { message?: string };
-          throw new Error(j.message ?? "Could not load posts");
+          throw new Error(j.message ?? t("toast_load_posts"));
         }
 
         const data = (await res.json()) as {
@@ -281,7 +283,7 @@ export default function CommunityPageClient({
         setNextCursor(hm && typeof data.nextCursor === "string" ? data.nextCursor : null);
         setFeedRemoteHint(false);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Could not load posts");
+        toast.error(e instanceof Error ? e.message : t("toast_load_posts"));
         if (!append) {
           setPosts([]);
           setHasMore(false);
@@ -294,7 +296,7 @@ export default function CommunityPageClient({
         if (showLoader && !append) setLoading(false);
       }
     },
-    [debouncedSearch, feedSort],
+    [debouncedSearch, feedSort, t],
   );
 
   useEffect(() => {
@@ -385,7 +387,7 @@ export default function CommunityPageClient({
           p.id === postId ? { ...p, likedByMe: target.likedByMe, likeCount: target.likeCount } : p,
         ),
       );
-      toast.error(err instanceof Error ? err.message : "Could not update like");
+      toast.error(err instanceof Error ? err.message : t("toast_like"));
     } finally {
       setPendingLikeIds((prev) => {
         const next = new Set(prev);
@@ -397,7 +399,7 @@ export default function CommunityPageClient({
 
   async function saveEdit() {
     if (!editPost || (editRich ? isRichPostBodyEmpty(editBody) : !editBody.trim())) {
-      toast.error("Message cannot be empty.");
+      toast.error(t("toast_empty_message"));
       return;
     }
     setSavingEdit(true);
@@ -418,7 +420,7 @@ export default function CommunityPageClient({
       setEditPost(null);
       await loadPosts({ showLoader: false });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not update post");
+      toast.error(e instanceof Error ? e.message : t("toast_update_post"));
     } finally {
       setSavingEdit(false);
     }
@@ -437,7 +439,7 @@ export default function CommunityPageClient({
       setDeletePost(null);
       await loadPosts({ showLoader: false });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not delete post");
+      toast.error(e instanceof Error ? e.message : t("toast_delete_post"));
     } finally {
       setDeleting(false);
     }
@@ -468,7 +470,7 @@ export default function CommunityPageClient({
       setReportReason("spam");
       setReportDetails("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not submit report");
+      toast.error(e instanceof Error ? e.message : t("toast_report"));
     } finally {
       setReporting(false);
     }
@@ -484,7 +486,7 @@ export default function CommunityPageClient({
 
   return (
     <AppShell>
-      <AppHeader title="Community" showNotifications />
+      <AppHeader title={t("title")} showNotifications />
 
       <Dialog open={!!editPost} onOpenChange={(o) => !o && setEditPost(null)}>
         <DialogContent className="max-h-[90vh] gap-4 overflow-y-auto sm:max-w-md">

@@ -12,6 +12,7 @@ import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { z } from "zod";
+import { useTranslation } from "react-i18next";
 
 const search = z.object({
   level: z.enum(["low", "medium", "high"]).default("low"),
@@ -47,15 +48,17 @@ const COPY = {
 } as const;
 
 function SymptomsResultFallback() {
+  const { t } = useTranslation("health");
   return (
     <AppShell>
-      <AppHeader title="Your risk level" showBack />
-      <div className="flex justify-center px-4 pt-12 text-sm text-muted-foreground">Loading…</div>
+      <AppHeader title={t("symptoms_result_title")} showBack />
+      <div className="flex justify-center px-4 pt-12 text-sm text-muted-foreground">{t("symptoms_result_loading")}</div>
     </AppShell>
   );
 }
 
 function SymptomsResultInner() {
+  const { t } = useTranslation("health");
   const searchParams = useSearchParams();
   const [logInsight, setLogInsight] = useState<string | null>(null);
   const [logSuggestions, setLogSuggestions] = useState<string[]>([]);
@@ -123,7 +126,7 @@ function SymptomsResultInner() {
 
   return (
     <AppShell>
-      <AppHeader title="Your risk level" showBack />
+      <AppHeader title={t("symptoms_result_title")} showBack />
 
       <div className="space-y-5 px-4 pt-4">
         <motion.div

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 
 import { formatDistanceToNow } from "date-fns";
 import { MessageCircle } from "lucide-react";
@@ -25,6 +26,7 @@ type Row = {
 };
 
 export default function MessagesInboxPage() {
+  const { t } = useTranslation("messages");
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,15 +35,15 @@ export default function MessagesInboxPage() {
     try {
       const res = await fetch("/api/dm/conversations", { credentials: "include" });
       const j = (await res.json().catch(() => ({}))) as { conversations?: Row[]; message?: string };
-      if (!res.ok) throw new Error(j.message ?? "Could not load messages");
+      if (!res.ok) throw new Error(j.message ?? t("toast_load_error"));
       setRows(j.conversations ?? []);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not load messages");
+      toast.error(e instanceof Error ? e.message : t("toast_load_error"));
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -49,18 +51,17 @@ export default function MessagesInboxPage() {
 
   return (
     <AppShell>
-      <AppHeader title="Messages" showBack backHref="/app" showNotifications />
+      <AppHeader title={t("inbox_title")} showBack backHref="/app" showNotifications />
 
       <div className="pb-28">
         {loading ? (
           <MessagesInboxSkeleton />
         ) : rows.length === 0 ? (
           <div className="px-4 pt-4">
-          <Card className="p-6 text-center text-sm text-muted-foreground">
-            <MessageCircle className="mx-auto mb-2 h-8 w-8 opacity-50" />
-            No conversations yet. Open a member profile in Community and tap{" "}
-            <span className="font-medium text-foreground">Message</span>.
-          </Card>
+            <Card className="p-6 text-center text-sm text-muted-foreground">
+              <MessageCircle className="mx-auto mb-2 h-8 w-8 opacity-50" />
+              <p>{t("empty_inbox")}</p>
+            </Card>
           </div>
         ) : (
           <ul className="space-y-2 px-4 pt-4">
@@ -83,9 +84,14 @@ export default function MessagesInboxPage() {
                           </span>
                         ) : null}
                       </div>
-                      <p className="line-clamp-2 text-xs text-muted-foreground">{r.lastMessagePreview || "Say hello"}</p>
+                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                        {r.lastMessagePreview || t("say_hello")}
+                      </p>
                       {r.hasUnread ? (
-                        <span className="mt-1 inline-block h-2 w-2 rounded-full bg-primary" aria-label="Unread" />
+                        <span
+                          className="mt-1 inline-block h-2 w-2 rounded-full bg-primary"
+                          aria-label={t("unread_aria")}
+                        />
                       ) : null}
                     </div>
                   </Card>

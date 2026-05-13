@@ -12,8 +12,10 @@ import { Label } from "@/components/ui/label";
 import { safeInternalPath } from "@/lib/auth/safe-internal-path";
 import { loginWithPassword, sendLoginEmailOtp } from "@/lib/auth-client";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 function LoginFormInner() {
+  const { t } = useTranslation("auth");
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
@@ -24,15 +26,15 @@ function LoginFormInner() {
   useEffect(() => {
     const err = searchParams.get("error");
     if (err === "auth_callback") {
-      toast.error("That sign-in link is invalid or expired. Try logging in again.");
+      toast.error(t("toast_auth_link_invalid"));
     } else if (err === "missing_code") {
-      toast.error("Missing confirmation code. Open the full link from your email.");
+      toast.error(t("toast_missing_code"));
     }
   }, [searchParams]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) return toast.error("Enter your email and password");
+    if (!email || !password) return toast.error(t("toast_enter_both"));
     setLoading(true);
     try {
       const result = await loginWithPassword(email, password);
@@ -40,7 +42,7 @@ function LoginFormInner() {
         toast.error(result.error);
         return;
       }
-      toast.success("Welcome back!");
+      toast.success(t("toast_welcome_back"));
       const next = safeInternalPath(searchParams.get("next"), "/app");
       router.push(next);
     } finally {
@@ -49,7 +51,7 @@ function LoginFormInner() {
   };
 
   const sendOtp = async () => {
-    if (!email.trim()) return toast.error("Enter your email first");
+    if (!email.trim()) return toast.error(t("toast_enter_email"));
     setOtpSending(true);
     try {
       const result = await sendLoginEmailOtp(email.trim());
@@ -66,20 +68,20 @@ function LoginFormInner() {
 
   return (
     <AuthShell
-      title="Welcome back"
-      subtitle="Log in to continue your journey."
+      title={t("login_title")}
+      subtitle={t("login_subtitle")}
       footer={
         <>
-          New to MaaCare?{" "}
+          {t("login_footer_new")}{" "}
           <Link href="/signup" className="font-medium text-primary">
-            Create an account
+            {t("login_footer_create")}
           </Link>
         </>
       }
     >
       <form onSubmit={submit} className="space-y-4">
         <div>
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email">{t("email")}</Label>
           <div className="relative mt-1.5">
             <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -95,9 +97,9 @@ function LoginFormInner() {
         </div>
         <div>
           <div className="flex items-center justify-between">
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password">{t("password")}</Label>
             <Link href="/forgot-password" className="text-xs font-medium text-primary">
-              Forgot?
+              {t("forgot")}
             </Link>
           </div>
           <div className="relative mt-1.5">
@@ -114,14 +116,14 @@ function LoginFormInner() {
           </div>
         </div>
         <Button type="submit" disabled={loading} className="w-full rounded-full">
-          {loading ? "Signing in…" : (
+          {loading ? t("signing_in") : (
             <>
-              Log in <ChevronRight className="ml-1 h-4 w-4" />
+              {t("log_in_button")} <ChevronRight className="ml-1 h-4 w-4" />
             </>
           )}
         </Button>
         <div className="relative my-2 text-center text-xs text-muted-foreground">
-          <span className="relative z-10 bg-card px-2">or</span>
+          <span className="relative z-10 bg-card px-2">{t("or_divider")}</span>
           <span className="absolute left-0 right-0 top-1/2 -z-0 h-px bg-border" />
         </div>
         <Button
@@ -131,22 +133,25 @@ function LoginFormInner() {
           disabled={otpSending}
           onClick={() => void sendOtp()}
         >
-          {otpSending ? "Sending code…" : "Send me a one-time code"}
+          {otpSending ? t("sending_code") : t("send_otp")}
         </Button>
       </form>
     </AuthShell>
   );
 }
 
+function LoginFormLoadingFallback() {
+  const { t } = useTranslation("auth");
+  return (
+    <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
+      {t("loading")}
+    </div>
+  );
+}
+
 export function LoginForm() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
-          Loading…
-        </div>
-      }
-    >
+    <Suspense fallback={<LoginFormLoadingFallback />}>
       <LoginFormInner />
     </Suspense>
   );

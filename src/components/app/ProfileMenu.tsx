@@ -9,7 +9,6 @@ import {
   Settings,
   HelpCircle,
   LogOut,
-  Languages,
   Sun,
   Moon,
   Monitor,
@@ -18,6 +17,7 @@ import {
   BookOpen,
   Code2,
 } from "lucide-react";
+import { GlobalLanguageSwitcher } from "@/components/app/global-language-switcher";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,17 +26,15 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOut, updateUserLanguage, useSession } from "@/lib/auth-client";
 import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 type MenuAvatarProps = {
   initials: string;
@@ -56,6 +54,7 @@ const ProfileMenuAvatar = memo(function ProfileMenuAvatar({ initials, avatarUrl,
 });
 
 export function ProfileMenu() {
+  const { t } = useTranslation("shell");
   const { user, loading } = useSession();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
@@ -78,12 +77,15 @@ export function ProfileMenu() {
 
   if (!user) {
     return (
-      <Button asChild size="sm" variant="ghost" className="h-9 gap-1.5">
-        <Link href="/login" prefetch>
-          <LogIn className="h-4 w-4" />
-          <span className="text-sm">Log in</span>
-        </Link>
-      </Button>
+      <div className="flex shrink-0 items-center gap-2">
+        <GlobalLanguageSwitcher align="end" />
+        <Button asChild size="sm" variant="ghost" className="h-9 gap-1.5">
+          <Link href="/login" prefetch>
+            <LogIn className="h-4 w-4" />
+            <span className="text-sm">{t("log_in")}</span>
+          </Link>
+        </Button>
+      </div>
     );
   }
 
@@ -93,7 +95,7 @@ export function ProfileMenu() {
         <button
           type="button"
           className="rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          aria-label="Account menu"
+          aria-label={t("account_menu_aria")}
         >
           <ProfileMenuAvatar initials={initials} avatarUrl={user.avatarUrl} sizeClass="h-9 w-9" />
         </button>
@@ -112,90 +114,77 @@ export function ProfileMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
           <Link href="/profile" prefetch className="cursor-pointer">
-            <User className="mr-2 h-4 w-4" /> View profile
+            <User className="mr-2 h-4 w-4" /> {t("view_profile")}
           </Link>
         </DropdownMenuItem>
         {user.isTeamDeveloper ? (
           <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
             <Link href="/developer" prefetch className="cursor-pointer">
-              <Code2 className="mr-2 h-4 w-4" /> Developer
+              <Code2 className="mr-2 h-4 w-4" /> {t("developer")}
             </Link>
           </DropdownMenuItem>
         ) : null}
 
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="cursor-pointer rounded-sm px-2 py-3 text-base">
-            <Languages className="mr-2 h-4 w-4" /> Language ({user.language.toUpperCase()})
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <DropdownMenuRadioGroup
-              value={user.language}
-              onValueChange={async (v) => {
-                const lang = v as "en" | "bn";
-                const ok = await updateUserLanguage(lang);
-                if (!ok) toast.error("Could not update language");
-              }}
-            >
-              <DropdownMenuRadioItem value="en" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-                English
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="bn" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-                বাংলা (Bangla)
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {t("language_section")}
+        </DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={user.language}
+          onValueChange={async (v) => {
+            const lang = v as "en" | "bn";
+            const ok = await updateUserLanguage(lang);
+            if (!ok) toast.error(t("toast_language_error"));
+          }}
+        >
+          <DropdownMenuRadioItem value="en" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
+            {t("language_english")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="bn" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
+            {t("language_bangla")}
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
 
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="cursor-pointer rounded-sm px-2 py-3 text-base">
-            {theme === "dark" ? (
-              <Moon className="mr-2 h-4 w-4" />
-            ) : theme === "light" ? (
-              <Sun className="mr-2 h-4 w-4" />
-            ) : (
-              <Monitor className="mr-2 h-4 w-4" />
-            )}
-            Theme
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as "light" | "dark" | "system")}>
-              <DropdownMenuRadioItem value="light" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-                <Sun className="mr-2 h-4 w-4" />
-                Light
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="dark" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-                <Moon className="mr-2 h-4 w-4" />
-                Dark
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="system" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-                <Monitor className="mr-2 h-4 w-4" />
-                System
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {t("theme_section")}
+        </DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as "light" | "dark" | "system")}>
+          <DropdownMenuRadioItem value="light" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
+            <Sun className="mr-2 h-4 w-4" />
+            {t("theme_light")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="dark" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
+            <Moon className="mr-2 h-4 w-4" />
+            {t("theme_dark")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="system" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
+            <Monitor className="mr-2 h-4 w-4" />
+            {t("theme_system")}
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
 
         <DropdownMenuSeparator />
         {user.role === "admin" && (
           <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
             <Link href="/admin" prefetch className="cursor-pointer">
-              <ShieldCheck className="mr-2 h-4 w-4" /> Admin panel
+              <ShieldCheck className="mr-2 h-4 w-4" /> {t("admin_panel")}
             </Link>
           </DropdownMenuItem>
         )}
         <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
           <Link href="/settings" prefetch className="cursor-pointer">
-            <Settings className="mr-2 h-4 w-4" /> Settings
+            <Settings className="mr-2 h-4 w-4" /> {t("settings")}
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
           <Link href="/help" prefetch className="cursor-pointer">
-            <HelpCircle className="mr-2 h-4 w-4" /> Help & support
+            <HelpCircle className="mr-2 h-4 w-4" /> {t("help_support")}
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
           <Link href="/docs" prefetch className="cursor-pointer">
-            <BookOpen className="mr-2 h-4 w-4" /> Documentation
+            <BookOpen className="mr-2 h-4 w-4" /> {t("documentation")}
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -210,7 +199,7 @@ export function ProfileMenu() {
             router.push("/");
           }}
         >
-          <LogOut className="mr-2 h-4 w-4" /> Sign out
+          <LogOut className="mr-2 h-4 w-4" /> {t("sign_out")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

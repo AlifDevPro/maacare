@@ -8,6 +8,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, CartesianGrid,
 } from "recharts";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { fetchJsonCached } from "@/lib/client/request-cache";
 
 type DashboardData = {
@@ -26,6 +27,7 @@ type DashboardData = {
 };
 
 export default function AdminDashboard() {
+  const { t } = useTranslation("admin");
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -43,7 +45,7 @@ export default function AdminDashboard() {
         );
         if (active) setData(j);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Could not load dashboard");
+        toast.error(e instanceof Error ? e.message : t("toast_error"));
         if (active) setData(null);
       } finally {
         if (active) setLoading(false);
@@ -68,45 +70,45 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">An overview of your community and content.</p>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">{t("dashboard_heading")}</h1>
+        <p className="text-sm text-muted-foreground">{t("dashboard_subtitle")}</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KPI
           icon={Users}
-          label="Total users"
+          label={t("kpi_total_users")}
           value={loading ? "…" : `${data?.totals.users.toLocaleString() ?? 0}`}
           delta={loading ? "…" : data?.deltas.signupsWeekOverWeek ?? "0%"}
           tone="rose"
         />
         <KPI
           icon={TrendingUp}
-          label="Active this week"
+          label={t("kpi_active_week")}
           value={loading ? "…" : `${data?.totals.activeThisWeek.toLocaleString() ?? 0}`}
           delta={loading ? "…" : `${Math.round(((data?.totals.activeThisWeek ?? 0) / Math.max(1, data?.totals.users ?? 1)) * 100)}%`}
           tone="sage"
         />
         <KPI
           icon={MessageSquare}
-          label="Community posts"
+          label={t("kpi_community_posts")}
           value={loading ? "…" : `${data?.totals.communityPosts.toLocaleString() ?? 0}`}
-          delta={loading ? "…" : "All-time"}
+          delta={loading ? "…" : t("kpi_all_time")}
           tone="rose"
         />
         <KPI
           icon={BookOpen}
-          label="RAG documents"
+          label={t("kpi_rag_docs")}
           value={loading ? "…" : `${data?.totals.ragDocuments.toLocaleString() ?? 0}`}
-          delta={loading ? "…" : "All-time"}
+          delta={loading ? "…" : t("kpi_all_time")}
           tone="sage"
         />
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="p-5 lg:col-span-2">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-base font-semibold">Signups · last 7 days</h2>
+            <h2 className="font-display text-base font-semibold">{t("chart_signups")}</h2>
             <Badge variant="secondary">
-              {loading ? "Loading…" : `${data?.deltas.signupsWeekOverWeek ?? "0%"} vs prev week`}
+              {loading ? "…" : t("badge_vs_prev", { pct: data?.deltas.signupsWeekOverWeek ?? "0%" })}
             </Badge>
           </div>
           <div className="h-64 w-full">
@@ -134,7 +136,7 @@ export default function AdminDashboard() {
           </div>
         </Card>
         <Card className="p-5">
-          <h2 className="mb-3 font-display text-base font-semibold">Symptom logs volume</h2>
+          <h2 className="mb-3 font-display text-base font-semibold">{t("chart_symptom_volume")}</h2>
           <div className="h-64 w-full">
             {loading ? (
               <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -155,12 +157,12 @@ export default function AdminDashboard() {
         </Card>
       </div>
       <Card className="p-5">
-        <h2 className="mb-3 font-display text-base font-semibold">Recent activity</h2>
+        <h2 className="mb-3 font-display text-base font-semibold">{t("activity_title")}</h2>
         <ul className="divide-y divide-border">
           {loading ? (
-            <li className="py-3 text-sm text-muted-foreground">Loading activity…</li>
+            <li className="py-3 text-sm text-muted-foreground">{t("activity_loading")}</li>
           ) : activity.length === 0 ? (
-            <li className="py-3 text-sm text-muted-foreground">No recent activity yet.</li>
+            <li className="py-3 text-sm text-muted-foreground">{t("activity_empty")}</li>
           ) : activity.map((a, i) => (
             <li key={i} className="flex items-center justify-between py-3 text-sm">
               <div>

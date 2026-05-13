@@ -1,5 +1,8 @@
 import { cookies, headers } from "next/headers";
 
+import { InitialLanguageFromServer } from "@/components/providers/initial-language-from-server";
+import { getSessionFromCookies } from "@/lib/auth/get-session";
+
 import CommunityPageClient, { type FeedPost } from "./page-client";
 
 async function getInitialFeed(): Promise<{
@@ -38,13 +41,18 @@ async function getInitialFeed(): Promise<{
 }
 
 export default async function CommunityPage() {
+  const session = await getSessionFromCookies();
   const { posts, hasMore, nextCursor } = await getInitialFeed();
-  return (
+  const inner = (
     <CommunityPageClient
       initialPosts={posts}
       initialHasMore={hasMore}
       initialNextCursor={nextCursor}
     />
   );
+  if (session) {
+    return <InitialLanguageFromServer value={session.language}>{inner}</InitialLanguageFromServer>;
+  }
+  return inner;
 }
 

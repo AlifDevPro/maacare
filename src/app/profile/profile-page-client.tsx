@@ -38,6 +38,7 @@ import {
 import { formatIsoDate } from "@/lib/profile/computed";
 import { refreshSession, signOut, updateUserLanguage, useSession } from "@/lib/auth-client";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 const PREFS_KEY = "maacare:notification-prefs";
 
@@ -64,6 +65,7 @@ export function ProfilePageClient({
   session: PublicUser;
   initialBundle: ProfileBundle;
 }) {
+  const { t } = useTranslation("health");
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { user } = useSession();
@@ -160,7 +162,7 @@ export function ProfilePageClient({
 
   return (
     <AppShell>
-      <AppHeader title="Profile" showBack />
+      <AppHeader title={t("profile_title")} showBack />
 
       <div className="space-y-4 px-4 pt-4">
         <SmartHealthNudge />

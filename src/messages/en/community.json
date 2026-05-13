@@ -1,0 +1,11 @@
+{
+  "title": "Community",
+  "toast_load_error": "Could not load community feed",
+  "toast_sign_in": "Please sign in to view community.",
+  "toast_load_posts": "Could not load posts",
+  "toast_like": "Could not update like",
+  "toast_empty_message": "Message cannot be empty.",
+  "toast_update_post": "Could not update post",
+  "toast_delete_post": "Could not delete post",
+  "toast_report": "Could not submit report"
+}

@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 
 import { DeveloperPageClient } from "@/app/developer/developer-page-client";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { InitialLanguageFromServer } from "@/components/providers/initial-language-from-server";
 
 export default async function DeveloperPage() {
   noStore();
@@ -14,5 +15,9 @@ export default async function DeveloperPage() {
     redirect("/app");
   }
 
-  return <DeveloperPageClient />;
+  return (
+    <InitialLanguageFromServer value={session.language}>
+      <DeveloperPageClient />
+    </InitialLanguageFromServer>
+  );
 }

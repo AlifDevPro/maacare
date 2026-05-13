@@ -1,12 +1,17 @@
+"use client";
+
+import { useTranslation } from "react-i18next";
+
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function CommunityLoading() {
+  const { t } = useTranslation("community");
   return (
     <AppShell>
-      <AppHeader title="Community" showNotifications />
+      <AppHeader title={t("title")} showNotifications />
       <div className="space-y-3 px-4 pt-4 pb-28">
         <div className="flex items-center justify-between gap-2">
           <Skeleton className="h-9 w-full max-w-[14rem] rounded-xl" />

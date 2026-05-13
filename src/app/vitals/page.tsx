@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { VitalsPageClient } from "@/app/vitals/vitals-page-client";
 import { getVitalsListCached } from "@/lib/app/user-lists-cache";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { InitialLanguageFromServer } from "@/components/providers/initial-language-from-server";
 
 export default async function VitalsPage() {
   noStore();
@@ -14,5 +15,9 @@ export default async function VitalsPage() {
 
   const initialItems = await getVitalsListCached(session.id, 40);
 
-  return <VitalsPageClient initialItems={initialItems} />;
+  return (
+    <InitialLanguageFromServer value={session.language}>
+      <VitalsPageClient initialItems={initialItems} />
+    </InitialLanguageFromServer>
+  );
 }

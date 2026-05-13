@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSession } from "@/lib/auth-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 type DevProfile = {
   userId: string;
@@ -195,6 +196,7 @@ function LandingStylePosterPreview({
 }
 
 export function DeveloperPageClient() {
+  const { t } = useTranslation("health");
   const { user } = useSession();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -564,7 +566,7 @@ export function DeveloperPageClient() {
 
   return (
     <AppShell>
-      <AppHeader title="Developer" showBack backHref="/app" />
+      <AppHeader title={t("developer_portal_title")} showBack backHref="/app" />
 
       <div className="mx-auto min-w-0 max-w-3xl space-y-6 px-4 pb-24 pt-4 text-center sm:px-6 lg:px-8">
         <p className="mx-auto min-w-0 max-w-xl text-sm text-muted-foreground">

@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { PostpartumPageClient } from "@/app/postpartum/postpartum-page-client";
 import { getProfileBundleCached } from "@/lib/app/profile-bundle-cache";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { InitialLanguageFromServer } from "@/components/providers/initial-language-from-server";
 
 export default async function PostpartumPage() {
   noStore();
@@ -14,5 +15,9 @@ export default async function PostpartumPage() {
 
   const initialBundle = await getProfileBundleCached(session.id);
 
-  return <PostpartumPageClient initialBundle={initialBundle} />;
+  return (
+    <InitialLanguageFromServer value={session.language}>
+      <PostpartumPageClient initialBundle={initialBundle} />
+    </InitialLanguageFromServer>
+  );
 }

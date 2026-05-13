@@ -17,6 +17,7 @@ import { dispatchDmUnreadUpdated } from "@/lib/dm/events";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 type Msg = { id: string; sender_id: string; body: string; created_at: string };
 
@@ -24,6 +25,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function DmThreadClient() {
+  const { t } = useTranslation("messages");
   const params = useParams();
   const router = useRouter();
   const { user } = useSession();
@@ -56,7 +58,7 @@ export default function DmThreadClient() {
       }
       if (!mRes.ok || !msgRes.ok) {
         const j = (await mRes.json().catch(() => ({}))) as { message?: string };
-        throw new Error(j.message ?? "Could not load thread");
+        throw new Error(j.message ?? t("toast_thread_load"));
       }
       const mJson = (await mRes.json()) as {
         peerDisplayName: string;
@@ -73,13 +75,13 @@ export default function DmThreadClient() {
       });
       if (readRes.ok) dispatchDmUnreadUpdated();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not load thread");
+      toast.error(e instanceof Error ? e.message : t("toast_thread_load"));
       setMeta(null);
       setMessages([]);
     } finally {
       setLoading(false);
     }
-  }, [rawId, valid]);
+  }, [rawId, valid, t]);
 
   useEffect(() => {
     void loadAll();
@@ -133,28 +135,28 @@ export default function DmThreadClient() {
         posted?: Msg;
         message?: string;
       };
-      if (!res.ok) throw new Error(j.message ?? "Send failed");
+      if (!res.ok) throw new Error(j.message ?? t("toast_send_failed"));
       const added = j.posted;
       if (added?.id) {
         setMessages((prev) => (prev.some((p) => p.id === added.id) ? prev : [...prev, added]));
       }
       setDraft("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Send failed");
+      toast.error(e instanceof Error ? e.message : t("toast_send_failed"));
     } finally {
       setSending(false);
     }
   }
 
-  const title = meta?.peerDisplayName ?? "Chat";
+  const title = meta?.peerDisplayName ?? t("thread_peer_fallback");
 
   const ordered = useMemo(() => [...messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [messages]);
 
   if (!valid) {
     return (
       <AppShell>
-        <AppHeader title="Messages" showBack backHref="/messages" showNotifications />
-        <p className="px-4 pt-8 text-sm text-muted-foreground">Invalid conversation.</p>
+        <AppHeader title={t("inbox_title")} showBack backHref="/messages" showNotifications />
+        <p className="px-4 pt-8 text-sm text-muted-foreground">{t("invalid_conversation")}</p>
       </AppShell>
     );
   }
@@ -162,11 +164,11 @@ export default function DmThreadClient() {
   if (!loading && !meta) {
     return (
       <AppShell>
-        <AppHeader title="Messages" showBack backHref="/messages" showNotifications />
+        <AppHeader title={t("inbox_title")} showBack backHref="/messages" showNotifications />
         <p className="px-4 pt-8 text-sm text-muted-foreground">
-          This chat is unavailable.{" "}
+          {t("chat_unavailable")}{" "}
           <button type="button" className="font-medium text-primary underline" onClick={() => router.push("/messages")}>
-            Back to inbox
+            {t("back_to_inbox")}
           </button>
         </p>
       </AppShell>
@@ -223,7 +225,7 @@ export default function DmThreadClient() {
               <Textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="Write a message…"
+                placeholder={t("placeholder_write")}
                 rows={2}
                 className="min-h-[44px] flex-1 resize-none rounded-xl"
                 maxLength={8000}
@@ -240,7 +242,7 @@ export default function DmThreadClient() {
                 className="h-11 w-11 shrink-0 rounded-xl"
                 onClick={() => void send()}
                 disabled={sending || !draft.trim()}
-                aria-label="Send"
+                aria-label={t("send_aria")}
               >
                 <Send className="h-4 w-4" />
               </Button>

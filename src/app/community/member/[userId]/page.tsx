@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { MemberProfileSkeleton } from "./member-profile-skeleton";
+import { useTranslation } from "react-i18next";
 
 type MemberPost = {
   id: string;
@@ -121,6 +122,7 @@ function ProfileBadges({ profile }: { profile: MemberProfile }) {
 }
 
 export default function CommunityMemberPage() {
+  const { t } = useTranslation("health");
   const params = useParams();
   const { user } = useSession();
   const rawId = typeof params.userId === "string" ? params.userId : "";
@@ -185,7 +187,7 @@ export default function CommunityMemberPage() {
   if (!validId) {
     return (
       <AppShell>
-        <AppHeader title="Member" showBack backHref="/community" showNotifications />
+        <AppHeader title={t("community_member_title")} showBack backHref="/community" showNotifications />
         <div className="px-4 pt-8 text-center text-sm text-muted-foreground">
           Invalid profile link.{" "}
           <Link href="/community" className="font-medium text-primary">
@@ -199,7 +201,7 @@ export default function CommunityMemberPage() {
   if (loading) {
     return (
       <AppShell>
-        <AppHeader title="Member" showBack backHref="/community" showNotifications />
+        <AppHeader title={t("community_member_title")} showBack backHref="/community" showNotifications />
         <MemberProfileSkeleton />
       </AppShell>
     );
@@ -208,7 +210,7 @@ export default function CommunityMemberPage() {
   if (!profile) {
     return (
       <AppShell>
-        <AppHeader title="Member" showBack backHref="/community" showNotifications />
+        <AppHeader title={t("community_member_title")} showBack backHref="/community" showNotifications />
         <div className="px-4 pt-8 text-center text-sm text-muted-foreground">
           This member could not be found.{" "}
           <Link href="/community" className="font-medium text-primary">

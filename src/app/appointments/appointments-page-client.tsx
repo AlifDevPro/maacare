@@ -15,8 +15,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { AppointmentListItem } from "@/lib/app/user-lists-data";
+import { useTranslation } from "react-i18next";
 
 export function AppointmentsPageClient({ initialItems }: { initialItems: AppointmentListItem[] }) {
+  const { t } = useTranslation("health");
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [saving, setSaving] = useState(false);
@@ -84,7 +86,7 @@ export function AppointmentsPageClient({ initialItems }: { initialItems: Appoint
 
   return (
     <AppShell>
-      <AppHeader title="Appointments" showBack showNotifications />
+      <AppHeader title={t("appointments_title")} showBack showNotifications />
       <div className="space-y-4 px-4 pt-4">
         <Card className="p-4 shadow-soft">
           <div className="mb-3 flex items-center gap-2">

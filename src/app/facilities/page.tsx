@@ -8,6 +8,7 @@ import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useTranslation } from "react-i18next";
 
 type Facility = {
   name: string;
@@ -20,6 +21,7 @@ type Facility = {
 };
 
 export default function FacilitiesPage() {
+  const { t } = useTranslation("health");
   const [preset, setPreset] = useState<"emergency" | "pharmacy">("pharmacy");
   const [items, setItems] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +95,7 @@ export default function FacilitiesPage() {
 
   return (
     <AppShell>
-      <AppHeader title="Nearby facilities" showBack />
+      <AppHeader title={t("facilities_nearby_title")} showBack />
 
       <div className="space-y-4 px-4 pt-4">
         <p className="text-xs text-muted-foreground">

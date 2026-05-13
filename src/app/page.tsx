@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from "@/components/ui/accordion";
+import { GlobalLanguageSwitcher } from "@/components/app/global-language-switcher";
+import { useTranslation } from "react-i18next";
 
 const features = [
   { icon: Sparkles, title: "AI Chat", desc: "Ask anything, anytime. Grounded in trusted medical knowledge.", tone: "rose" },
@@ -71,30 +73,44 @@ export default function LandingPage() {
 }
 
 function SiteHeader() {
+  const { t } = useTranslation("marketing");
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2">
           <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-rose text-base shadow-soft">🤍</span>
-          <span className="font-display text-xl font-semibold tracking-tight">MaaCare</span>
+          <span className="font-display text-xl font-semibold tracking-tight">{t("site_title")}</span>
         </Link>
         <nav className="hidden items-center gap-7 md:flex">
-          <a href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground">Features</a>
-          <a href="#how" className="text-sm font-medium text-muted-foreground hover:text-foreground">How it works</a>
-          <a href="#team" className="text-sm font-medium text-muted-foreground hover:text-foreground">Our team</a>
-          <a href="#pricing" className="text-sm font-medium text-muted-foreground hover:text-foreground">Pricing</a>
-          <a href="#faq" className="text-sm font-medium text-muted-foreground hover:text-foreground">FAQ</a>
-          <Link href="/docs" className="text-sm font-medium text-muted-foreground hover:text-foreground">Docs</Link>
+          <a href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+            {t("header_features")}
+          </a>
+          <a href="#how" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+            {t("header_how")}
+          </a>
+          <a href="#team" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+            {t("header_team")}
+          </a>
+          <a href="#pricing" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+            {t("header_pricing")}
+          </a>
+          <a href="#faq" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+            {t("header_faq")}
+          </a>
+          <Link href="/docs" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+            {t("header_docs")}
+          </Link>
         </nav>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          <GlobalLanguageSwitcher align="end" />
           <Button asChild variant="ghost" size="sm" className="sm:hidden">
-            <Link href="/docs">Docs</Link>
+            <Link href="/docs">{t("header_docs")}</Link>
           </Button>
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link href="/login">Log in</Link>
+            <Link href="/login">{t("header_login")}</Link>
           </Button>
           <Button asChild size="sm" className="rounded-full">
-            <Link href="/signup">Get started</Link>
+            <Link href="/signup">{t("header_get_started")}</Link>
           </Button>
         </div>
       </div>

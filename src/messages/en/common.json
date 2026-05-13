@@ -1,0 +1,20 @@
+{
+  "loading": "Loading…",
+  "risk_low": "low",
+  "risk_medium": "medium",
+  "risk_high": "high",
+  "risk_suffix": "risk",
+  "refreshing": "Refreshing...",
+  "refresh": "Refresh",
+  "or": "or",
+  "continue": "Continue",
+  "edit": "Edit",
+  "save": "Save",
+  "cancel": "Cancel",
+  "back": "Back",
+  "open": "Open",
+  "view": "View",
+  "update": "Update",
+  "week": "Week",
+  "due": "Due"
+}

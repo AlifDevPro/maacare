@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { writeGuestLanguage } from "@/lib/i18n/guest-language";
 
 export type Role = "user" | "moderator" | "admin";
 
@@ -375,6 +376,7 @@ export async function updateUserLanguage(language: "en" | "bn"): Promise<boolean
     body: JSON.stringify({ language }),
   });
   if (!res.ok) return false;
+  writeGuestLanguage(language);
   notifyAuth();
   return true;
 }

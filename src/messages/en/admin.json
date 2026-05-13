@@ -1,0 +1,18 @@
+{
+  "dashboard_title": "Admin dashboard",
+  "dashboard_heading": "Dashboard",
+  "dashboard_subtitle": "An overview of your community and content.",
+  "loading": "Loading dashboard…",
+  "toast_error": "Could not load dashboard",
+  "kpi_total_users": "Total users",
+  "kpi_active_week": "Active this week",
+  "kpi_community_posts": "Community posts",
+  "kpi_rag_docs": "RAG documents",
+  "kpi_all_time": "All-time",
+  "chart_signups": "Signups · last 7 days",
+  "chart_symptom_volume": "Symptom logs volume",
+  "badge_vs_prev": "{{pct}} vs prev week",
+  "activity_title": "Recent activity",
+  "activity_loading": "Loading activity…",
+  "activity_empty": "No recent activity yet."
+}

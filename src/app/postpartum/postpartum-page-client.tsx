@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
 import { AppShell } from "@/components/app/AppShell";
@@ -69,6 +70,7 @@ function sentencesFromText(text: string, maxSentences: number): string {
 }
 
 export function PostpartumPageClient({ initialBundle }: { initialBundle: ProfileBundle }) {
+  const { t } = useTranslation("health");
   const [bundle, setBundle] = useState(initialBundle);
   const [mood, setMood] = useState<string | null>(null);
   const [checkIns, setCheckIns] = useState<CheckInItem[]>([]);
@@ -188,7 +190,7 @@ export function PostpartumPageClient({ initialBundle }: { initialBundle: Profile
 
   return (
     <AppShell>
-      <AppHeader title="Postpartum support" showBack />
+      <AppHeader title={t("postpartum_support_title")} showBack />
       <div className="space-y-5 px-4 pt-4 pb-24">
         <SmartHealthNudge />
 

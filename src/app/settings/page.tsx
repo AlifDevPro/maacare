@@ -25,14 +25,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useSession } from "@/lib/auth-client";
 import { useTheme } from "@/lib/theme";
+import { useTranslation } from "react-i18next";
 
 export default function SettingsPage() {
+  const { t } = useTranslation("health");
   const { user, loading } = useSession();
   const { theme, setTheme } = useTheme();
 
   return (
     <AppShell>
-      <AppHeader title="Settings" showBack backHref="/app" />
+      <AppHeader title={t("settings_title")} showBack backHref="/app" />
       <div className="space-y-4 px-4 pt-4 pb-8">
         <p className="text-sm text-muted-foreground">
           Manage your account and preferences. Medical details stay on your profile.

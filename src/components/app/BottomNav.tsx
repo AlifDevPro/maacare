@@ -1,41 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 
 import { Home, MessageCircle, Stethoscope, Phone, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 const items = [
-  { to: "/app", label: "Home", icon: Home },
-  { to: "/chat", label: "Chat", icon: MessageCircle },
-  { to: "/symptoms", label: "Symptoms", icon: Stethoscope },
-  { to: "/emergency", label: "Emergency", icon: Phone },
-  { to: "/community", label: "Community", icon: Users },
+  { to: "/app", labelKey: "home", icon: Home },
+  { to: "/chat", labelKey: "chat", icon: MessageCircle },
+  { to: "/symptoms", labelKey: "symptoms", icon: Stethoscope },
+  { to: "/emergency", labelKey: "emergency", icon: Phone },
+  { to: "/community", labelKey: "community", icon: Users },
 ] as const;
 
 export function BottomNav() {
+  const { t } = useTranslation("nav");
   const pathname = usePathname();
   const router = useRouter();
 
+  const prefetchTargets = useMemo(() => items.map((i) => i.to), []);
+
   useEffect(() => {
-    for (const item of items) {
-      if (item.to !== pathname) {
-        router.prefetch(item.to);
+    for (const to of prefetchTargets) {
+      if (to !== pathname) {
+        router.prefetch(to);
       }
     }
-  }, [pathname, router]);
+  }, [pathname, router, prefetchTargets]);
 
   return (
     <nav
-      aria-label="Primary"
+      aria-label={t("primary_nav")}
       className="fixed bottom-0 inset-x-0 z-40 border-t border-border/60 bg-background/85 backdrop-blur-xl"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <ul className="mx-auto flex max-w-md items-stretch justify-between px-2 py-1.5">
-        {items.map(({ to, label, icon: Icon }) => {
+        {items.map(({ to, labelKey, icon: Icon }) => {
           const active = to === "/app" ? pathname === "/app" : pathname.startsWith(to);
 
           return (
@@ -59,7 +63,7 @@ export function BottomNav() {
                     strokeWidth={active ? 2.4 : 2}
                   />
                 </span>
-                {label}
+                {t(labelKey)}
               </Link>
             </li>
           );

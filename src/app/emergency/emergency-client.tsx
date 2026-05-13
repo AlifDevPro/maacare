@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { Phone, Navigation, Ambulance, Stethoscope, LocateFixed, Loader2 } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -140,6 +141,7 @@ function HospitalListSkeleton({ count = 5 }: { count?: number }) {
 }
 
 export default function EmergencyClient() {
+  const { t } = useTranslation("health");
   const [facilityTab, setFacilityTab] = useState<FacilityKind>("clinic");
   const [byKind, setByKind] = useState<Record<FacilityKind, Hospital[]>>(EMPTY_BY_KIND);
   const [loading, setLoading] = useState(true);
@@ -328,7 +330,7 @@ export default function EmergencyClient() {
 
   return (
     <AppShell>
-      <AppHeader title="Emergency help" showBack />
+      <AppHeader title={t("emergency_help_title")} showBack />
 
       <div className="space-y-5 px-4 pt-4">
         <Tabs

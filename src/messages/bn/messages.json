@@ -1,0 +1,20 @@
+{
+  "inbox_title": "বার্তা",
+  "empty_inbox": "এখনো কোনো কথোপকথন নেই। সম্প্রদায়ে সদস্য প্রোফাইল খুলে বার্তা ট্যাপ করুন।",
+  "say_hello": "হ্যালো বলুন",
+  "unread_aria": "না পড়া",
+  "toast_load_error": "বার্তা লোড করা যায়নি",
+  "toast_pick_member": "বার্তা পাঠাতে সদস্য বেছে নিন।",
+  "toast_start_chat": "চ্যাট শুরু করা যায়নি",
+  "opening_conversation": "কথোপকথন খোলা হচ্ছে…",
+  "back_to_inbox": "ইনবক্সে ফিরে যান",
+  "loading": "লোড হচ্ছে…",
+  "toast_thread_load": "থ্রেড লোড করা যায়নি",
+  "toast_send_failed": "পাঠানো যায়নি",
+  "invalid_conversation": "কথোপকথন সঠিক নয়।",
+  "chat_unavailable": "এই চ্যাট এখন পাওয়া যাচ্ছে না।",
+  "back_to_messages": "বার্তায় ফিরে যান",
+  "placeholder_write": "বার্তা লিখুন…",
+  "send_aria": "পাঠান",
+  "thread_peer_fallback": "চ্যাট"
+}

@@ -17,6 +17,7 @@ import {
   Sun,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ const BASE_TASKS: Array<{ id: string; label: string; href?: string }> = [
 ];
 
 export default function PlannerPage() {
+  const { t: tr } = useTranslation("health");
   const [loading, setLoading] = useState(true);
   const [week, setWeek] = useState<number | null>(null);
   const [appointments, setAppointments] = useState<PlannerAppt[]>([]);
@@ -207,7 +209,7 @@ export default function PlannerPage() {
 
   return (
     <AppShell>
-      <AppHeader title="Your daily care plan" showBack showNotifications />
+      <AppHeader title={tr("planner_daily_title")} showBack showNotifications />
 
       <div className="space-y-4 px-4 pt-4">
         <div>

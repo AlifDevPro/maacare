@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 
 import { motion } from "framer-motion";
 import {
@@ -44,6 +45,7 @@ function homeJourneyStage(p: HomeData["pregnancy"]): JourneyStage {
 }
 
 export function HomeClient({ initial }: { initial: HomeData }) {
+  const { t } = useTranslation("home");
   const router = useRouter();
   const [home, setHome] = useState(initial);
   const [refreshing, setRefreshing] = useState(false);
@@ -70,11 +72,11 @@ export function HomeClient({ initial }: { initial: HomeData }) {
     try {
       const res = await fetch("/api/app/home", { credentials: "include", cache: "no-store" });
       const j = (await res.json().catch(() => ({}))) as HomeData & { message?: string; error?: string };
-      if (!res.ok) throw new Error(j.message ?? j.error ?? "Could not refresh updates");
+      if (!res.ok) throw new Error(j.message ?? j.error ?? t("toastRefreshError"));
       setHome(j);
       router.refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not refresh updates");
+      toast.error(e instanceof Error ? e.message : t("toastRefreshError"));
     } finally {
       setRefreshing(false);
     }
@@ -102,16 +104,16 @@ export function HomeClient({ initial }: { initial: HomeData }) {
         <SmartHealthNudge />
         <motion.div initial={false} animate={{ opacity: 1, y: 0 }} className="space-y-1">
           <p className="text-sm text-muted-foreground">
-            {`Welcome back, ${home.profile.displayName || "Member"}`}
+            {t("welcomeBack", { name: home.profile.displayName || t("memberFallback") })}
           </p>
           <h1 className="font-display text-2xl font-semibold leading-tight text-balance">
-            How are you feeling today?
+            {t("greetingTitle")}
           </h1>
         </motion.div>
 
         {home.care.viewingSubjectUserId ? (
           <div className="rounded-3xl bg-muted/35 px-4 py-2.5 text-center text-xs text-muted-foreground">
-            Linked pregnancy view
+            {t("careLinked")}
             {home.care.viewingSubjectDisplayName ? ` · ${home.care.viewingSubjectDisplayName}` : ""}
           </div>
         ) : null}
@@ -123,11 +125,11 @@ export function HomeClient({ initial }: { initial: HomeData }) {
             <div className="space-y-5 p-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">Planning journey</p>
-                  <p className="font-display text-4xl font-semibold leading-none tracking-tight">Get ready</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Build healthy routines before pregnancy — quick wins you can repeat daily.
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">
+                    {t("planningJourneyEyebrow")}
                   </p>
+                  <p className="font-display text-4xl font-semibold leading-none tracking-tight">{t("planningTitle")}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("planningSubtitle")}</p>
                 </div>
                 <motion.div
                   initial={false}
@@ -147,30 +149,36 @@ export function HomeClient({ initial }: { initial: HomeData }) {
                   <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-primary-soft text-primary">
                     <Droplets className="h-5 w-5" />
                   </span>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Hydration</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t("hydration")}
+                  </p>
                   <p className="mt-0.5 font-display text-base font-semibold leading-none">8</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">glasses/day</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{t("glassesPerDay")}</p>
                 </div>
                 <div className="rounded-2xl border border-border/60 bg-card/70 p-3 shadow-soft">
                   <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
                     <Activity className="h-5 w-5" />
                   </span>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Movement</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t("movement")}
+                  </p>
                   <p className="mt-0.5 font-display text-base font-semibold leading-none">20</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">mins/day</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{t("minsPerDay")}</p>
                 </div>
                 <div className="rounded-2xl border border-border/60 bg-card/70 p-3 shadow-soft">
                   <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground">
                     <CalendarClock className="h-5 w-5" />
                   </span>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Check-up</p>
-                  <p className="mt-0.5 font-display text-base font-semibold leading-none">Plan</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">when ready</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t("checkup")}
+                  </p>
+                  <p className="mt-0.5 font-display text-base font-semibold leading-none">{t("checkupPlanValue")}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{t("whenReady")}</p>
                 </div>
               </div>
               <Button asChild className="w-full rounded-2xl">
                 <Link href="/planner">
-                  Open your planner
+                  {t("openYourPlanner")}
                   <ChevronRight className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
@@ -182,22 +190,20 @@ export function HomeClient({ initial }: { initial: HomeData }) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">
-                    Postpartum week
+                    {t("postpartumEyebrow")}
                   </p>
                   <p className="font-display text-4xl font-semibold leading-none tracking-tight">
                     {ppWeek != null ? (
                       <>
-                        Week {ppWeek}
-                        <span className="text-lg font-medium text-muted-foreground"> /52</span>
+                        {t("postpartumWeekLine", { week: ppWeek })}
+                        <span className="text-lg font-medium text-muted-foreground">{t("postpartumWeekSlash")}</span>
                       </>
                     ) : (
-                      <span className="text-2xl">Set birth date</span>
+                      <span className="text-2xl">{t("setBirthDate")}</span>
                     )}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {ppWeek != null
-                      ? "Fourth trimester — rest, nourish, and reach out when you need help."
-                      : "Add your baby’s birth date under Profile → Pregnancy to see your week here."}
+                    {ppWeek != null ? t("postpartumSubtitle") : t("postpartumNoDateSubtitle")}
                   </p>
                 </div>
                 <motion.div
@@ -222,15 +228,15 @@ export function HomeClient({ initial }: { initial: HomeData }) {
                 </div>
               ) : null}
               {ppWeek != null ? (
-                <p className="text-[11px] text-muted-foreground">Bars show your first 12 weeks after birth.</p>
+                <p className="text-[11px] text-muted-foreground">{t("barsHint")}</p>
               ) : null}
               <div className="grid grid-cols-2 gap-2">
                 <Button asChild variant="secondary" className="rounded-2xl">
-                  <Link href="/profile/edit">Add birth date</Link>
+                  <Link href="/profile/edit">{t("addBirthDate")}</Link>
                 </Button>
                 <Button asChild className="rounded-2xl">
                   <Link href="/postpartum">
-                    Postpartum hub
+                    {t("postpartumHub")}
                     <ChevronRight className="ml-1 h-4 w-4" />
                   </Link>
                 </Button>
@@ -243,15 +249,12 @@ export function HomeClient({ initial }: { initial: HomeData }) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">
-                    Pregnancy week
+                    {t("pregnancyWeekEyebrow")}
                   </p>
                   <p className="font-display text-2xl font-semibold leading-tight tracking-tight">
-                    Add your dates
+                    {t("addYourDates")}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Your week is calculated from last period, due date, or gestational age saved in your profile — not
-                    here on Home.
-                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("addYourDatesHelp")}</p>
                 </div>
                 <motion.div
                   initial={false}
@@ -263,11 +266,11 @@ export function HomeClient({ initial }: { initial: HomeData }) {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Button asChild variant="secondary" className="rounded-2xl">
-                  <Link href="/profile/edit">Edit profile</Link>
+                  <Link href="/profile/edit">{t("editProfile")}</Link>
                 </Button>
                 <Button asChild className="rounded-2xl">
                   <Link href="/planner">
-                    Open planner
+                    {t("openPlanner")}
                     <ChevronRight className="ml-1 h-4 w-4" />
                   </Link>
                 </Button>
@@ -280,16 +283,18 @@ export function HomeClient({ initial }: { initial: HomeData }) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">
-                    Pregnancy week
+                    {t("pregnancyWeekEyebrow")}
                   </p>
                   <p className="font-display text-4xl font-semibold leading-none tracking-tight">
                     {displayWeek}
-                    <span className="text-lg font-medium text-muted-foreground">/40</span>
+                    <span className="text-lg font-medium text-muted-foreground">{t("weekSuffix40")}</span>
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Trimester {trimester} · {Math.max(0, 40 - displayWeek)} weeks to go
+                    {t("trimesterLine", { trimester, remaining: Math.max(0, 40 - displayWeek) })}
                     {home.pregnancy.displayEdd
-                      ? ` · Due ${new Date(home.pregnancy.displayEdd).toLocaleDateString()}`
+                      ? t("dueDateSuffix", {
+                          date: new Date(home.pregnancy.displayEdd).toLocaleDateString(),
+                        })
                       : ""}
                   </p>
                 </div>
@@ -311,7 +316,7 @@ export function HomeClient({ initial }: { initial: HomeData }) {
                 aria-valuenow={displayWeek}
                 aria-valuemin={1}
                 aria-valuemax={40}
-                aria-label={`Pregnancy progress, week ${displayWeek} of 40`}
+                aria-label={t("progressAria", { week: displayWeek })}
               >
                 <div
                   className="h-full rounded-full bg-primary transition-[width] duration-300"
@@ -321,7 +326,7 @@ export function HomeClient({ initial }: { initial: HomeData }) {
 
               <Button asChild className="w-full rounded-2xl">
                 <Link href="/planner">
-                  Continue to today&apos;s plan
+                  {t("continueTodayPlan")}
                   <ChevronRight className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
@@ -332,24 +337,22 @@ export function HomeClient({ initial }: { initial: HomeData }) {
         ) : home.ui.showPartnerConnectHint ? (
           <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-sm">
             <div className="space-y-4 p-5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">Family care mode</p>
-              <p className="font-display text-2xl font-semibold leading-tight">Connect their pregnancy timeline</p>
-              <p className="text-sm text-muted-foreground">Send a request from Profile with their user ID.</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">{t("familyCareEyebrow")}</p>
+              <p className="font-display text-2xl font-semibold leading-tight">{t("familyCareTitle")}</p>
+              <p className="text-sm text-muted-foreground">{t("familyCareSubtitle")}</p>
               <Button asChild className="w-full rounded-2xl">
-                <Link href="/profile/edit">Open profile editor</Link>
+                <Link href="/profile/edit">{t("openProfileEditor")}</Link>
               </Button>
             </div>
           </Card>
         ) : home.ui.heroVariant === "student" ? (
           <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-sm">
             <div className="space-y-3 p-5">
-              <p className="font-display text-2xl font-semibold">Your hub</p>
-              <p className="text-sm text-muted-foreground">
-                Planner and tools stay open — pregnancy details stay optional.
-              </p>
+              <p className="font-display text-2xl font-semibold">{t("studentHubTitle")}</p>
+              <p className="text-sm text-muted-foreground">{t("studentHubSubtitle")}</p>
               <Button asChild className="w-full rounded-2xl">
                 <Link href="/planner">
-                  Open planner
+                  {t("openPlanner")}
                   <ChevronRight className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
@@ -358,11 +361,11 @@ export function HomeClient({ initial }: { initial: HomeData }) {
         ) : home.ui.heroVariant === "clinician" ? (
           <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-sm">
             <div className="space-y-3 p-5">
-              <p className="font-display text-2xl font-semibold">Clinical mode</p>
-              <p className="text-sm text-muted-foreground">Use AI chat and planner on your schedule.</p>
+              <p className="font-display text-2xl font-semibold">{t("clinicalTitle")}</p>
+              <p className="text-sm text-muted-foreground">{t("clinicalSubtitle")}</p>
               <Button asChild className="w-full rounded-2xl">
                 <Link href="/chat">
-                  Ask AI
+                  {t("askAI")}
                   <ChevronRight className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
@@ -371,11 +374,11 @@ export function HomeClient({ initial }: { initial: HomeData }) {
         ) : (
           <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-sm">
             <div className="space-y-3 p-5">
-              <p className="font-display text-2xl font-semibold">Welcome</p>
-              <p className="text-sm text-muted-foreground">Pick up your routine in the planner.</p>
+              <p className="font-display text-2xl font-semibold">{t("welcomeCardTitle")}</p>
+              <p className="text-sm text-muted-foreground">{t("welcomeCardSubtitle")}</p>
               <Button asChild className="w-full rounded-2xl">
                 <Link href="/planner">
-                  Continue
+                  {t("welcomeContinue")}
                   <ChevronRight className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
@@ -386,22 +389,22 @@ export function HomeClient({ initial }: { initial: HomeData }) {
         {home.ui.showVitalsCard ? (
         <Card className="p-4 shadow-soft">
           <div className="mb-3 flex items-center justify-between">
-            <p className="font-display text-sm font-semibold">Vitals snapshot</p>
+            <p className="font-display text-sm font-semibold">{t("vitalsSnapshot")}</p>
             <Link href="/vitals" className="text-xs font-medium text-primary">
-              Open monitor
+              {t("openMonitor")}
             </Link>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <VisualVitalCard
               icon={Heart}
-              label="Heart rate"
+              label={t("heartRate")}
               value={home.vitals?.heart_rate_bpm != null ? `${home.vitals.heart_rate_bpm} bpm` : "—"}
               tone="rose"
               pulse
             />
             <VisualVitalCard
               icon={Activity}
-              label="Blood pressure"
+              label={t("bloodPressure")}
               value={
                 home.vitals?.systolic_bp != null && home.vitals?.diastolic_bp != null
                   ? `${home.vitals.systolic_bp}/${home.vitals.diastolic_bp}`
@@ -412,14 +415,14 @@ export function HomeClient({ initial }: { initial: HomeData }) {
             />
             <VisualVitalCard
               icon={Thermometer}
-              label="Temperature"
+              label={t("temperature")}
               value={home.vitals?.temperature_c != null ? `${home.vitals.temperature_c} °C` : "—"}
               tone="rose"
               floatY
             />
             <VisualVitalCard
               icon={Wind}
-              label="SpO₂"
+              label={t("spo2")}
               value={home.vitals?.spo2_pct != null ? `${home.vitals.spo2_pct}%` : "—"}
               tone="sage"
               breathe
@@ -445,47 +448,38 @@ export function HomeClient({ initial }: { initial: HomeData }) {
             <div>
               {stage === "planning" ? (
                 <>
-                  <p className="text-xs font-semibold uppercase tracking-wider">Planning focus</p>
-                  <p className="mt-1 text-sm font-medium leading-snug">
-                    Gentle movement, balanced meals, and sleep set the tone before conception.
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Log vitals regularly so your care team can spot trends early.
-                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-wider">{t("planningFocusEyebrow")}</p>
+                  <p className="mt-1 text-sm font-medium leading-snug">{t("planningFocusBody")}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{t("planningFocusMeta")}</p>
                 </>
               ) : stage === "postpartum" ? (
                 <>
                   <p className="text-xs font-semibold uppercase tracking-wider">
-                    {ppWeek != null ? `Week ${ppWeek} · Recovery` : "Fourth trimester"}
+                    {ppWeek != null ? t("postpartumRecoveryEyebrow", { week: ppWeek }) : t("postpartumRecoveryEyebrowGeneric")}
                   </p>
-                  <p className="mt-1 text-sm font-medium leading-snug">
-                    Healing, feeding, and sleep are all normal challenges — pace yourself and ask for support.
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Heavy bleeding, fever, or severe pain need urgent care — see Emergency if unsure.
-                  </p>
+                  <p className="mt-1 text-sm font-medium leading-snug">{t("postpartumRecoveryBody")}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{t("postpartumRecoveryMeta")}</p>
                 </>
               ) : displayWeek == null ? (
                 <>
-                  <p className="text-xs font-semibold uppercase tracking-wider">Pregnancy details</p>
-                  <p className="mt-1 text-sm font-medium leading-snug">
-                    Add your last period, due date, or current week in profile edit so we can personalize tips and
-                    your planner.
-                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-wider">{t("pregnancyDetailsEyebrow")}</p>
+                  <p className="mt-1 text-sm font-medium leading-snug">{t("pregnancyDetailsBody")}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     <Link href="/profile/edit" className="font-medium text-primary underline-offset-2 hover:underline">
-                      Open profile editor
+                      {t("openProfileEditorLink")}
                     </Link>
                   </p>
                 </>
               ) : (
                 <>
                   <p className="text-xs font-semibold uppercase tracking-wider">
-                    Week {displayWeek} · Baby this week
+                    {t("weekBabyEyebrow", { week: displayWeek })}
                   </p>
                   <p className="mt-1 text-sm font-medium leading-snug ">
-                    {home.care.viewingSubjectUserId ? "Baby" : "Your baby"} is the size of a{" "}
-                    <span className="text-accent">{baby?.size ?? "—"}</span>.
+                    {t("babySizeLine", {
+                      who: home.care.viewingSubjectUserId ? t("babyTheir") : t("babyYour"),
+                      size: baby?.size ?? "—",
+                    })}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">{baby?.fact ?? ""}</p>
                 </>
@@ -497,25 +491,25 @@ export function HomeClient({ initial }: { initial: HomeData }) {
 
         <div className="grid grid-cols-2 gap-3">
           {home.ui.showSymptomShortcut ? (
-            <QuickAction to="/symptoms" icon={Activity} label="Check symptoms" tone="rose" />
+            <QuickAction to="/symptoms" icon={Activity} label={t("checkSymptoms")} tone="rose" />
           ) : null}
-          <QuickAction to="/chat" icon={Sparkles} label="Ask AI" tone="sage" />
-          <QuickAction to="/reports" icon={Heart} label="Simplify report" tone="rose" />
+          <QuickAction to="/chat" icon={Sparkles} label={t("askAILabel")} tone="sage" />
+          <QuickAction to="/reports" icon={Heart} label={t("simplifyReport")} tone="rose" />
           {home.ui.showPostpartumShortcut ? (
             <QuickAction
               to={stage === "pregnant" ? "/postpartum" : "/planner"}
               icon={stage === "pregnant" ? Moon : CalendarClock}
-              label={stage === "pregnant" ? "Postpartum" : "Planner"}
+              label={stage === "pregnant" ? t("postpartumShort") : t("planner")}
               tone="sage"
             />
           ) : (
-            <QuickAction to="/planner" icon={CalendarClock} label="Planner" tone="sage" />
+            <QuickAction to="/planner" icon={CalendarClock} label={t("planner")} tone="sage" />
           )}
         </div>
 
         <Card className="p-4 shadow-soft">
           <div className="mb-3 flex items-center justify-between">
-            <p className="font-display text-sm font-semibold">Your latest updates</p>
+            <p className="font-display text-sm font-semibold">{t("latestUpdates")}</p>
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -523,62 +517,68 @@ export function HomeClient({ initial }: { initial: HomeData }) {
                 disabled={refreshing}
                 className="text-xs font-medium text-primary disabled:opacity-60"
               >
-                {refreshing ? "Refreshing..." : "Refresh"}
+                {refreshing ? t("refreshingAction") : t("refreshAction")}
               </button>
               <Link href="/profile" className="text-xs font-medium text-primary">
-                View profile
+                {t("viewProfile")}
               </Link>
             </div>
           </div>
           <div className="space-y-0.5">
             <TimelineItem
               icon={CalendarClock}
-              title="Next appointment"
+              title={t("nextAppointment")}
               href="/appointments"
               detail={
-                home.upcomingAppointment
-                  ? `${home.upcomingAppointment.title}`
-                  : "No upcoming appointment"
+                home.upcomingAppointment ? `${home.upcomingAppointment.title}` : t("noUpcomingAppointment")
               }
               meta={
                 home.upcomingAppointment
                   ? new Date(home.upcomingAppointment.scheduled_at).toLocaleString()
-                  : "Add one to stay on schedule"
+                  : t("addAppointmentMeta")
               }
             />
             <TimelineItem
               icon={Stethoscope}
-              title="Latest vitals"
+              title={t("latestVitals")}
               href="/vitals"
               detail={
                 home.vitals
                   ? [
                       home.vitals.systolic_bp && home.vitals.diastolic_bp
-                        ? `BP ${home.vitals.systolic_bp}/${home.vitals.diastolic_bp}`
+                        ? t("bpDetail", { sys: home.vitals.systolic_bp, dia: home.vitals.diastolic_bp })
                         : null,
-                      home.vitals.heart_rate_bpm ? `HR ${home.vitals.heart_rate_bpm}` : null,
-                      home.vitals.weight_kg != null ? `Wt ${home.vitals.weight_kg}kg` : null,
-                      home.vitals.spo2_pct != null ? `SpO₂ ${home.vitals.spo2_pct}%` : null,
+                      home.vitals.heart_rate_bpm
+                        ? t("hrDetail", { hr: home.vitals.heart_rate_bpm })
+                        : null,
+                      home.vitals.weight_kg != null ? t("wtDetail", { kg: home.vitals.weight_kg }) : null,
+                      home.vitals.spo2_pct != null ? t("spo2Detail", { pct: home.vitals.spo2_pct }) : null,
                     ]
                       .filter(Boolean)
-                      .join(" · ") || "Vitals recorded"
-                  : "No vitals logged yet"
+                      .join(" · ") || t("vitalsRecorded")
+                  : t("noVitalsLogged")
               }
-              meta={home.vitals ? new Date(home.vitals.recorded_at).toLocaleString() : "Log your first vitals"}
+              meta={home.vitals ? new Date(home.vitals.recorded_at).toLocaleString() : t("logFirstVitals")}
             />
             <TimelineItem
               icon={Droplets}
-              title="Latest symptom log"
+              title={t("latestSymptomLog")}
               href={
                 home.latestSymptom?.id
                   ? `/symptoms/result?logId=${encodeURIComponent(home.latestSymptom.id)}`
                   : "/symptoms"
               }
-              detail={home.latestSymptom ? `${home.latestSymptom.title || "Symptom check"} saved` : "No symptoms logged yet"}
+              detail={
+                home.latestSymptom
+                  ? t("symptomTitleSaved", {
+                      title: home.latestSymptom.title || t("symptomCheckDefault"),
+                    })
+                  : t("noSymptomsLogged")
+              }
               meta={
                 home.latestSymptom
                   ? `${new Date(home.latestSymptom.logged_at).toLocaleString()}`
-                  : "Log symptoms for AI insight"
+                  : t("logSymptomsInsight")
               }
               riskLevel={latestSymptomRisk}
             />
@@ -588,7 +588,7 @@ export function HomeClient({ initial }: { initial: HomeData }) {
               href="/profile/edit"
               className="inline-flex items-center gap-1.5 text-sm font-semibold text-accent transition-colors hover:text-accent/80"
             >
-              Update health
+              {t("updateHealth")}
               <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
@@ -700,6 +700,9 @@ function TimelineItem({
   href?: string;
   riskLevel?: "low" | "medium" | "high" | null;
 }) {
+  const { t } = useTranslation("home");
+  const riskLabel =
+    riskLevel === "low" ? t("risk_low") : riskLevel === "medium" ? t("risk_medium") : riskLevel === "high" ? t("risk_high") : null;
   const body = (
     <div className="relative py-2.5 pl-11">
       <span className="absolute left-[15px] top-0 h-full w-px bg-border/70" />
@@ -718,7 +721,7 @@ function TimelineItem({
                 riskLevel === "high" && "bg-risk-high text-risk-high-foreground",
               )}
             >
-              {riskLevel} risk
+              {riskLabel}
             </span>
           ) : null}
         </div>

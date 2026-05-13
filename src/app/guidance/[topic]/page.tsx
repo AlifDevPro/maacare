@@ -9,6 +9,7 @@ import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 const TOPICS: Record<string, { title: string; simple: string; medical: string; emoji: string }> = {
   hydration: {
@@ -26,20 +27,21 @@ const TOPICS: Record<string, { title: string; simple: string; medical: string; e
 };
 
 export default function GuidancePage() {
+  const { t: tr } = useTranslation("health");
   const params = useParams<{ topic?: string }>();
-const topic = typeof params.topic === "string" ? params.topic : "hydration";
-  const t = TOPICS[topic] ?? TOPICS.hydration;
+  const topicKey = typeof params.topic === "string" ? params.topic : "hydration";
+  const topicContent = TOPICS[topicKey] ?? TOPICS.hydration;
   const [tab, setTab] = useState<"simple" | "medical">("simple");
 
   return (
     <AppShell>
-      <AppHeader title="Why this matters" showBack />
+      <AppHeader title={tr("guidance_why_title")} showBack />
       <div className="space-y-5 px-4 pt-4">
         <Card className="overflow-hidden border-0 bg-gradient-warm p-6 text-center shadow-card">
           <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-3xl bg-card text-3xl shadow-soft">
-            {t.emoji}
+            {topicContent.emoji}
           </div>
-          <h1 className="font-display text-2xl font-semibold">{t.title}</h1>
+          <h1 className="font-display text-2xl font-semibold">{topicContent.title}</h1>
         </Card>
 
         <div className="flex items-center gap-1 rounded-2xl bg-muted p-1">
@@ -65,7 +67,7 @@ const topic = typeof params.topic === "string" ? params.topic : "hydration";
             </p>
           </div>
           <p className="text-sm leading-relaxed text-foreground/90">
-            {tab === "simple" ? t.simple : t.medical}
+            {tab === "simple" ? topicContent.simple : topicContent.medical}
           </p>
         </Card>
 

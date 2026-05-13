@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { ProfileEditClient } from "@/app/profile/edit/profile-edit-client";
 import { getProfileBundleCached } from "@/lib/app/profile-bundle-cache";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { InitialLanguageFromServer } from "@/components/providers/initial-language-from-server";
 
 export default async function ProfileEditPage() {
   noStore();
@@ -14,5 +15,9 @@ export default async function ProfileEditPage() {
 
   const initialBundle = await getProfileBundleCached(session.id);
 
-  return <ProfileEditClient initialBundle={initialBundle} session={session} />;
+  return (
+    <InitialLanguageFromServer value={session.language}>
+      <ProfileEditClient initialBundle={initialBundle} session={session} />
+    </InitialLanguageFromServer>
+  );
 }

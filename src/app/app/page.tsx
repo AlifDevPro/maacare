@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getHomeData } from "@/lib/app/home-data";
+import { InitialLanguageFromServer } from "@/components/providers/initial-language-from-server";
 import { HomeClient } from "./home-client";
 
 export default async function HomePage() {
@@ -16,5 +17,9 @@ export default async function HomePage() {
   const supabase = await createSupabaseServerClient();
   const initial = await getHomeData(supabase, session.id, session.name ?? "Member");
 
-  return <HomeClient initial={initial} />;
+  return (
+    <InitialLanguageFromServer value={session.language}>
+      <HomeClient initial={initial} />
+    </InitialLanguageFromServer>
+  );
 }

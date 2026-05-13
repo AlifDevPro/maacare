@@ -11,6 +11,7 @@ import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { safeInternalPath } from "@/lib/auth/safe-internal-path";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useTranslation } from "react-i18next";
 
 /** Query `type` values GoTrue may send with `token_hash` (email links). */
 const EMAIL_LINK_TYPES = new Set([
@@ -66,6 +67,7 @@ function writeDedupePayload(key: string | null, next: string, signup: boolean) {
 type Phase = "loading" | "success" | "error";
 
 function AuthCallbackInner() {
+  const { t } = useTranslation("health");
   const searchParams = useSearchParams();
   const [phase, setPhase] = useState<Phase>("loading");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -244,7 +246,7 @@ function AuthCallbackInner() {
   if (phase === "loading") {
     return (
       <AppShell hideNav>
-        <AppHeader title="Account" />
+        <AppHeader title={t("account_title")} />
         <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-4 text-center">
           <Loader2 className="h-10 w-10 animate-spin text-primary" aria-hidden />
           <p className="text-sm text-muted-foreground">Completing sign-in…</p>
@@ -262,7 +264,7 @@ function AuthCallbackInner() {
 
     return (
       <AppShell hideNav>
-        <AppHeader title="Account" />
+        <AppHeader title={t("account_title")} />
         <div className="flex min-h-[50vh] flex-col items-center justify-center gap-6 px-4 pb-8 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-soft text-primary shadow-soft">
             <CheckCircle2 className="h-9 w-9" aria-hidden />
@@ -287,7 +289,7 @@ function AuthCallbackInner() {
 
   return (
     <AppShell hideNav>
-      <AppHeader title="Account" />
+      <AppHeader title={t("account_title")} />
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-4 text-center">
         <p className="max-w-md text-sm text-muted-foreground">{errorMsg}</p>
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -303,18 +305,21 @@ function AuthCallbackInner() {
   );
 }
 
+function AuthCallbackSuspenseFallback() {
+  const { t } = useTranslation("health");
+  return (
+    <AppShell hideNav>
+      <AppHeader title={t("account_title")} />
+      <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-label="Loading" />
+      </div>
+    </AppShell>
+  );
+}
+
 export default function AuthCallbackPage() {
   return (
-    <Suspense
-      fallback={
-        <AppShell hideNav>
-          <AppHeader title="Account" />
-          <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" aria-label="Loading" />
-          </div>
-        </AppShell>
-      }
-    >
+    <Suspense fallback={<AuthCallbackSuspenseFallback />}>
       <AuthCallbackInner />
     </Suspense>
   );

@@ -7,6 +7,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { AUTH_EVENT, authSessionQueryKey } from "@/lib/auth-client";
 import { applyTheme, getTheme } from "@/lib/theme";
 
+import { I18nProvider } from "./i18n-provider";
+
 function AuthSessionInvalidator() {
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -30,7 +32,7 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthSessionInvalidator />
-      {children}
+      <I18nProvider>{children}</I18nProvider>
       <Toaster position="top-center" />
     </QueryClientProvider>
   );

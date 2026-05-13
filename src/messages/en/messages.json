@@ -1,0 +1,20 @@
+{
+  "inbox_title": "Messages",
+  "empty_inbox": "No conversations yet. Open a member profile in Community and tap Message.",
+  "say_hello": "Say hello",
+  "unread_aria": "Unread",
+  "toast_load_error": "Could not load messages",
+  "toast_pick_member": "Pick a member to message.",
+  "toast_start_chat": "Could not start chat",
+  "opening_conversation": "Opening conversation…",
+  "back_to_inbox": "Back to inbox",
+  "loading": "Loading…",
+  "toast_thread_load": "Could not load thread",
+  "toast_send_failed": "Send failed",
+  "invalid_conversation": "Invalid conversation.",
+  "chat_unavailable": "This chat is unavailable.",
+  "back_to_messages": "Back to messages",
+  "placeholder_write": "Write a message…",
+  "send_aria": "Send",
+  "thread_peer_fallback": "Chat"
+}

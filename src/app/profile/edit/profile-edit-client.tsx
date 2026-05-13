@@ -42,6 +42,7 @@ import {
   PRIMARY_USE_LABEL,
 } from "@/lib/profile/primary-use-case";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 const tabListClass =
   "mt-1 flex h-auto w-full gap-0 overflow-x-auto rounded-none border-0 border-t border-border/40 bg-transparent p-0 pt-2";
@@ -116,6 +117,7 @@ export function ProfileEditClient({
   initialBundle: ProfileBundle;
   session: PublicUser;
 }) {
+  const { t } = useTranslation("health");
   const router = useRouter();
   const { user } = useSession();
   const [bundle, setBundle] = useState(initialBundle);
@@ -455,7 +457,7 @@ export function ProfileEditClient({
 
   return (
     <AppShell hideNav>
-      <AppHeader title="Edit profile" showBack backHref="/profile" />
+      <AppHeader title={t("profile_edit_title")} showBack backHref="/profile" />
 
       <div className="min-w-0 space-y-4 overflow-x-hidden px-4 pt-4 pb-28">
         <p className="text-sm text-muted-foreground">

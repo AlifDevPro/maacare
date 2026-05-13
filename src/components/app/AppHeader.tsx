@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 
 import type { ReactNode } from "react";
 import { ArrowLeft, Menu } from "lucide-react";
@@ -36,6 +37,7 @@ export function AppHeader({
   brand,
   className,
 }: AppHeaderProps) {
+  const { t } = useTranslation("shell");
   const router = useRouter();
   const messagesEnabled = showMessages ?? showNotifications ?? false;
   return (
@@ -59,13 +61,13 @@ export function AppHeader({
               variant="ghost"
               className="group shrink-0"
               onClick={() => router.back()}
-              aria-label="Back"
+              aria-label={t("back_aria")}
             >
               <ArrowLeft className="h-5 w-5 transition-transform duration-150 ease-out group-active:scale-110 motion-reduce:group-active:scale-100" />
             </Button>
           ))}
         {showMenu && (
-          <Button size="icon" variant="ghost" className="group shrink-0" aria-label="Menu">
+          <Button size="icon" variant="ghost" className="group shrink-0" aria-label={t("menu_aria")}>
             <Menu className="h-5 w-5 transition-transform duration-150 ease-out group-active:scale-110 motion-reduce:group-active:scale-100" />
           </Button>
         )}

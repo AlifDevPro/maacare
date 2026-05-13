@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { NotificationsPageClient } from "@/app/notifications/notifications-page-client";
 import { getNotificationsPayloadCached } from "@/lib/app/user-lists-cache";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { InitialLanguageFromServer } from "@/components/providers/initial-language-from-server";
 
 export default async function NotificationsPage() {
   noStore();
@@ -14,5 +15,9 @@ export default async function NotificationsPage() {
 
   const initial = await getNotificationsPayloadCached(session.id, 80);
 
-  return <NotificationsPageClient initial={initial} />;
+  return (
+    <InitialLanguageFromServer value={session.language}>
+      <NotificationsPageClient initial={initial} />
+    </InitialLanguageFromServer>
+  );
 }
