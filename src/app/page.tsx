@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import { motion } from "framer-motion";
 import {
   Heart, Sparkles, Stethoscope, Phone, Users, Calendar, FileText,
-  ChevronRight, Check, Star, ShieldCheck, Globe,
+  ChevronRight, Check, Star, ShieldCheck, Globe, Github, Linkedin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -55,6 +56,7 @@ export default function LandingPage() {
         <Pricing />
         <FAQ />
         <CTA />
+        <TeamSection />
       </main>
       <SiteFooter />
     </div>
@@ -72,6 +74,7 @@ function SiteHeader() {
         <nav className="hidden items-center gap-7 md:flex">
           <a href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground">Features</a>
           <a href="#how" className="text-sm font-medium text-muted-foreground hover:text-foreground">How it works</a>
+          <a href="#team" className="text-sm font-medium text-muted-foreground hover:text-foreground">Team</a>
           <a href="#pricing" className="text-sm font-medium text-muted-foreground hover:text-foreground">Pricing</a>
           <a href="#faq" className="text-sm font-medium text-muted-foreground hover:text-foreground">FAQ</a>
           <Link href="/docs" className="text-sm font-medium text-muted-foreground hover:text-foreground">Docs</Link>
@@ -246,6 +249,157 @@ function Testimonials() {
             </div>
           </Card>
         ))}
+      </div>
+    </section>
+  );
+}
+
+type LandingTeamMember = {
+  userId: string;
+  name: string;
+  jobTitle: string;
+  bio: string;
+  imageUrl: string | null;
+  social: {
+    github: string | null;
+    twitter: string | null;
+    linkedin: string | null;
+    website: string | null;
+  };
+  sortOrder: number;
+};
+
+function TeamSection() {
+  const [members, setMembers] = useState<LandingTeamMember[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/team")
+      .then((r) => r.json())
+      .then((j: { members?: LandingTeamMember[] }) => {
+        if (cancelled) return;
+        setMembers(Array.isArray(j.members) ? j.members : []);
+      })
+      .catch(() => {
+        if (!cancelled) setMembers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (members === null) {
+    return (
+      <section id="team" className="border-t border-border/50 bg-secondary/20 py-16 md:py-20">
+        <div className="mx-auto max-w-6xl px-4 text-center text-sm text-muted-foreground">Loading team…</div>
+      </section>
+    );
+  }
+
+  if (members.length === 0) return null;
+
+  return (
+    <section id="team" className="border-t border-border/50 bg-secondary/20 py-20 pb-24 md:py-28 md:pb-32">
+      <div className="mx-auto max-w-6xl px-4">
+        <div className="mb-12 max-w-2xl">
+          <p className="text-sm font-semibold uppercase tracking-wider text-primary">Team</p>
+          <h2 className="mt-2 font-display text-3xl font-semibold leading-tight md:text-4xl">The people building MaaCare.</h2>
+          <p className="mt-3 text-muted-foreground">
+            Engineers and operators behind the product — shown here when published by the team.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {members.map((m, i) => (
+            <motion.div
+              key={m.userId}
+              className="mx-auto w-full max-w-sm min-w-0 sm:max-w-none"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-40px" }}
+              transition={{ duration: 0.45, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <Card className="overflow-hidden border-0 p-0 shadow-card">
+                <div className="relative aspect-[3/4] w-full overflow-hidden bg-muted">
+                  {m.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={m.imageUrl}
+                      alt=""
+                      className="absolute inset-0 h-full w-full object-cover"
+                      width={480}
+                      height={640}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/15 via-muted to-muted font-display text-5xl font-semibold text-primary/35">
+                      {m.name.slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                  <div className="absolute inset-x-0 bottom-0 min-w-0 p-4 pt-14 sm:p-5 sm:pt-16">
+                    <h3 className="font-display text-lg font-semibold leading-tight text-white drop-shadow-sm sm:text-xl">
+                      {m.name}
+                    </h3>
+                    <p className="mt-1 text-sm font-medium text-white/90">{m.jobTitle}</p>
+                    {m.bio ? (
+                      <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-white/75">{m.bio}</p>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {m.social.github ? (
+                        <Button
+                          asChild
+                          size="sm"
+                          variant="secondary"
+                          className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-white backdrop-blur hover:bg-white/25"
+                        >
+                          <a href={m.social.github} target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+                            <Github className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      ) : null}
+                      {m.social.linkedin ? (
+                        <Button
+                          asChild
+                          size="sm"
+                          variant="secondary"
+                          className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-white backdrop-blur hover:bg-white/25"
+                        >
+                          <a href={m.social.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
+                            <Linkedin className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      ) : null}
+                      {m.social.twitter ? (
+                        <Button
+                          asChild
+                          size="sm"
+                          variant="secondary"
+                          className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-xs font-semibold text-white backdrop-blur hover:bg-white/25"
+                        >
+                          <a href={m.social.twitter} target="_blank" rel="noopener noreferrer" aria-label="X">
+                            X
+                          </a>
+                        </Button>
+                      ) : null}
+                      {m.social.website ? (
+                        <Button
+                          asChild
+                          size="sm"
+                          variant="secondary"
+                          className="h-8 rounded-full border-0 bg-white/15 px-2.5 text-white backdrop-blur hover:bg-white/25"
+                        >
+                          <a href={m.social.website} target="_blank" rel="noopener noreferrer" aria-label="Website">
+                            <Globe className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
       </div>
     </section>
   );

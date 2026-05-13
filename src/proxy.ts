@@ -32,6 +32,11 @@ function isPublicSignupApi(pathname: string): boolean {
   return pathname.startsWith("/api/signup/");
 }
 
+/** Published team directory for landing (read-only). */
+function isPublicTeamApi(pathname: string): boolean {
+  return pathname === "/api/team";
+}
+
 function shouldRedirectAuthedToApp(pathname: string): boolean {
   return pathname === "/" || pathname === "/login";
 }
@@ -128,7 +133,7 @@ export async function proxy(request: NextRequest) {
 
   if (!user) {
     if (pathname.startsWith("/api/")) {
-      if (isPublicAuthApi(pathname) || isPublicSignupApi(pathname)) {
+      if (isPublicAuthApi(pathname) || isPublicSignupApi(pathname) || isPublicTeamApi(pathname)) {
         return response;
       }
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });

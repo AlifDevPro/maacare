@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   LogIn,
   BookOpen,
+  Code2,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -114,6 +115,13 @@ export function ProfileMenu() {
             <User className="mr-2 h-4 w-4" /> View profile
           </Link>
         </DropdownMenuItem>
+        {user.isTeamDeveloper ? (
+          <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
+            <Link href="/developer" prefetch className="cursor-pointer">
+              <Code2 className="mr-2 h-4 w-4" /> Developer
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
 
         <DropdownMenuSub>
           <DropdownMenuSubTrigger className="cursor-pointer rounded-sm px-2 py-3 text-base">

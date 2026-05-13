@@ -19,6 +19,7 @@ function mapRow(row: ProfileRow, authUserId: string, fallbackEmail: string | nul
     role: row.role as PublicUser["role"],
     language: row.language === "bn" ? "bn" : "en",
     avatarUrl: row.avatar_url ?? null,
+    isTeamDeveloper: false,
   };
 }
 
@@ -69,6 +70,7 @@ export function buildSyntheticPublicUser(authUser: User): PublicUser {
     role: "user",
     language: languageFromUser(authUser),
     avatarUrl: null,
+    isTeamDeveloper: false,
   };
 }
 
@@ -222,13 +224,29 @@ export async function loadProfileWithRepair(
   return { user: null };
 }
 
+async function fetchIsTeamDeveloper(supabase: SupabaseClient, userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("developer_team_profiles")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) {
+    console.warn("[profile] developer_team_profiles lookup:", error.message);
+    return false;
+  }
+  return !!data;
+}
+
 /** Prefer database profile; fall back to JWT-only snapshot so auth never blocks on missing migrations/keys. */
 export async function resolvePublicUser(
   supabase: SupabaseClient,
   authUser: User,
 ): Promise<PublicUser> {
   const { user } = await loadProfileWithRepair(supabase, authUser);
-  if (user) return user;
-  console.warn("[profile] using JWT snapshot — add SUPABASE_SERVICE_ROLE_KEY or run Supabase migrations");
-  return buildSyntheticPublicUser(authUser);
+  const base = user ?? buildSyntheticPublicUser(authUser);
+  if (!user) {
+    console.warn("[profile] using JWT snapshot — add SUPABASE_SERVICE_ROLE_KEY or run Supabase migrations");
+  }
+  const isTeamDeveloper = await fetchIsTeamDeveloper(supabase, authUser.id);
+  return { ...base, isTeamDeveloper };
 }

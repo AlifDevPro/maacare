@@ -13,6 +13,8 @@ export type AuthUser = {
   role: Role;
   language: "en" | "bn";
   avatarUrl?: string | null;
+  /** Present when this account has a developer_team_profiles row. */
+  isTeamDeveloper?: boolean;
 };
 
 /** Dispatched on login/logout/profile auth updates; RootProviders invalidates session query. */
