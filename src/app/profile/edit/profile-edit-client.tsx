@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, Camera, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
-import { BLOOD_TYPES, SEX_OPTIONS } from "@/app/profile/profile-field-options";
+import { BLOOD_TYPES } from "@/app/profile/profile-field-options";
 import {
   JourneyStatusPicker,
   ProfessionPicker,
@@ -17,6 +17,8 @@ import {
 } from "@/components/profile/journey-profession-pickers";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { ProfileAvatarUploadDialog } from "@/components/profile/profile-avatar-upload-dialog";
+import { SexIconCards } from "@/components/profile/sex-icon-cards";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,8 +35,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { PublicUser } from "@/lib/auth/types";
 import { refreshSession, useSession } from "@/lib/auth-client";
-import { pregnancyFieldVisibility } from "@/lib/profile/journey-fields";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { resolveProfileFieldVisibility } from "@/lib/profile/journey-fields";
+import {
+  normalizePrimaryUseCase,
+  PRIMARY_USE_CASE_VALUES,
+  PRIMARY_USE_LABEL,
+} from "@/lib/profile/primary-use-case";
 import { cn } from "@/lib/utils";
 
 const tabListClass =
@@ -76,8 +82,6 @@ const SECTION_META: Record<SectionKey, { title: string; subtitle: string }> = {
   },
 };
 
-const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
-
 const KNOWN_PROFESSION = new Set<string>(PROFESSION_VALUES);
 
 /** Map legacy or free-text profession values to the picker + preserve text in notes. */
@@ -117,7 +121,7 @@ export function ProfileEditClient({
   const [bundle, setBundle] = useState(initialBundle);
   const [saving, setSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
 
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
@@ -145,6 +149,7 @@ export function ProfileEditClient({
   const [activeSection, setActiveSection] = useState<SectionKey>("personal");
   const [timezone, setTimezone] = useState("");
   const [profession, setProfession] = useState<ProfessionValue | "">("");
+  const [primaryUseCase, setPrimaryUseCase] = useState<string>("self_maternal");
 
   const fieldClass = "rounded-sm shadow-none";
   const dateFieldClass = cn(fieldClass, "date-input-icon-end");
@@ -190,71 +195,19 @@ export function ProfileEditClient({
     setConditionsText(bundle.conditions.join(", "));
     setTimezone(p?.timezone ?? "");
     setProfession(profHydrated);
+    setPrimaryUseCase(normalizePrimaryUseCase(p?.primary_use_case as string | null | undefined));
   }, [bundle, user, session.name]);
 
   const activeIdx = SECTION_ORDER.indexOf(activeSection);
   const progress = ((activeIdx + 1) / SECTION_ORDER.length) * 100;
-  const pregDetailVis = pregnancyFieldVisibility(pregnancyStatus);
+  const pregDetailVis = useMemo(
+    () => resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase),
+    [pregnancyStatus, primaryUseCase],
+  );
 
   function goSection(step: number) {
     const idx = Math.max(0, Math.min(SECTION_ORDER.length - 1, step));
     setActiveSection(SECTION_ORDER[idx]!);
-  }
-
-  async function onAvatarFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const uid = user?.id;
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !uid) return;
-
-    const ext = extFromMime(file.type);
-    if (!ext) {
-      toast.error("Use a JPEG, PNG, WebP, or GIF image.");
-      return;
-    }
-    if (file.size > AVATAR_MAX_BYTES) {
-      toast.error("Image must be 5MB or smaller.");
-      return;
-    }
-
-    setAvatarUploading(true);
-    try {
-      const supabase = createSupabaseBrowserClient();
-      const path = `${uid}/avatar.${ext}`;
-      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
-        upsert: true,
-        contentType: file.type,
-      });
-      if (upErr) {
-        console.error(upErr);
-        toast.error(upErr.message || "Could not upload photo.");
-        return;
-      }
-      const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
-      const publicUrl = pub.publicUrl;
-      const res = await fetch("/api/profile", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avatarUrl: publicUrl }),
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { message?: string };
-        toast.error(j.message ?? "Could not save profile photo.");
-        return;
-      }
-      setBundle((prev) => {
-        if (!prev.profile) return prev;
-        return { ...prev, profile: { ...prev.profile, avatar_url: publicUrl } };
-      });
-      toast.success("Profile photo updated");
-      await refreshSession();
-    } catch (err) {
-      console.error(err);
-      toast.error("Could not upload photo.");
-    } finally {
-      setAvatarUploading(false);
-    }
   }
 
   async function removeAvatar() {
@@ -302,7 +255,7 @@ export function ProfileEditClient({
         .map((s) => s.trim())
         .filter(Boolean);
 
-      const vis = pregnancyFieldVisibility(pregnancyStatus);
+      const vis = resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase);
       let gv: number | null = null;
       let pv: number | null = null;
       if (vis.showGravidaPara) {
@@ -333,6 +286,7 @@ export function ProfileEditClient({
         sex: sex || null,
         timezone: timezone.trim() || null,
         profession: profession || null,
+        primaryUseCase: normalizePrimaryUseCase(primaryUseCase),
         pregnancyStatus,
         lmpDate: vis.showLmpEdd ? lmpDate || null : null,
         eddDate: vis.showLmpEdd ? eddDate || null : null,
@@ -395,6 +349,83 @@ export function ProfileEditClient({
       toast.error(e instanceof Error ? e.message : "Could not save");
     } finally {
       setSaving(false);
+    }
+  }
+
+  type CareRow = {
+    id: string;
+    subject_user_id: string;
+    viewer_user_id: string;
+    status: string;
+    invited_by_user_id: string;
+  };
+
+  const [careRows, setCareRows] = useState<CareRow[]>([]);
+  const [careInviteOtherId, setCareInviteOtherId] = useState("");
+  const [careBusy, setCareBusy] = useState(false);
+
+  async function loadCareRelationships() {
+    try {
+      const res = await fetch("/api/care-relationships", { credentials: "include" });
+      const j = (await res.json()) as { relationships?: CareRow[] };
+      if (res.ok) setCareRows(j.relationships ?? []);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  useEffect(() => {
+    if (activeSection !== "pregnancy") return;
+    void loadCareRelationships();
+  }, [activeSection]);
+
+  async function sendCareInvite() {
+    const trimmed = careInviteOtherId.trim();
+    if (!trimmed) {
+      toast.error("Enter the other person’s user ID.");
+      return;
+    }
+    setCareBusy(true);
+    try {
+      const mode =
+        normalizePrimaryUseCase(primaryUseCase) === "partner_support"
+          ? "viewer_requests_subject"
+          : "subject_invites_viewer";
+      const res = await fetch("/api/care-relationships", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, otherUserId: trimmed }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(j.message ?? "Could not send invite");
+      toast.success("Invite sent");
+      setCareInviteOtherId("");
+      await loadCareRelationships();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not send");
+    } finally {
+      setCareBusy(false);
+    }
+  }
+
+  async function acceptCareInvite(id: string) {
+    setCareBusy(true);
+    try {
+      const res = await fetch(`/api/care-relationships/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept" }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(j.message ?? "Could not accept");
+      toast.success("Link activated");
+      await loadCareRelationships();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not accept");
+    } finally {
+      setCareBusy(false);
     }
   }
 
@@ -498,7 +529,8 @@ export function ProfileEditClient({
                     <div className="min-w-0 flex-1 space-y-1">
                       <p className="text-sm font-medium text-foreground">Profile photo</p>
                       <p className="text-xs text-muted-foreground">
-                        Shown on your profile and in the community when you post or comment.
+                        Shown on your profile and in the community when you post or comment. Upload opens a crop and zoom
+                        editor so you can frame your face clearly.
                       </p>
                       <div className="flex flex-wrap gap-2 pt-1">
                         <Button
@@ -506,8 +538,8 @@ export function ProfileEditClient({
                           variant="outline"
                           size="sm"
                           className="min-h-9 rounded-md"
-                          disabled={avatarUploading || !user?.id}
-                          onClick={() => avatarInputRef.current?.click()}
+                          disabled={avatarUploading}
+                          onClick={() => setAvatarDialogOpen(true)}
                         >
                           {avatarUploading ? (
                             <>
@@ -517,7 +549,7 @@ export function ProfileEditClient({
                           ) : (
                             <>
                               <Camera className="mr-2 h-4 w-4" />
-                              Upload photo
+                              Choose and crop photo
                             </>
                           )}
                         </Button>
@@ -535,13 +567,6 @@ export function ProfileEditClient({
                         ) : null}
                       </div>
                     </div>
-                    <input
-                      ref={avatarInputRef}
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      className="hidden"
-                      onChange={(e) => void onAvatarFileChange(e)}
-                    />
                   </div>
                   <div className="grid gap-2">
                     <FieldLabel htmlFor="dn">Full name</FieldLabel>
@@ -596,15 +621,21 @@ export function ProfileEditClient({
                   </div>
                   <div className="grid gap-2">
                     <FieldLabel>Sex</FieldLabel>
-                    <Select value={sex || "__"} onValueChange={(v) => setSex(v === "__" ? "" : v)}>
+                    <SexIconCards value={sex} onChange={(v) => setSex(v)} />
+                  </div>
+                  <div className="grid gap-2">
+                    <FieldLabel>Primary focus</FieldLabel>
+                    <p className="text-xs text-muted-foreground">
+                      Controls pregnancy questions and home layout — see docs for partner linking.
+                    </p>
+                    <Select value={primaryUseCase} onValueChange={(v) => setPrimaryUseCase(v)}>
                       <SelectTrigger className={fieldClass}>
-                        <SelectValue placeholder="Select" />
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__">Not specified</SelectItem>
-                        {SEX_OPTIONS.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
+                        {PRIMARY_USE_CASE_VALUES.map((k) => (
+                          <SelectItem key={k} value={k}>
+                            {PRIMARY_USE_LABEL[k]}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -726,6 +757,62 @@ export function ProfileEditClient({
                       Pregnancy tracking is hidden. You can change your journey anytime if this updates.
                     </p>
                   )}
+                </CardContent>
+              </Card>
+
+              <Card className="overflow-hidden rounded-3xl border-0 bg-card/80 p-0 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="font-display text-base">Shared pregnancy access</CardTitle>
+                  <CardDescription>
+                    {normalizePrimaryUseCase(primaryUseCase) === "partner_support"
+                      ? "Request access with the expectant parent’s user ID (UUID). They accept under this same tab."
+                      : "Invite your partner by their user ID so they can follow your timeline on their account."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      className={fieldClass}
+                      placeholder="Other person’s user ID (UUID)"
+                      value={careInviteOtherId}
+                      onChange={(e) => setCareInviteOtherId(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="shrink-0 rounded-2xl"
+                      disabled={careBusy}
+                      onClick={() => void sendCareInvite()}
+                    >
+                      {careBusy ? "Sending…" : "Send request"}
+                    </Button>
+                  </div>
+                  <div className="space-y-2 text-xs text-muted-foreground">
+                    {careRows.map((r) => (
+                      <div
+                        key={r.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-muted/30 px-3 py-2"
+                      >
+                        <span>
+                          {r.status} · subject {r.subject_user_id.slice(0, 8)}… · viewer{" "}
+                          {r.viewer_user_id.slice(0, 8)}…
+                        </span>
+                        {r.status === "pending" &&
+                        r.invited_by_user_id !== session.id &&
+                        (r.viewer_user_id === session.id || r.subject_user_id === session.id) ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="rounded-xl"
+                            onClick={() => void acceptCareInvite(r.id)}
+                          >
+                            Accept
+                          </Button>
+                        ) : null}
+                      </div>
+                    ))}
+                    {careRows.length === 0 ? <p>No invites yet.</p> : null}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -926,6 +1013,20 @@ export function ProfileEditClient({
           </Button>
         </div>
       </div>
+
+      <ProfileAvatarUploadDialog
+        open={avatarDialogOpen}
+        onOpenChange={setAvatarDialogOpen}
+        userId={session.id}
+        onBusy={setAvatarUploading}
+        onUploaded={async (publicUrl) => {
+          setBundle((prev) => {
+            if (!prev.profile) return prev;
+            return { ...prev, profile: { ...prev.profile, avatar_url: publicUrl } };
+          });
+          await refreshSession();
+        }}
+      />
     </AppShell>
   );
 }

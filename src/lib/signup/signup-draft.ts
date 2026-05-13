@@ -2,10 +2,15 @@ import { z } from "zod";
 
 import type { ProfessionValue } from "@/lib/profile/profession-values";
 import { PROFESSION_VALUES } from "@/lib/profile/profession-values";
+import type { PrimaryUseCaseValue } from "@/lib/profile/primary-use-case";
+import { PRIMARY_USE_CASE_VALUES } from "@/lib/profile/primary-use-case";
 
 /** Non-credential signup state shared by manual wizard and AI-assisted flow. */
 export type SignupProfileDraft = {
   displayName: string;
+  /** Optional at signup; collected on the About step in manual flow. */
+  sex: "" | "female" | "male" | "other" | "unknown";
+  primaryUseCase: PrimaryUseCaseValue | "";
   profession: ProfessionValue | "";
   pregnancyStatus: "planning" | "pregnant" | "postpartum" | "not_applicable";
   lmpDate: string;
@@ -28,6 +33,8 @@ export type SignupProfileDraft = {
 export function emptySignupProfileDraft(): SignupProfileDraft {
   return {
     displayName: "",
+    sex: "",
+    primaryUseCase: "self_maternal",
     profession: "",
     pregnancyStatus: "pregnant",
     lmpDate: "",
@@ -53,11 +60,18 @@ export function emptyAiSignupProfileDraft(): SignupProfileDraft {
   return {
     ...emptySignupProfileDraft(),
     pregnancyStatus: "not_applicable",
+    primaryUseCase: "",
   };
 }
 
+const PRIMARY_USE_CASE_Z = z.enum(
+  PRIMARY_USE_CASE_VALUES as unknown as [string, ...string[]],
+);
+
 export const signupProfileDraftSchema = z.object({
   displayName: z.string().max(200),
+  sex: z.union([z.literal(""), z.enum(["female", "male", "other", "unknown"])]),
+  primaryUseCase: z.union([z.literal(""), PRIMARY_USE_CASE_Z]),
   profession: z.union([z.enum(PROFESSION_VALUES), z.literal("")]),
   pregnancyStatus: z.enum(["planning", "pregnant", "postpartum", "not_applicable"]),
   lmpDate: z.string().max(40),

@@ -20,7 +20,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { checkEmailRegistered, registerAccount } from "@/lib/auth-client";
 import { buildSignupProfilePayload } from "@/lib/signup/build-profile-payload";
 import type { SignupProfileDraft } from "@/lib/signup/signup-draft";
-import { pregnancyFieldVisibility } from "@/lib/profile/journey-fields";
+import { resolveProfileFieldVisibility } from "@/lib/profile/journey-fields";
+import type { PrimaryUseCaseValue } from "@/lib/profile/primary-use-case";
+import { PRIMARY_USE_CASE_VALUES, PRIMARY_USE_LABEL } from "@/lib/profile/primary-use-case";
 import {
   validateAccountCredentials,
   validateProfession,
@@ -30,10 +32,13 @@ import { isValidEmailFormat } from "@/lib/validation/email";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type StepId = "account" | "journey" | "pregnancy" | "health" | "preferences" | "consent";
+import { SexIconCards } from "@/components/profile/sex-icon-cards";
 
-const STEPS: { id: StepId; title: string; optional?: boolean }[] = [
+type StepId = "account" | "about" | "journey" | "pregnancy" | "health" | "preferences" | "consent";
+
+const STEP_DEFS: { id: StepId; title: string; optional?: boolean }[] = [
   { id: "account", title: "Account" },
+  { id: "about", title: "About you" },
   { id: "journey", title: "Your journey" },
   { id: "pregnancy", title: "Pregnancy details", optional: true },
   { id: "health", title: "Health", optional: true },
@@ -47,8 +52,19 @@ const fieldBase =
 export function ManualSignupWizard() {
   const router = useRouter();
   const [step, setStep] = useState(0);
-  const current = STEPS[step]!;
-  const isLast = step === STEPS.length - 1;
+  const [sex, setSex] = useState<SignupProfileDraft["sex"]>("");
+  const [primaryUseCase, setPrimaryUseCase] = useState<PrimaryUseCaseValue | "">("self_maternal");
+
+  const steps = useMemo(() => {
+    if (primaryUseCase === "partner_support") {
+      return STEP_DEFS.filter((s) => s.id !== "journey" && s.id !== "pregnancy");
+    }
+    return STEP_DEFS;
+  }, [primaryUseCase]);
+
+  useEffect(() => {
+    setStep((s) => Math.min(s, Math.max(0, steps.length - 1)));
+  }, [steps.length]);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -81,8 +97,20 @@ export function ManualSignupWizard() {
   const [terms, setTerms] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const progress = useMemo(() => ((step + 1) / STEPS.length) * 100, [step]);
-  const pregVis = useMemo(() => pregnancyFieldVisibility(pregnancyStatus), [pregnancyStatus]);
+  const current = steps[step] ?? steps[0]!;
+  const isLast = step === steps.length - 1;
+
+  const progress = useMemo(() => ((step + 1) / steps.length) * 100, [step, steps.length]);
+  const pregVis = useMemo(
+    () => resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase || "self_maternal"),
+    [pregnancyStatus, primaryUseCase],
+  );
+
+  useEffect(() => {
+    if (primaryUseCase === "partner_support") {
+      setPregnancyStatus("not_applicable");
+    }
+  }, [primaryUseCase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,18 +160,21 @@ export function ManualSignupWizard() {
         return;
       }
     }
-    if (current.id === "journey") {
+    if (current.id === "about") {
       const perr = validateProfession(profession);
       if (perr) {
         toast.error(perr);
         return;
       }
     }
-    setStep((s) => Math.min(STEPS.length - 1, s + 1));
+    if (current.id === "journey") {
+      // Journey status is optional; user can refine later in Profile.
+    }
+    setStep((s) => Math.min(steps.length - 1, s + 1));
   }
 
   function skipStep() {
-    setStep((s) => Math.min(STEPS.length - 1, s + 1));
+    setStep((s) => Math.min(steps.length - 1, s + 1));
   }
 
   async function submit(e: React.FormEvent) {
@@ -176,6 +207,8 @@ export function ManualSignupWizard() {
 
     const draft: SignupProfileDraft = {
       displayName: name.trim(),
+      sex,
+      primaryUseCase,
       profession,
       pregnancyStatus,
       lmpDate,
@@ -304,21 +337,48 @@ export function ManualSignupWizard() {
           </div>
         )}
 
+        {current.id === "about" && (
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">Sex (optional)</Label>
+              <SexIconCards
+                value={sex}
+                onChange={(v) => setSex(v as SignupProfileDraft["sex"])}
+                className="mt-1.5"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">Why are you using MaaCare?</Label>
+              <Select
+                value={primaryUseCase || "self_maternal"}
+                onValueChange={(v) => setPrimaryUseCase(v as PrimaryUseCaseValue)}
+              >
+                <SelectTrigger className={cn("mt-1.5", fieldBase)}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIMARY_USE_CASE_VALUES.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {PRIMARY_USE_LABEL[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">How do you use MaaCare professionally?</Label>
+              <p className="text-xs text-muted-foreground">Care teams vs families — you can change this later.</p>
+              <ProfessionPicker value={profession} onChange={setProfession} />
+            </div>
+          </div>
+        )}
+
         {current.id === "journey" && (
           <div className="space-y-6">
             <div className="space-y-2">
               <Label className="text-base font-semibold">Where are you in your journey?</Label>
-              <p className="text-xs text-muted-foreground">
-                This shapes what we ask next — you can always update it in Profile.
-              </p>
+              <p className="text-xs text-muted-foreground">You can add dates later in Profile.</p>
               <JourneyStatusPicker value={pregnancyStatus} onChange={setPregnancyStatus} />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-base font-semibold">How do you use MaaCare?</Label>
-              <p className="text-xs text-muted-foreground">
-                We use this to separate care teams from families for future features — not for permissions.
-              </p>
-              <ProfessionPicker value={profession} onChange={setProfession} />
             </div>
           </div>
         )}
@@ -530,6 +590,11 @@ export function ManualSignupWizard() {
           <div className="space-y-3">
             <div className="break-words rounded-sm border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
               Account: <span className="font-medium text-foreground">{name || "—"}</span> · {email || "—"}
+              <br />
+              Primary focus:{" "}
+              <span className="font-medium text-foreground">
+                {PRIMARY_USE_LABEL[primaryUseCase || "self_maternal"]}
+              </span>
               <br />
               Journey: <span className="font-medium text-foreground">{pregnancyStatus.replace("_", " ")}</span>
               <br />

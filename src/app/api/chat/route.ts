@@ -9,6 +9,10 @@ import {
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 import { searchKnowledge } from "@/lib/rag/service";
+import {
+  resolveHealthDataUserId,
+  resolvePregnancyUserIdForRequester,
+} from "@/lib/app/care-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const bodySchema = z.object({
@@ -232,8 +236,22 @@ export async function POST(req: Request) {
             .join("\n\n---\n\n")
         : "(No matching internal articles were retrieved; answer generally and recommend professional care when unsure.)";
 
+    const profileMini = await supabase
+      .from("profiles")
+      .select("date_of_birth, primary_use_case")
+      .eq("id", session.id)
+      .maybeSingle();
+    if (profileMini.error) console.warn("[chat] profile:", profileMini.error.message);
+    const primaryUseCase = (profileMini.data?.primary_use_case as string | null) ?? null;
+    const { pregnancyUserId, activeCare } = await resolvePregnancyUserIdForRequester(
+      supabase,
+      session.id,
+      primaryUseCase,
+    );
+    const vitalsUserId = resolveHealthDataUserId(session.id, primaryUseCase, activeCare, "vitals");
+    const symptomsUserId = resolveHealthDataUserId(session.id, primaryUseCase, activeCare, "symptoms");
+
     const [
-      profileRes,
       pregnancyRes,
       healthRes,
       conditionsRes,
@@ -245,14 +263,9 @@ export async function POST(req: Request) {
       appointmentsRes,
     ] = await Promise.all([
       supabase
-        .from("profiles")
-        .select("date_of_birth")
-        .eq("id", session.id)
-        .maybeSingle(),
-      supabase
         .from("pregnancy_profiles")
         .select("pregnancy_status, gestational_age_weeks, edd_date, risk_flags")
-        .eq("user_id", session.id)
+        .eq("user_id", pregnancyUserId)
         .maybeSingle(),
       supabase
         .from("user_health_profiles")
@@ -283,14 +296,14 @@ export async function POST(req: Request) {
         .select(
           "recorded_at, systolic_bp, diastolic_bp, heart_rate_bpm, weight_kg, temperature_c, glucose_mg_dl, spo2_pct",
         )
-        .eq("user_id", session.id)
+        .eq("user_id", vitalsUserId)
         .order("recorded_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
       supabase
         .from("symptom_logs")
         .select("logged_at, title, severity, symptom_codes")
-        .eq("user_id", session.id)
+        .eq("user_id", symptomsUserId)
         .order("logged_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -309,7 +322,6 @@ export async function POST(req: Request) {
     ]);
 
     if (pregnancyRes.error) console.warn("[chat] pregnancy:", pregnancyRes.error.message);
-    if (profileRes.error) console.warn("[chat] profile:", profileRes.error.message);
     if (healthRes.error) console.warn("[chat] health:", healthRes.error.message);
     if (conditionsRes.error) console.warn("[chat] conditions:", conditionsRes.error.message);
     if (allergiesRes.error) console.warn("[chat] allergies:", allergiesRes.error.message);
@@ -334,7 +346,7 @@ export async function POST(req: Request) {
         (m) =>
           `${String(m.name)}${m.dose ? ` ${String(m.dose)}` : ""}${m.frequency ? `, ${String(m.frequency)}` : ""}`,
       ) ?? [];
-    const dateOfBirth = (profileRes.data?.date_of_birth as string | null) ?? null;
+    const dateOfBirth = (profileMini.data?.date_of_birth as string | null) ?? null;
     const age = computeAgeFromDateOfBirth(dateOfBirth);
     const recentPlannerSummary =
       (plannerRes.data ?? [])
@@ -360,6 +372,10 @@ export async function POST(req: Request) {
       line("Member email", session.email ?? null),
       line("Date of birth", dateOfBirth),
       line("Age (computed from DOB)", age != null ? String(age) : null),
+      line(
+        "Care link",
+        activeCare ? "Pregnancy/vitals context may reflect a linked family member you support." : null,
+      ),
       line("Pregnancy status", pregnancyRes.data?.pregnancy_status as string | null),
       line(
         "Gestational week",

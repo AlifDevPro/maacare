@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { requireDbAdmin } from "@/lib/auth/require-db-admin";
+import { revalidateLandingTeamCache } from "@/lib/team/landing-team-members";
 import { tryCreateSupabaseServiceClient } from "@/lib/supabase/service";
 
 const bodySchema = z.object({
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
       }
     }
 
+    revalidateLandingTeamCache();
     return NextResponse.json({ ok: true });
   } catch (e) {
     return serverErrorJson("developer_team_reorder", e);

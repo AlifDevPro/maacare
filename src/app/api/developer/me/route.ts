@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { revalidateLandingTeamCache } from "@/lib/team/landing-team-members";
 import { tryCreateSupabaseServiceClient } from "@/lib/supabase/service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -150,6 +151,7 @@ export async function PATCH(req: Request) {
       return failJson(500, "Could not update developer profile.");
     }
 
+    revalidateLandingTeamCache();
     return NextResponse.json({ ok: true });
   } catch (e) {
     return serverErrorJson("developer_me PATCH", e);

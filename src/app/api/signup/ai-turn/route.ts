@@ -11,7 +11,7 @@ import {
 } from "@/lib/signup/draft-normalize";
 import { buildFilledSummary, deriveOnboardingFocus } from "@/lib/signup/onboarding-focus";
 import { redactTranscriptForLlm } from "@/lib/signup/redact-for-llm";
-import { signupProfileDraftSchema } from "@/lib/signup/signup-draft";
+import { signupProfileDraftSchema, type SignupProfileDraft } from "@/lib/signup/signup-draft";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 
@@ -128,7 +128,8 @@ export async function POST(req: Request) {
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) return validationJsonResponse(parsed.error);
 
-    const { messages, draft } = parsed.data;
+    const { messages, draft: draftIn } = parsed.data;
+    const draft = draftIn as SignupProfileDraft;
     const redacted = redactTranscriptForLlm(messages);
     const transcript = buildSlidingTranscript(redacted);
     const latestUser = latestUserContent(messages);
@@ -162,7 +163,7 @@ ${latestUser}`;
     const mergedRaw = patch ? mergeSignupProfileDraft(draft, patch) : draft;
     const mergedDraft = normalizeSignupDraftFromUserText(mergedRaw, latestUser, {
       recentUserTexts: collectRecentUserBodiesBeforeLatest(messages, 4),
-    });
+    }) as SignupProfileDraft;
 
     return NextResponse.json({
       reply: assistantVisible,

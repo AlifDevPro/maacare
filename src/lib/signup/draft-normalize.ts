@@ -44,8 +44,13 @@ export function normalizeSignupDraftFromUserText(
 
   const affirms = PREGNANCY_AFFIRM_RE.test(combined);
   const negates = NOT_PREGNANT_RE.test(combined);
+  const partnerSupport =
+    /\b(husband|wife|spouse|partner|supporting)\b/i.test(combined) &&
+    /\b(pregnant|pregnancy|her|wife|she|their baby|baby)\b/i.test(combined);
 
-  if (negates && !affirms) {
+  if (partnerSupport && !affirms) {
+    next = { ...next, primaryUseCase: "partner_support", pregnancyStatus: "not_applicable" };
+  } else if (negates && !affirms) {
     next = { ...next, pregnancyStatus: "not_applicable" };
   }
 
@@ -55,7 +60,7 @@ export function normalizeSignupDraftFromUserText(
     } else if (PARENT_RE.test(combined) && !STUDENT_RESEARCHER_RE.test(combined)) {
       next = { ...next, profession: "parent_caregiver" };
     } else if (STUDENT_RESEARCHER_RE.test(combined)) {
-      next = { ...next, profession: "other" };
+      next = { ...next, profession: "other", primaryUseCase: "student_research" };
       const raw = latestUserText.trim();
       if (raw.length > 2 && raw.length < 500) {
         next = { ...next, healthNotes: appendHealthNoteLine(next.healthNotes, raw) };

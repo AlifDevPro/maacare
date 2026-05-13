@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition, useRef } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -23,6 +23,7 @@ import type { PublicUser } from "@/lib/auth/types";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { SmartHealthNudge } from "@/components/app/smart-health-nudge";
+import { ProfileAvatarUploadDialog } from "@/components/profile/profile-avatar-upload-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,21 +37,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatIsoDate } from "@/lib/profile/computed";
 import { refreshSession, signOut, updateUserLanguage, useSession } from "@/lib/auth-client";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
 const PREFS_KEY = "maacare:notification-prefs";
-
-const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
-
-function extFromMime(mime: string): string | null {
-  const m = mime.toLowerCase();
-  if (m === "image/jpeg" || m === "image/jpg") return "jpg";
-  if (m === "image/png") return "png";
-  if (m === "image/webp") return "webp";
-  if (m === "image/gif") return "gif";
-  return null;
-}
 
 type Prefs = { dailyReminders: boolean; communityNotifications: boolean };
 
@@ -80,7 +69,7 @@ export function ProfilePageClient({
   const { user } = useSession();
   const [bundle, setBundle] = useState(initialBundle);
   const [avatarUploading, setAvatarUploading] = useState(false);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [prefs, setPrefs] = useState<Prefs>({
     dailyReminders: true,
     communityNotifications: true,
@@ -169,62 +158,6 @@ export function ProfilePageClient({
         ? preg.pregnancy_status.replace("_", " ")
         : "Tap edit to add pregnancy details";
 
-  async function onAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const uid = user?.id;
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !uid) return;
-
-    const ext = extFromMime(file.type);
-    if (!ext) {
-      toast.error("Use a JPEG, PNG, WebP, or GIF image.");
-      return;
-    }
-    if (file.size > AVATAR_MAX_BYTES) {
-      toast.error("Image must be 5MB or smaller.");
-      return;
-    }
-
-    setAvatarUploading(true);
-    try {
-      const supabase = createSupabaseBrowserClient();
-      const path = `${uid}/avatar.${ext}`;
-      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
-        upsert: true,
-        contentType: file.type,
-      });
-      if (upErr) {
-        console.error(upErr);
-        toast.error(upErr.message || "Could not upload photo.");
-        return;
-      }
-      const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
-      const publicUrl = pub.publicUrl;
-      const res = await fetch("/api/profile", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avatarUrl: publicUrl }),
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { message?: string };
-        toast.error(j.message ?? "Could not save profile photo.");
-        return;
-      }
-      setBundle((prev) => {
-        if (!prev.profile) return prev;
-        return { ...prev, profile: { ...prev.profile, avatar_url: publicUrl } };
-      });
-      toast.success("Profile photo updated");
-      refreshFromServer();
-    } catch (err) {
-      console.error(err);
-      toast.error("Could not upload photo.");
-    } finally {
-      setAvatarUploading(false);
-    }
-  }
-
   return (
     <AppShell>
       <AppHeader title="Profile" showBack />
@@ -242,19 +175,12 @@ export function ProfilePageClient({
                   {initials(displayName)}
                 </AvatarFallback>
               </Avatar>
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                className="hidden"
-                onChange={(ev) => void onAvatarFileChange(ev)}
-              />
               <button
                 type="button"
                 className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-soft disabled:opacity-50"
                 aria-label="Change profile photo"
-                disabled={avatarUploading || !user?.id}
-                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarUploading}
+                onClick={() => setAvatarDialogOpen(true)}
               >
                 {avatarUploading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -446,6 +372,20 @@ export function ProfilePageClient({
           MaaCare · Profile synced with your account 🤍
         </p>
       </div>
+
+      <ProfileAvatarUploadDialog
+        open={avatarDialogOpen}
+        onOpenChange={setAvatarDialogOpen}
+        userId={session.id}
+        onBusy={setAvatarUploading}
+        onUploaded={(publicUrl) => {
+          setBundle((prev) => {
+            if (!prev.profile) return prev;
+            return { ...prev, profile: { ...prev.profile, avatar_url: publicUrl } };
+          });
+          refreshFromServer();
+        }}
+      />
     </AppShell>
   );
 }

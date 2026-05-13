@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
@@ -80,7 +81,7 @@ function SiteHeader() {
         <nav className="hidden items-center gap-7 md:flex">
           <a href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground">Features</a>
           <a href="#how" className="text-sm font-medium text-muted-foreground hover:text-foreground">How it works</a>
-          <a href="#team" className="text-sm font-medium text-muted-foreground hover:text-foreground">Team</a>
+          <a href="#team" className="text-sm font-medium text-muted-foreground hover:text-foreground">Our team</a>
           <a href="#pricing" className="text-sm font-medium text-muted-foreground hover:text-foreground">Pricing</a>
           <a href="#faq" className="text-sm font-medium text-muted-foreground hover:text-foreground">FAQ</a>
           <Link href="/docs" className="text-sm font-medium text-muted-foreground hover:text-foreground">Docs</Link>
@@ -298,6 +299,105 @@ function buildTeamCarouselSlides(members: LandingTeamMember[]): { member: Landin
 /** Fixed portrait frame so every team card matches (1, 2, or many members). */
 const TEAM_CARD_OUTER = "w-[280px] max-w-[min(280px,calc(100vw-2rem))]";
 
+const TEAM_SECTION_SHELL =
+  "relative overflow-hidden border-t border-border/50 bg-gradient-to-b from-secondary/35 via-secondary/10 to-background py-20 pb-24 md:py-28 md:pb-32";
+
+const TEAM_SECTION_EYEBROW = "Meet the team";
+const TEAM_SECTION_TITLE = "The team making life easier for mothers.";
+const TEAM_SECTION_DESCRIPTION =
+  "Engineers and designers behind MaaCare—thoughtful tools for pregnancy, birth, and early parenting.";
+
+function TeamSectionPremiumBackdrop() {
+  return (
+    <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
+      <div className="absolute -left-[18%] top-[-12%] h-[min(480px,72vw)] w-[min(480px,72vw)] rounded-full bg-primary/[0.07] blur-3xl dark:bg-primary/[0.11]" />
+      <div className="absolute -right-[12%] top-[28%] h-[min(360px,55vw)] w-[min(360px,55vw)] rounded-full bg-primary/[0.05] blur-3xl dark:bg-primary/[0.08]" />
+      <div className="absolute bottom-[-8%] left-[20%] h-[min(280px,45vw)] w-[min(280px,45vw)] rounded-full bg-rose-400/[0.04] blur-3xl dark:bg-rose-400/[0.07]" />
+      <svg
+        className="absolute -bottom-8 left-1/2 h-[min(380px,55vh)] w-[min(1240px,220vw)] -translate-x-1/2 text-primary opacity-[0.11] dark:opacity-[0.16]"
+        viewBox="0 0 1200 360"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        preserveAspectRatio="xMidYMax meet"
+      >
+        <path
+          d="M0 298C180 220 360 320 540 252C720 184 900 288 1200 228V360H0V298Z"
+          fill="currentColor"
+          className="text-primary"
+        />
+        <path
+          d="M0 328C220 268 400 348 620 288C760 248 940 332 1200 288V360H0V328Z"
+          fill="currentColor"
+          className="text-primary"
+          opacity="0.45"
+        />
+        <path
+          d="M120 40C240 120 360 20 520 80C680 140 840 40 1000 100"
+          stroke="currentColor"
+          strokeWidth="1.25"
+          strokeLinecap="round"
+          opacity="0.35"
+        />
+        <path
+          d="M80 120C200 200 440 60 640 140C840 220 980 100 1120 160"
+          stroke="currentColor"
+          strokeWidth="0.9"
+          strokeLinecap="round"
+          opacity="0.28"
+        />
+      </svg>
+      <svg
+        className="absolute right-[-5%] top-[6%] h-[200px] w-[200px] text-foreground opacity-[0.045] dark:opacity-[0.07] sm:h-[260px] sm:w-[260px]"
+        viewBox="0 0 100 100"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <pattern id="team-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+            <path d="M 10 0 L 0 0 0 10" fill="none" stroke="currentColor" strokeWidth="0.35" />
+          </pattern>
+        </defs>
+        <rect width="100" height="100" fill="url(#team-grid)" />
+      </svg>
+    </div>
+  );
+}
+
+function TeamSectionHeader({ loading }: { loading?: boolean }) {
+  if (loading) {
+    return (
+      <div className="mx-auto mb-10 max-w-2xl space-y-3 text-center md:mb-12">
+        <Skeleton className="mx-auto h-4 w-32 rounded-md" />
+        <Skeleton className="mx-auto h-9 w-full max-w-lg rounded-lg md:h-11" />
+        <Skeleton className="mx-auto h-4 w-full max-w-xl" />
+        <Skeleton className="mx-auto h-4 w-full max-w-md" />
+      </div>
+    );
+  }
+  return (
+    <div className="mx-auto mb-10 max-w-2xl text-center md:mb-12">
+      <p className="text-sm font-semibold uppercase tracking-wider text-primary">{TEAM_SECTION_EYEBROW}</p>
+      <h2 className="mt-2 font-display text-3xl font-semibold leading-tight text-balance md:text-4xl">{TEAM_SECTION_TITLE}</h2>
+      <p className="mt-3 text-muted-foreground text-pretty">{TEAM_SECTION_DESCRIPTION}</p>
+    </div>
+  );
+}
+
+function TeamSectionSkeleton() {
+  return (
+    <section id="team" className={TEAM_SECTION_SHELL}>
+      <TeamSectionPremiumBackdrop />
+      <div className="relative mx-auto max-w-6xl px-4">
+        <TeamSectionHeader loading />
+        <div className="flex min-h-[400px] flex-wrap items-center justify-center gap-5 py-6 sm:min-h-[440px] sm:gap-6">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className={cn(TEAM_CARD_OUTER, "aspect-[3/4] shrink-0 rounded-2xl")} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function TeamSpotCard({
   member: m,
   emphasis,
@@ -424,7 +524,7 @@ function TeamSection() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/team", { cache: "no-store" })
+    void fetch("/api/team")
       .then((r) => r.json())
       .then((j: { members?: LandingTeamMember[] }) => {
         if (cancelled) return;
@@ -439,34 +539,20 @@ function TeamSection() {
   }, []);
 
   if (members === null) {
-    return (
-      <section id="team" className="border-t border-border/50 bg-secondary/20 py-16 md:py-20">
-        <div className="mx-auto max-w-6xl px-4 text-center text-sm text-muted-foreground">Loading team…</div>
-      </section>
-    );
+    return <TeamSectionSkeleton />;
   }
 
   if (members.length === 0) return null;
 
   const n = members.length;
 
-  const subtitle = "Meet the people building MaaCare.";
-
-  const headerBlock = (
-    <div className="mx-auto mb-10 max-w-2xl text-center md:mb-12">
-      <p className="text-sm font-semibold uppercase tracking-wider text-primary">Team</p>
-      <h2 className="mt-2 font-display text-3xl font-semibold leading-tight md:text-4xl">The people building MaaCare.</h2>
-      <p className="mt-3 text-muted-foreground">{subtitle}</p>
-    </div>
-  );
+  const headerBlock = <TeamSectionHeader />;
 
   if (n === 1) {
     return (
-      <section
-        id="team"
-        className="border-t border-border/50 bg-gradient-to-b from-secondary/25 via-secondary/15 to-background py-20 pb-24 md:py-28 md:pb-32"
-      >
-        <div className="mx-auto max-w-6xl px-4">
+      <section id="team" className={TEAM_SECTION_SHELL}>
+        <TeamSectionPremiumBackdrop />
+        <div className="relative mx-auto max-w-6xl px-4">
           {headerBlock}
           <motion.div
             className="flex justify-center"
@@ -483,11 +569,9 @@ function TeamSection() {
   }
 
   return (
-    <section
-      id="team"
-      className="border-t border-border/50 bg-gradient-to-b from-secondary/25 via-secondary/15 to-background py-20 pb-24 md:py-28 md:pb-32"
-    >
-      <div className="mx-auto max-w-6xl px-4">
+    <section id="team" className={TEAM_SECTION_SHELL}>
+      <TeamSectionPremiumBackdrop />
+      <div className="relative mx-auto max-w-6xl px-4">
         {headerBlock}
 
         <div className="relative min-h-[420px] sm:min-h-[460px]">

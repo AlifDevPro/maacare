@@ -4,6 +4,7 @@ import { z } from "zod";
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { requireDbAdmin } from "@/lib/auth/require-db-admin";
 import { escapeIlike } from "@/lib/community/aggregate-counts";
+import { revalidateLandingTeamCache } from "@/lib/team/landing-team-members";
 import { tryCreateSupabaseServiceClient } from "@/lib/supabase/service";
 
 const postSchema = z
@@ -164,6 +165,7 @@ export async function POST(req: Request) {
       return failJson(500, "Could not add team member.");
     }
 
+    revalidateLandingTeamCache();
     return NextResponse.json({ ok: true, userId: targetId });
   } catch (e) {
     return serverErrorJson("admin_developer_team POST", e);

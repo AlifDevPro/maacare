@@ -1,4 +1,5 @@
-import { pregnancyFieldVisibility } from "@/lib/profile/journey-fields";
+import { resolveProfileFieldVisibility } from "@/lib/profile/journey-fields";
+import { normalizePrimaryUseCase } from "@/lib/profile/primary-use-case";
 
 import type { SignupProfileDraft } from "./signup-draft";
 
@@ -9,12 +10,15 @@ export function buildSignupProfilePayload(d: SignupProfileDraft): Record<string,
     phone: d.phone.trim() || undefined,
     timezone: d.timezone.trim() || undefined,
     profession: d.profession || undefined,
+    primaryUseCase: normalizePrimaryUseCase(d.primaryUseCase as string | null | undefined),
     pregnancyStatus: d.pregnancyStatus,
     notifyCommunityActivity: d.notifyCommunityActivity,
     notifyDailyReminders: d.notifyDailyReminders,
   };
 
-  const vis = pregnancyFieldVisibility(d.pregnancyStatus);
+  if (d.sex) profilePayload.sex = d.sex;
+
+  const vis = resolveProfileFieldVisibility(d.pregnancyStatus, d.primaryUseCase);
   if (vis.showLmpEdd) {
     profilePayload.lmpDate = d.lmpDate || undefined;
     profilePayload.eddDate = d.eddDate || undefined;

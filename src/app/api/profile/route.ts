@@ -4,11 +4,17 @@ import { z } from "zod";
 import { validationJsonResponse, failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { loadProfileBundle } from "@/lib/app/profile-bundle-data";
+import { PRIMARY_USE_CASE_VALUES } from "@/lib/profile/primary-use-case";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const bloodEnum = z.enum(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"]).nullable().optional();
 const sexEnum = z.enum(["female", "male", "other", "unknown"]).nullable().optional();
 const pregStatusEnum = z.enum(["planning", "pregnant", "postpartum", "not_applicable"]).optional();
+const primaryUseCaseEnum = z
+  .enum(PRIMARY_USE_CASE_VALUES as unknown as [string, ...string[]])
+  .nullable()
+  .optional();
+const jsonContext = z.record(z.string(), z.unknown()).nullable().optional();
 
 const patchSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
@@ -38,6 +44,10 @@ const patchSchema = z.object({
   notifyCommunityActivity: z.boolean().optional(),
   notifyDailyReminders: z.boolean().optional(),
   profession: z.string().max(64).nullable().optional(),
+  primaryUseCase: primaryUseCaseEnum,
+  studentContext: jsonContext,
+  clinicianContext: jsonContext,
+  partnerSupportContext: jsonContext,
   communityShowExtendedProfile: z.boolean().optional(),
   avatarUrl: z.union([z.string().url().max(2048), z.literal(""), z.null()]).optional(),
 });
@@ -93,6 +103,18 @@ export async function PATCH(req: Request) {
     }
     if (body.profession !== undefined) {
       profileUpdates.profession = body.profession?.trim() || null;
+    }
+    if (body.primaryUseCase !== undefined) {
+      profileUpdates.primary_use_case = body.primaryUseCase;
+    }
+    if (body.studentContext !== undefined) {
+      profileUpdates.student_context = body.studentContext;
+    }
+    if (body.clinicianContext !== undefined) {
+      profileUpdates.clinician_context = body.clinicianContext;
+    }
+    if (body.partnerSupportContext !== undefined) {
+      profileUpdates.partner_support_context = body.partnerSupportContext;
     }
     if (body.communityShowExtendedProfile !== undefined) {
       profileUpdates.community_show_extended_profile = body.communityShowExtendedProfile;

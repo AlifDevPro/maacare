@@ -1,3 +1,5 @@
+import type { HomeUiVisibility, UserAppContext } from "@/lib/app/user-app-context";
+
 export type UpcomingAppointment = {
   id: string;
   title: string;
@@ -27,6 +29,11 @@ export type LatestSymptom = {
 
 export type JourneyStage = "planning" | "pregnant" | "postpartum";
 
+export type HomeCareBanner = {
+  viewingSubjectUserId: string | null;
+  viewingSubjectDisplayName: string | null;
+};
+
 export type HomeData = {
   profile: { displayName: string };
   pregnancy: {
@@ -42,5 +49,7 @@ export type HomeData = {
   upcomingAppointmentsCount: number;
   unreadNotificationsCount: number;
   serverTime: string;
+  ui: HomeUiVisibility;
+  care: HomeCareBanner;
+  appContext: UserAppContext;
 };
-

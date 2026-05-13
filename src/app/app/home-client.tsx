@@ -26,7 +26,6 @@ import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { SmartHealthNudge } from "@/components/app/smart-health-nudge";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
 import { Card } from "@/components/ui/card";
 import { babyAt, trimesterOf } from "@/lib/pregnancy";
 import type { HomeData, JourneyStage } from "@/lib/app/home-types";
@@ -40,7 +39,7 @@ function homeJourneyStage(p: HomeData["pregnancy"]): JourneyStage {
   if (p.status === "pregnant") return "pregnant";
   if (p.status === "planning") return "planning";
   const w = coerceGestationalWeek(p.gestationalWeek);
-  if (w != null && w >= 1 && w <= 42) return "pregnant";
+  if (w != null && w >= 0 && w <= 42) return "pregnant";
   return "planning";
 }
 
@@ -48,37 +47,23 @@ export function HomeClient({ initial }: { initial: HomeData }) {
   const router = useRouter();
   const [home, setHome] = useState(initial);
   const [refreshing, setRefreshing] = useState(false);
-  const [week, setWeek] = useState(() => {
-    const w = coerceGestationalWeek(initial.pregnancy.gestationalWeek);
-    return w != null && w >= 1 ? Math.max(1, Math.min(40, Math.round(w))) : 20;
-  });
 
   const stage = useMemo(() => homeJourneyStage(home.pregnancy), [home.pregnancy]);
-  const baby = useMemo(() => babyAt(week), [week]);
-  const trimester = useMemo(() => trimesterOf(week), [week]);
-  const ppWeek = home.pregnancy.postpartumWeek;
-
-  useEffect(() => {
+  const displayWeek = useMemo(() => {
     const w = coerceGestationalWeek(home.pregnancy.gestationalWeek);
-    if (w != null && w >= 1) {
-      setWeek(Math.max(1, Math.min(40, Math.round(w))));
-    }
-  }, [home.pregnancy.gestationalWeek, home.pregnancy.status]);
-
-  async function persistWeek(nextWeek: number) {
-    try {
-      const res = await fetch("/api/profile", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gestationalAgeWeeks: nextWeek }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { message?: string };
-      if (!res.ok) throw new Error(j.message ?? "Could not save pregnancy week");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save pregnancy week");
-    }
-  }
+    if (w == null) return null;
+    if (w < 0 || w > 42) return null;
+    return Math.max(1, Math.min(40, Math.round(w)));
+  }, [home.pregnancy.gestationalWeek]);
+  const baby = useMemo(
+    () => (displayWeek != null ? babyAt(displayWeek) : null),
+    [displayWeek],
+  );
+  const trimester = useMemo(
+    () => (displayWeek != null ? trimesterOf(displayWeek) : null),
+    [displayWeek],
+  );
+  const ppWeek = home.pregnancy.postpartumWeek;
 
   async function refreshHomeData() {
     setRefreshing(true);
@@ -87,10 +72,6 @@ export function HomeClient({ initial }: { initial: HomeData }) {
       const j = (await res.json().catch(() => ({}))) as HomeData & { message?: string; error?: string };
       if (!res.ok) throw new Error(j.message ?? j.error ?? "Could not refresh updates");
       setHome(j);
-      const w = coerceGestationalWeek(j.pregnancy?.gestationalWeek);
-      if (w != null && w >= 1) {
-        setWeek(Math.max(1, Math.min(40, Math.round(w))));
-      }
       router.refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not refresh updates");
@@ -128,7 +109,16 @@ export function HomeClient({ initial }: { initial: HomeData }) {
           </h1>
         </motion.div>
 
-        {stage === "planning" ? (
+        {home.care.viewingSubjectUserId ? (
+          <div className="rounded-3xl bg-muted/35 px-4 py-2.5 text-center text-xs text-muted-foreground">
+            Linked pregnancy view
+            {home.care.viewingSubjectDisplayName ? ` · ${home.care.viewingSubjectDisplayName}` : ""}
+          </div>
+        ) : null}
+
+        {home.ui.showPregnancyJourney ? (
+          <>
+            {stage === "planning" ? (
           <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-card">
             <div className="space-y-5 p-5">
               <div className="flex items-center justify-between">
@@ -247,6 +237,43 @@ export function HomeClient({ initial }: { initial: HomeData }) {
               </div>
             </div>
           </Card>
+        ) : displayWeek == null ? (
+          <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-card">
+            <div className="space-y-5 p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">
+                    Pregnancy week
+                  </p>
+                  <p className="font-display text-2xl font-semibold leading-tight tracking-tight">
+                    Add your dates
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Your week is calculated from last period, due date, or gestational age saved in your profile — not
+                    here on Home.
+                  </p>
+                </div>
+                <motion.div
+                  initial={false}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl bg-card text-5xl shadow-soft animate-float"
+                >
+                  <CalendarDays className="h-10 w-10 text-primary" aria-hidden />
+                </motion.div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button asChild variant="secondary" className="rounded-2xl">
+                  <Link href="/profile/edit">Edit profile</Link>
+                </Button>
+                <Button asChild className="rounded-2xl">
+                  <Link href="/planner">
+                    Open planner
+                    <ChevronRight className="ml-1 h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </Card>
         ) : (
           <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-card">
             <div className="space-y-5 p-5">
@@ -256,35 +283,41 @@ export function HomeClient({ initial }: { initial: HomeData }) {
                     Pregnancy week
                   </p>
                   <p className="font-display text-4xl font-semibold leading-none tracking-tight">
-                    {week}
+                    {displayWeek}
                     <span className="text-lg font-medium text-muted-foreground">/40</span>
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Trimester {trimester} · {Math.max(0, 40 - week)} weeks to go
+                    Trimester {trimester} · {Math.max(0, 40 - displayWeek)} weeks to go
                     {home.pregnancy.displayEdd
                       ? ` · Due ${new Date(home.pregnancy.displayEdd).toLocaleDateString()}`
                       : ""}
                   </p>
                 </div>
-                <motion.div
-                  key={baby.emoji}
-                  initial={false}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl bg-card text-5xl shadow-soft animate-float"
-                >
-                  {baby.emoji}
-                </motion.div>
+                {baby ? (
+                  <motion.div
+                    key={baby.emoji}
+                    initial={false}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl bg-card text-5xl shadow-soft animate-float"
+                  >
+                    {baby.emoji}
+                  </motion.div>
+                ) : null}
               </div>
 
-              <Slider
-                value={[week]}
-                onValueChange={([v]) => setWeek(v)}
-                onValueCommit={([v]) => void persistWeek(v)}
-                min={1}
-                max={40}
-                step={1}
-                aria-label="Pregnancy week"
-              />
+              <div
+                className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuenow={displayWeek}
+                aria-valuemin={1}
+                aria-valuemax={40}
+                aria-label={`Pregnancy progress, week ${displayWeek} of 40`}
+              >
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-300"
+                  style={{ width: `${Math.min(100, (displayWeek / 40) * 100)}%` }}
+                />
+              </div>
 
               <Button asChild className="w-full rounded-2xl">
                 <Link href="/planner">
@@ -294,8 +327,63 @@ export function HomeClient({ initial }: { initial: HomeData }) {
               </Button>
             </div>
           </Card>
+            )}
+          </>
+        ) : home.ui.showPartnerConnectHint ? (
+          <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-sm">
+            <div className="space-y-4 p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">Family care mode</p>
+              <p className="font-display text-2xl font-semibold leading-tight">Connect their pregnancy timeline</p>
+              <p className="text-sm text-muted-foreground">Send a request from Profile with their user ID.</p>
+              <Button asChild className="w-full rounded-2xl">
+                <Link href="/profile/edit">Open profile editor</Link>
+              </Button>
+            </div>
+          </Card>
+        ) : home.ui.heroVariant === "student" ? (
+          <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-sm">
+            <div className="space-y-3 p-5">
+              <p className="font-display text-2xl font-semibold">Your hub</p>
+              <p className="text-sm text-muted-foreground">
+                Planner and tools stay open — pregnancy details stay optional.
+              </p>
+              <Button asChild className="w-full rounded-2xl">
+                <Link href="/planner">
+                  Open planner
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </Card>
+        ) : home.ui.heroVariant === "clinician" ? (
+          <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-sm">
+            <div className="space-y-3 p-5">
+              <p className="font-display text-2xl font-semibold">Clinical mode</p>
+              <p className="text-sm text-muted-foreground">Use AI chat and planner on your schedule.</p>
+              <Button asChild className="w-full rounded-2xl">
+                <Link href="/chat">
+                  Ask AI
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <Card className="overflow-hidden border-0 bg-gradient-hero p-0 shadow-sm">
+            <div className="space-y-3 p-5">
+              <p className="font-display text-2xl font-semibold">Welcome</p>
+              <p className="text-sm text-muted-foreground">Pick up your routine in the planner.</p>
+              <Button asChild className="w-full rounded-2xl">
+                <Link href="/planner">
+                  Continue
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </Card>
         )}
 
+        {home.ui.showVitalsCard ? (
         <Card className="p-4 shadow-soft">
           <div className="mb-3 flex items-center justify-between">
             <p className="font-display text-sm font-semibold">Vitals snapshot</p>
@@ -338,7 +426,9 @@ export function HomeClient({ initial }: { initial: HomeData }) {
             />
           </div>
         </Card>
+        ) : null}
 
+        {home.ui.showPregnancyJourney ? (
         <Card className="border-accent/20 bg-accent-soft/40 p-4 shadow-soft">
           <div className="flex items-start gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-card text-xl">
@@ -346,8 +436,10 @@ export function HomeClient({ initial }: { initial: HomeData }) {
                 <CalendarDays className="h-5 w-5 text-accent" aria-hidden />
               ) : stage === "postpartum" ? (
                 <Moon className="h-5 w-5 text-accent" aria-hidden />
+              ) : displayWeek == null ? (
+                <CalendarDays className="h-5 w-5 text-accent" aria-hidden />
               ) : (
-                baby.emoji
+                baby?.emoji ?? null
               )}
             </span>
             <div>
@@ -373,31 +465,52 @@ export function HomeClient({ initial }: { initial: HomeData }) {
                     Heavy bleeding, fever, or severe pain need urgent care — see Emergency if unsure.
                   </p>
                 </>
+              ) : displayWeek == null ? (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wider">Pregnancy details</p>
+                  <p className="mt-1 text-sm font-medium leading-snug">
+                    Add your last period, due date, or current week in profile edit so we can personalize tips and
+                    your planner.
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    <Link href="/profile/edit" className="font-medium text-primary underline-offset-2 hover:underline">
+                      Open profile editor
+                    </Link>
+                  </p>
+                </>
               ) : (
                 <>
                   <p className="text-xs font-semibold uppercase tracking-wider">
-                    Week {week} · Baby this week
+                    Week {displayWeek} · Baby this week
                   </p>
                   <p className="mt-1 text-sm font-medium leading-snug ">
-                    Your baby is the size of a <span className="text-accent">{baby.size}</span>.
+                    {home.care.viewingSubjectUserId ? "Baby" : "Your baby"} is the size of a{" "}
+                    <span className="text-accent">{baby?.size ?? "—"}</span>.
                   </p>
-                  <p className="mt-1 text-sm text-muted-foreground">{baby.fact}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{baby?.fact ?? ""}</p>
                 </>
               )}
             </div>
           </div>
         </Card>
+        ) : null}
 
         <div className="grid grid-cols-2 gap-3">
-          <QuickAction to="/symptoms" icon={Activity} label="Check symptoms" tone="rose" />
+          {home.ui.showSymptomShortcut ? (
+            <QuickAction to="/symptoms" icon={Activity} label="Check symptoms" tone="rose" />
+          ) : null}
           <QuickAction to="/chat" icon={Sparkles} label="Ask AI" tone="sage" />
           <QuickAction to="/reports" icon={Heart} label="Simplify report" tone="rose" />
-          <QuickAction
-            to={stage === "pregnant" ? "/postpartum" : "/planner"}
-            icon={stage === "pregnant" ? Moon : CalendarClock}
-            label={stage === "pregnant" ? "Postpartum" : "Planner"}
-            tone="sage"
-          />
+          {home.ui.showPostpartumShortcut ? (
+            <QuickAction
+              to={stage === "pregnant" ? "/postpartum" : "/planner"}
+              icon={stage === "pregnant" ? Moon : CalendarClock}
+              label={stage === "pregnant" ? "Postpartum" : "Planner"}
+              tone="sage"
+            />
+          ) : (
+            <QuickAction to="/planner" icon={CalendarClock} label="Planner" tone="sage" />
+          )}
         </div>
 
         <Card className="p-4 shadow-soft">

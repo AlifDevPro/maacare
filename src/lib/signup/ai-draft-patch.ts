@@ -2,7 +2,13 @@ import { z } from "zod";
 
 import { PROFESSION_VALUES } from "@/lib/profile/profession-values";
 
+import { PRIMARY_USE_CASE_VALUES } from "@/lib/profile/primary-use-case";
+
 import type { SignupProfileDraft } from "./signup-draft";
+
+const primaryUseCaseEnum = z.enum(
+  PRIMARY_USE_CASE_VALUES as unknown as [string, ...string[]],
+);
 
 const pregnancyEnum = z.enum(["planning", "pregnant", "postpartum", "not_applicable"]);
 
@@ -10,6 +16,8 @@ const pregnancyEnum = z.enum(["planning", "pregnant", "postpartum", "not_applica
 export const signupAiDraftPatchSchema = z
   .object({
     displayName: z.string().max(200).optional(),
+    sex: z.enum(["female", "male", "other", "unknown"]).optional(),
+    primaryUseCase: primaryUseCaseEnum.optional(),
     profession: z.enum(PROFESSION_VALUES).optional(),
     pregnancyStatus: pregnancyEnum.optional(),
     lmpDate: z.string().max(40).optional(),
@@ -68,6 +76,10 @@ function numToStr(v: string | number | undefined): string {
 export function mergeSignupProfileDraft(base: SignupProfileDraft, patch: SignupAiDraftPatch): SignupProfileDraft {
   const next = { ...base };
   if (patch.displayName !== undefined) next.displayName = patch.displayName;
+  if (patch.sex !== undefined) next.sex = patch.sex;
+  if (patch.primaryUseCase !== undefined) {
+    next.primaryUseCase = patch.primaryUseCase as SignupProfileDraft["primaryUseCase"];
+  }
   if (patch.profession !== undefined) next.profession = patch.profession;
   if (patch.pregnancyStatus !== undefined) next.pregnancyStatus = patch.pregnancyStatus;
   if (patch.lmpDate !== undefined) next.lmpDate = patch.lmpDate;

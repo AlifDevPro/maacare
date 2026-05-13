@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { requireDbAdmin } from "@/lib/auth/require-db-admin";
+import { revalidateLandingTeamCache } from "@/lib/team/landing-team-members";
 import { tryCreateSupabaseServiceClient } from "@/lib/supabase/service";
 
 const uuid = z.string().uuid();
@@ -69,6 +70,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ userId: s
       return failJson(500, "Could not update team member.");
     }
 
+    revalidateLandingTeamCache();
     return NextResponse.json({ ok: true });
   } catch (e) {
     return serverErrorJson("admin_developer_team PATCH", e);
@@ -93,6 +95,7 @@ export async function DELETE(_req: Request, context: { params: Promise<{ userId:
       return failJson(500, "Could not remove team member.");
     }
 
+    revalidateLandingTeamCache();
     return NextResponse.json({ ok: true });
   } catch (e) {
     return serverErrorJson("admin_developer_team DELETE", e);

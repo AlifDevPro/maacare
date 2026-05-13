@@ -42,7 +42,8 @@ type PregnancyWeekSource = {
 export function resolveGestationalWeek(pregnancy: PregnancyWeekSource): number | null {
   if (!pregnancy) return null;
   const stored = coerceGestationalWeek(pregnancy.gestational_age_weeks);
-  if (stored != null) return Math.min(45, Math.max(0, stored));
+  const storedMeaningful = stored != null && stored >= 1;
+  if (storedMeaningful) return Math.min(45, Math.max(0, stored));
   const fromLmp = gestationalWeekFromLmp(pregnancy.lmp_date ?? undefined);
   if (fromLmp != null) return fromLmp;
   return gestationalWeekFromEdd(pregnancy.edd_date ?? undefined);

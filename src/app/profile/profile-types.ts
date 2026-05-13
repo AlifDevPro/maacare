@@ -1,3 +1,5 @@
+import type { UserAppContext } from "@/lib/app/user-app-context";
+
 /** GET /api/profile response shape */
 export type ProfileBundle = {
   profile: {
@@ -14,6 +16,10 @@ export type ProfileBundle = {
     notify_daily_reminders?: boolean | null;
     /** Self-reported: parent_caregiver | clinician | other — not the auth `role`. */
     profession?: string | null;
+    primary_use_case?: string | null;
+    student_context?: Record<string, unknown> | null;
+    clinician_context?: Record<string, unknown> | null;
+    partner_support_context?: Record<string, unknown> | null;
     /** When true, community member page shows week/EDD summary to other signed-in users. */
     community_show_extended_profile?: boolean | null;
     /** Admin-set: verified clinician badge in community (with profession clinician). */
@@ -45,5 +51,6 @@ export type ProfileBundle = {
   computed: {
     gestationalWeek: number | null;
     displayEdd: string | null;
+    appContext: UserAppContext;
   };
 };

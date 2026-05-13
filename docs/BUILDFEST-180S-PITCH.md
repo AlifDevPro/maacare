@@ -1,5 +1,7 @@
 # BuildFest — “Vibe to Production in 180 Seconds” (MaaCare)
 
+**See also:** **[`docs/PRESENTATION-SCRIPT-10MIN-COMPREHENSIVE.md`](./PRESENTATION-SCRIPT-10MIN-COMPREHENSIVE.md)** (10-minute technical talk: teleprompter + encyclopedia + Q&A) · **[`docs/DEMO-VIDEO-SCRIPT-180S-TECHNICAL-DENSE.md`](./DEMO-VIDEO-SCRIPT-180S-TECHNICAL-DENSE.md)** (180s montage) · **[`docs/JUDGE-PANEL-TECHNICAL-BRIEF.md`](./JUDGE-PANEL-TECHNICAL-BRIEF.md) §1b** (eight-pillar matrix).
+
 Use this for your **3-minute preliminary video**. Read at a calm pace (~130–150 words/min); if you run long, trim the optional sentences in brackets.
 
 ---

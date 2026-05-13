@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
 import { estimatedDueDateFromLmp, resolveGestationalWeek } from "@/lib/profile/computed";
+import { buildUserAppContext } from "@/lib/app/user-app-context";
 
 export async function loadProfileBundle(
   supabase: SupabaseClient,
@@ -35,6 +36,12 @@ export async function loadProfileBundle(
 
   const gestationalWeek = resolveGestationalWeek(pregnancy);
 
+  const appContext = buildUserAppContext({
+    primaryUseCase: profile?.primary_use_case as string | null | undefined,
+    sex: profile?.sex as string | null | undefined,
+    profession: profile?.profession as string | null | undefined,
+  });
+
   return {
     profile,
     health,
@@ -44,6 +51,7 @@ export async function loadProfileBundle(
     computed: {
       gestationalWeek,
       displayEdd: pregnancy?.edd_date ?? eddFromLmp ?? null,
+      appContext,
     },
   };
 }
