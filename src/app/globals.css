@@ -480,3 +480,41 @@
   pointer-events: none;
   animation: maacare-map-pulse 1.75s ease-out infinite;
 }
+
+/* Symptom result — subtle AI card shimmer (respect reduced motion). */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes maacare-ai-shimmer-sweep {
+    0% {
+      transform: translateX(-120%) skewX(-14deg);
+    }
+    100% {
+      transform: translateX(220%) skewX(-14deg);
+    }
+  }
+  .maacare-ai-shimmer-sweep {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .maacare-ai-shimmer-sweep::after {
+    content: "";
+    position: absolute;
+    inset: -40% -60%;
+    background: linear-gradient(
+      105deg,
+      transparent 35%,
+      color-mix(in oklch, var(--primary) 22%, transparent) 48%,
+      color-mix(in oklch, var(--ring) 18%, transparent) 52%,
+      transparent 65%
+    );
+    opacity: 0.55;
+    animation: maacare-ai-shimmer-sweep 5.5s ease-in-out infinite;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .maacare-ai-shimmer-sweep::after {
+    display: none;
+  }
+}

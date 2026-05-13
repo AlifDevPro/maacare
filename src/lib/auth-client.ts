@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -15,20 +15,10 @@ export type AuthUser = {
   avatarUrl?: string | null;
 };
 
-function sessionUserShallowEqual(a: AuthUser | null, b: AuthUser | null): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.id === b.id &&
-    a.email === b.email &&
-    a.name === b.name &&
-    a.role === b.role &&
-    a.language === b.language &&
-    (a.avatarUrl ?? null) === (b.avatarUrl ?? null)
-  );
-}
+/** Dispatched on login/logout/profile auth updates; RootProviders invalidates session query. */
+export const AUTH_EVENT = "maacare:auth";
 
-const AUTH_EVENT = "maacare:auth";
+export const authSessionQueryKey = ["auth", "session"] as const;
 
 export async function refreshSession(): Promise<AuthUser | null> {
   const res = await fetch("/api/auth/session", { credentials: "include" });
@@ -37,61 +27,27 @@ export async function refreshSession(): Promise<AuthUser | null> {
   return data.user ?? null;
 }
 
-export function useUser(): AuthUser | null {
-  const [user, setUser] = useState<AuthUser | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void refreshSession().then((u) => {
-      if (!cancelled) {
-        setUser((prev) => (sessionUserShallowEqual(prev, u) ? prev : u));
-      }
-    });
-    const onAuth = () => {
-      void refreshSession().then((u) => {
-        if (!cancelled) {
-          setUser((prev) => (sessionUserShallowEqual(prev, u) ? prev : u));
-        }
-      });
-    };
-    window.addEventListener(AUTH_EVENT, onAuth);
-    return () => {
-      cancelled = true;
-      window.removeEventListener(AUTH_EVENT, onAuth);
-    };
-  }, []);
-
-  return user;
+function authSessionQueryOptions() {
+  return {
+    queryKey: authSessionQueryKey,
+    queryFn: refreshSession,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+  };
 }
 
-/** Loading + user for gates (e.g. admin layout). */
+export function useUser(): AuthUser | null {
+  const { data } = useQuery(authSessionQueryOptions());
+  return data ?? null;
+}
+
+/** Loading + user for gates (e.g. admin layout). Shared cache across navigations. */
 export function useSession() {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    void refreshSession().then((u) => {
-      if (!cancelled) {
-        setUser((prev) => (sessionUserShallowEqual(prev, u) ? prev : u));
-        setLoading(false);
-      }
-    });
-    const onAuth = () => {
-      void refreshSession().then((u) => {
-        if (!cancelled) {
-          setUser((prev) => (sessionUserShallowEqual(prev, u) ? prev : u));
-        }
-      });
-    };
-    window.addEventListener(AUTH_EVENT, onAuth);
-    return () => {
-      cancelled = true;
-      window.removeEventListener(AUTH_EVENT, onAuth);
-    };
-  }, []);
-
-  return { user, loading };
+  const query = useQuery(authSessionQueryOptions());
+  return {
+    user: query.data ?? null,
+    loading: query.isPending,
+  };
 }
 
 function notifyAuth() {

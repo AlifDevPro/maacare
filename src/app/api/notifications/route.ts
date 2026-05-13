@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
-import { loadNotificationsPayload } from "@/lib/app/user-lists-data";
+import { loadNotificationsPayload, loadUnreadNotificationCount } from "@/lib/app/user-lists-data";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -18,6 +18,11 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? "40") || 40, 80);
 
     try {
+      if (req.nextUrl.searchParams.get("summary") === "1") {
+        const unreadCount = await loadUnreadNotificationCount(supabase, uid);
+        return Response.json({ notifications: [], unreadCount });
+      }
+
       const payload = await loadNotificationsPayload(supabase, uid, limit);
       return Response.json(payload);
     } catch (error: unknown) {

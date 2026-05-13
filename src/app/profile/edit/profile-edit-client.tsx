@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -12,6 +12,7 @@ import { BLOOD_TYPES, SEX_OPTIONS } from "@/app/profile/profile-field-options";
 import {
   JourneyStatusPicker,
   ProfessionPicker,
+  PROFESSION_VALUES,
   type ProfessionValue,
 } from "@/components/profile/journey-profession-pickers";
 import { AppShell } from "@/components/app/AppShell";
@@ -76,6 +77,24 @@ const SECTION_META: Record<SectionKey, { title: string; subtitle: string }> = {
 };
 
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
+const KNOWN_PROFESSION = new Set<string>(PROFESSION_VALUES);
+
+/** Map legacy or free-text profession values to the picker + preserve text in notes. */
+function migrateUnknownProfession(
+  raw: string | null | undefined,
+  existingNotes: string | null | undefined,
+): { profession: ProfessionValue | ""; notes: string } {
+  const trimmed = raw?.trim() ?? "";
+  const base = existingNotes?.trim() ?? "";
+  if (!trimmed) return { profession: "", notes: base };
+  if (KNOWN_PROFESSION.has(trimmed)) {
+    return { profession: trimmed as ProfessionValue, notes: base };
+  }
+  const tag = `Previous role on file: ${trimmed}`;
+  if (base.includes(tag)) return { profession: "other", notes: base };
+  return { profession: "other", notes: base ? `${base}\n\n${tag}` : tag };
+}
 
 function extFromMime(mime: string): string | null {
   const m = mime.toLowerCase();
@@ -162,14 +181,15 @@ export function ProfileEditClient({
     setProvider(h?.primary_care_provider ?? "");
     setInsurance(h?.insurance_provider ?? "");
     setMemberId(h?.insurance_member_id ?? "");
-    setHealthNotes(h?.notes ?? "");
+    const { profession: profHydrated, notes: notesHydrated } = migrateUnknownProfession(
+      p?.profession,
+      h?.notes,
+    );
+    setHealthNotes(notesHydrated);
     setAllergiesText(bundle.allergies.join(", "));
     setConditionsText(bundle.conditions.join(", "));
     setTimezone(p?.timezone ?? "");
-    const prof = p?.profession;
-    setProfession(
-      prof === "parent_caregiver" || prof === "clinician" || prof === "other" ? prof : "",
-    );
+    setProfession(profHydrated);
   }, [bundle, user, session.name]);
 
   const activeIdx = SECTION_ORDER.indexOf(activeSection);
@@ -380,6 +400,28 @@ export function ProfileEditClient({
 
   const profileEmail = bundle.profile?.email ?? session.email;
 
+  const { journeySummaryLabel, roleSummaryLabel } = useMemo(() => {
+    const j =
+      pregnancyStatus === "planning"
+        ? "Planning"
+        : pregnancyStatus === "pregnant"
+          ? "Pregnant"
+          : pregnancyStatus === "postpartum"
+            ? "Postpartum"
+            : pregnancyStatus === "not_applicable"
+              ? "Not applicable"
+              : pregnancyStatus;
+    const r =
+      profession === "parent_caregiver"
+        ? "Parent or caregiver"
+        : profession === "clinician"
+          ? "Clinician"
+          : profession === "other"
+            ? "Other"
+            : "Not set";
+    return { journeySummaryLabel: j, roleSummaryLabel: r };
+  }, [pregnancyStatus, profession]);
+
   return (
     <AppShell hideNav>
       <AppHeader title="Edit profile" showBack backHref="/profile" />
@@ -389,6 +431,19 @@ export function ProfileEditClient({
           Keep your details up to date so reminders, guidance, and emergency information stay
           accurate. Nothing here replaces medical advice from your clinician.
         </p>
+
+        <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5 text-xs">
+          <p className="font-medium text-foreground">
+            {displayName.trim() || "Name not set"}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            <span>Journey:</span>{" "}
+            <span className="text-foreground">{journeySummaryLabel}</span>
+            <span className="mx-1.5 text-border">·</span>
+            <span>Role:</span>{" "}
+            <span className="text-foreground">{roleSummaryLabel}</span>
+          </p>
+        </div>
 
         <Tabs value={activeSection} onValueChange={(v) => setActiveSection(v as SectionKey)} className="w-full min-w-0">
           <Card className="rounded-sm border-border/80 shadow-none">

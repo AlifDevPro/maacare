@@ -78,7 +78,7 @@ export function ProfileMenu() {
   if (!user) {
     return (
       <Button asChild size="sm" variant="ghost" className="h-9 gap-1.5">
-        <Link href="/login">
+        <Link href="/login" prefetch>
           <LogIn className="h-4 w-4" />
           <span className="text-sm">Log in</span>
         </Link>
@@ -110,13 +110,13 @@ export function ProfileMenu() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-          <Link href="/profile" className="cursor-pointer">
+          <Link href="/profile" prefetch className="cursor-pointer">
             <User className="mr-2 h-4 w-4" /> View profile
           </Link>
         </DropdownMenuItem>
 
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger className="cursor-pointer rounded-sm px-2 py-3 text-base">
             <Languages className="mr-2 h-4 w-4" /> Language ({user.language.toUpperCase()})
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
@@ -128,14 +128,18 @@ export function ProfileMenu() {
                 if (!ok) toast.error("Could not update language");
               }}
             >
-              <DropdownMenuRadioItem value="en">English</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="bn">বাংলা (Bangla)</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="en" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
+                English
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="bn" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
+                বাংলা (Bangla)
+              </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
 
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger className="cursor-pointer rounded-sm px-2 py-3 text-base">
             {theme === "dark" ? (
               <Moon className="mr-2 h-4 w-4" />
             ) : theme === "light" ? (
@@ -147,15 +151,15 @@ export function ProfileMenu() {
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
             <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as "light" | "dark" | "system")}>
-              <DropdownMenuRadioItem value="light">
+              <DropdownMenuRadioItem value="light" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
                 <Sun className="mr-2 h-4 w-4" />
                 Light
               </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="dark">
+              <DropdownMenuRadioItem value="dark" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
                 <Moon className="mr-2 h-4 w-4" />
                 Dark
               </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="system">
+              <DropdownMenuRadioItem value="system" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
                 <Monitor className="mr-2 h-4 w-4" />
                 System
               </DropdownMenuRadioItem>
@@ -166,29 +170,33 @@ export function ProfileMenu() {
         <DropdownMenuSeparator />
         {user.role === "admin" && (
           <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-            <Link href="/admin" className="cursor-pointer">
+            <Link href="/admin" prefetch className="cursor-pointer">
               <ShieldCheck className="mr-2 h-4 w-4" /> Admin panel
             </Link>
           </DropdownMenuItem>
         )}
         <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-          <Link href="/settings" className="cursor-pointer">
+          <Link href="/settings" prefetch className="cursor-pointer">
             <Settings className="mr-2 h-4 w-4" /> Settings
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-          <Link href="/help" className="cursor-pointer">
+          <Link href="/help" prefetch className="cursor-pointer">
             <HelpCircle className="mr-2 h-4 w-4" /> Help & support
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-          <Link href="/docs" className="cursor-pointer">
+          <Link href="/docs" prefetch className="cursor-pointer">
             <BookOpen className="mr-2 h-4 w-4" /> Documentation
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          className="cursor-pointer py-3 text-base text-destructive focus:text-destructive"
+          className={cn(
+            "cursor-pointer py-3 text-base text-destructive",
+            "focus:bg-destructive/10 focus:text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive",
+            "[&_svg]:text-current",
+          )}
           onClick={async () => {
             await signOut();
             router.push("/");

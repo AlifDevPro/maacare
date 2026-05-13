@@ -5,7 +5,11 @@ import { Baby, Heart, Sparkles, Stethoscope, UserCircle, XCircle } from "lucide-
 
 import { PREGNANCY_STATUS_OPTIONS } from "@/app/profile/profile-field-options";
 import type { PregnancyJourneyStatus } from "@/lib/profile/journey-fields";
+import { PROFESSION_VALUES, type ProfessionValue } from "@/lib/profile/profession-values";
 import { cn } from "@/lib/utils";
+
+export { PROFESSION_VALUES };
+export type { ProfessionValue };
 
 const JOURNEY_UI: Record<
   PregnancyJourneyStatus,
@@ -32,9 +36,6 @@ const JOURNEY_UI: Record<
     icon: XCircle,
   },
 };
-
-export const PROFESSION_VALUES = ["parent_caregiver", "clinician", "other"] as const;
-export type ProfessionValue = (typeof PROFESSION_VALUES)[number];
 
 const PROFESSION_UI: Record<
   ProfessionValue,

@@ -9,7 +9,7 @@ import {
   Sun,
   User,
   UserPen,
-  FileJson,
+  FileText,
 } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
@@ -144,7 +144,7 @@ export default function SettingsPage() {
             <Button variant="outline" className="h-11 w-full justify-between rounded-xl px-4" asChild>
               <Link href="/profile">
                 <span className="flex items-center gap-2">
-                  <FileJson className="h-4 w-4" />
+                  <FileText className="h-4 w-4" />
                   Open profile to export
                 </span>
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -152,7 +152,7 @@ export default function SettingsPage() {
             </Button>
             <p className="mt-2 text-xs text-muted-foreground">
               On your profile, use <strong className="font-medium text-foreground/90">Export my data</strong> to save a
-              JSON file to your device.
+              readable summary (Markdown) to your device.
             </p>
           </CardContent>
         </Card>

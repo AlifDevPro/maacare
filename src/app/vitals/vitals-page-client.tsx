@@ -24,6 +24,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import type { VitalListItem } from "@/lib/app/user-lists-data";
 
+function optionalInt(raw: string): number | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  const n = Number.parseInt(t, 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function optionalFloat(raw: string): number | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  const n = Number.parseFloat(t);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function tinySparkline(values: number[]) {
   if (values.length < 2) return "";
   const min = Math.min(...values);
@@ -77,6 +91,20 @@ export function VitalsPageClient({ initialItems }: { initialItems: VitalListItem
     [items],
   );
 
+  const canSave = useMemo(() => {
+    const n = notes.trim();
+    return (
+      optionalInt(systolicBp) != null ||
+      optionalInt(diastolicBp) != null ||
+      optionalInt(heartRateBpm) != null ||
+      optionalFloat(weightKg) != null ||
+      optionalFloat(temperatureC) != null ||
+      optionalFloat(glucoseMgDl) != null ||
+      optionalInt(spo2Pct) != null ||
+      n.length > 0
+    );
+  }, [systolicBp, diastolicBp, heartRateBpm, weightKg, temperatureC, glucoseMgDl, spo2Pct, notes]);
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -86,13 +114,13 @@ export function VitalsPageClient({ initialItems }: { initialItems: VitalListItem
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          systolicBp: systolicBp ? Number(systolicBp) : undefined,
-          diastolicBp: diastolicBp ? Number(diastolicBp) : undefined,
-          heartRateBpm: heartRateBpm ? Number(heartRateBpm) : undefined,
-          weightKg: weightKg ? Number(weightKg) : undefined,
-          temperatureC: temperatureC ? Number(temperatureC) : undefined,
-          glucoseMgDl: glucoseMgDl ? Number(glucoseMgDl) : undefined,
-          spo2Pct: spo2Pct ? Number(spo2Pct) : undefined,
+          systolicBp: optionalInt(systolicBp),
+          diastolicBp: optionalInt(diastolicBp),
+          heartRateBpm: optionalInt(heartRateBpm),
+          weightKg: optionalFloat(weightKg),
+          temperatureC: optionalFloat(temperatureC),
+          glucoseMgDl: optionalFloat(glucoseMgDl),
+          spo2Pct: optionalInt(spo2Pct),
           notes: notes.trim() || undefined,
         }),
       });
@@ -199,7 +227,7 @@ export function VitalsPageClient({ initialItems }: { initialItems: VitalListItem
               <Label>Notes</Label>
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[70px]" placeholder="Optional note" />
             </div>
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving || !canSave}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save vitals
             </Button>

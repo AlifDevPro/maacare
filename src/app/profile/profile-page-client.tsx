@@ -22,6 +22,7 @@ import type { ProfileBundle } from "@/app/profile/profile-types";
 import type { PublicUser } from "@/lib/auth/types";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { SmartHealthNudge } from "@/components/app/smart-health-nudge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -129,13 +130,21 @@ export function ProfilePageClient({
     );
   }
 
-  function exportData() {
+  async function exportData() {
     try {
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      const res = await fetch("/api/profile/export-summary", { credentials: "include", cache: "no-store" });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { message?: string };
+        toast.error(j.message ?? "Could not export data");
+        return;
+      }
+      const text = await res.text();
+      const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `maacare-profile-${new Date().toISOString().slice(0, 10)}.json`;
+      const day = new Date().toISOString().slice(0, 10);
+      a.download = `maacare-health-summary-${day}.md`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Download started");
@@ -221,6 +230,7 @@ export function ProfilePageClient({
       <AppHeader title="Profile" showBack />
 
       <div className="space-y-4 px-4 pt-4">
+        <SmartHealthNudge />
         <Card className="overflow-hidden border-0 bg-gradient-hero p-5 shadow-card">
           <div className="flex items-center gap-4">
             <div className="relative">
@@ -401,7 +411,7 @@ export function ProfilePageClient({
           <button
             type="button"
             className="flex w-full items-center gap-3 px-4 py-3 text-left"
-            onClick={() => exportData()}
+            onClick={() => void exportData()}
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               <Download className="h-4 w-4" />

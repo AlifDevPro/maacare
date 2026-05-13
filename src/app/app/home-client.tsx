@@ -24,6 +24,7 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { SmartHealthNudge } from "@/components/app/smart-health-nudge";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Card } from "@/components/ui/card";
@@ -117,6 +118,7 @@ export function HomeClient({ initial }: { initial: HomeData }) {
       <AppHeader brand showNotifications />
 
       <div className="space-y-5 px-4 pt-4">
+        <SmartHealthNudge />
         <motion.div initial={false} animate={{ opacity: 1, y: 0 }} className="space-y-1">
           <p className="text-sm text-muted-foreground">
             {`Welcome back, ${home.profile.displayName || "Member"}`}

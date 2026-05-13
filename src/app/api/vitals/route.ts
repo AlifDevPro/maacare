@@ -54,7 +54,8 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) return validationJsonResponse(parsed.error);
 
     const body = parsed.data;
-    const hasVitals =
+    const trimmedNotes = body.notes?.trim() ?? "";
+    const hasMetric =
       body.systolicBp != null ||
       body.diastolicBp != null ||
       body.heartRateBpm != null ||
@@ -62,8 +63,9 @@ export async function POST(req: NextRequest) {
       body.temperatureC != null ||
       body.glucoseMgDl != null ||
       body.spo2Pct != null;
+    const hasNotesOnly = trimmedNotes.length > 0;
 
-    if (!hasVitals) return failJson(400, "Add at least one vital value.");
+    if (!hasMetric && !hasNotesOnly) return failJson(400, "Add at least one vital value or a note.");
 
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
@@ -78,7 +80,7 @@ export async function POST(req: NextRequest) {
         temperature_c: body.temperatureC ?? null,
         glucose_mg_dl: body.glucoseMgDl ?? null,
         spo2_pct: body.spo2Pct ?? null,
-        notes: body.notes?.trim() || null,
+        notes: trimmedNotes || null,
       })
       .select(
         "id, recorded_at, systolic_bp, diastolic_bp, heart_rate_bpm, weight_kg, temperature_c, glucose_mg_dl, spo2_pct, notes",

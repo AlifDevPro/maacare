@@ -27,6 +27,11 @@ function isPublicAuthApi(pathname: string): boolean {
   return pathname.startsWith("/api/auth/");
 }
 
+/** Anonymous signup assistance (rate-limited in route). */
+function isPublicSignupApi(pathname: string): boolean {
+  return pathname.startsWith("/api/signup/");
+}
+
 function shouldRedirectAuthedToApp(pathname: string): boolean {
   return pathname === "/" || pathname === "/login";
 }
@@ -123,7 +128,7 @@ export async function proxy(request: NextRequest) {
 
   if (!user) {
     if (pathname.startsWith("/api/")) {
-      if (isPublicAuthApi(pathname)) {
+      if (isPublicAuthApi(pathname) || isPublicSignupApi(pathname)) {
         return response;
       }
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });

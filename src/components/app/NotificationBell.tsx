@@ -32,7 +32,7 @@ export function NotificationBell() {
   const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const load = useCallback(async () => {
+  const loadFull = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/notifications?limit=${BELL_FETCH_LIMIT}`, { credentials: "include" });
@@ -48,29 +48,41 @@ export function NotificationBell() {
     }
   }, []);
 
+  const loadSummary = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/notifications?summary=1`, { credentials: "include" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { unreadCount: number };
+      setUnreadCount(data.unreadCount ?? 0);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadSummary();
+  }, [loadSummary]);
 
   useNotificationsRealtime(user?.id, dispatchNotificationsUpdated);
 
   useEffect(() => {
-    const onFocus = () => void load();
-    const onUpdated = () => void load();
+    const onFocus = () => void (open ? loadFull() : loadSummary());
+    const onUpdated = () => void (open ? loadFull() : loadSummary());
     window.addEventListener("focus", onFocus);
     window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, onUpdated);
-    const id = window.setInterval(() => void load(), 5 * 60_000);
+    const id = window.setInterval(() => void loadSummary(), 5 * 60_000);
     return () => {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, onUpdated);
       window.clearInterval(id);
     };
-  }, [load]);
+  }, [loadFull, loadSummary, open]);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
     if (next) {
       void (async () => {
+        await loadFull();
         try {
           const res = await fetch("/api/notifications/mark-read", {
             method: "POST",
@@ -87,7 +99,7 @@ export function NotificationBell() {
           /* ignore */
         } finally {
           dispatchNotificationsUpdated();
-          await load();
+          await loadFull();
         }
       })();
     }

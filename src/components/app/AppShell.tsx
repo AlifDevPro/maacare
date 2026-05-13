@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 
 import { BottomNav } from "./BottomNav";
+import { ShellPrefetch } from "./shell-prefetch";
 import { cn } from "@/lib/utils";
 
 interface AppShellProps {
@@ -18,7 +19,12 @@ export function AppShell({ children, hideNav, className }: AppShellProps) {
         <main className={cn("min-w-0 flex-1 pb-24", hideNav && "pb-6", className)}>
           {children}
         </main>
-        {!hideNav && <BottomNav />}
+        {!hideNav ? (
+          <>
+            <ShellPrefetch />
+            <BottomNav />
+          </>
+        ) : null}
       </div>
     </div>
   );
