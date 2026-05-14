@@ -100,7 +100,7 @@ export function HomeClient({ initial }: { initial: HomeData }) {
     <AppShell>
       <AppHeader brand showNotifications />
 
-      <div className="space-y-5 px-4 pt-4">
+      <div className="space-y-5 px-0 pt-4">
         <SmartHealthNudge />
         <motion.div initial={false} animate={{ opacity: 1, y: 0 }} className="space-y-1">
           <p className="text-sm text-muted-foreground">

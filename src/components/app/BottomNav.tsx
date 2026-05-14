@@ -1,46 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
-import { Home, MessageCircle, Stethoscope, Phone, Users } from "lucide-react";
-
+import { APP_PRIMARY_NAV_ITEMS, isAppPrimaryNavActive } from "@/lib/app-nav-items";
+import { APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
 import { cn } from "@/lib/utils";
 
-const items = [
-  { to: "/app", labelKey: "home", icon: Home },
-  { to: "/chat", labelKey: "chat", icon: MessageCircle },
-  { to: "/symptoms", labelKey: "symptoms", icon: Stethoscope },
-  { to: "/emergency", labelKey: "emergency", icon: Phone },
-  { to: "/community", labelKey: "community", icon: Users },
-] as const;
-
-export function BottomNav() {
+export function BottomNav({ className }: { className?: string }) {
   const { t } = useTranslation("nav");
   const pathname = usePathname();
-  const router = useRouter();
-
-  const prefetchTargets = useMemo(() => items.map((i) => i.to), []);
-
-  useEffect(() => {
-    for (const to of prefetchTargets) {
-      if (to !== pathname) {
-        router.prefetch(to);
-      }
-    }
-  }, [pathname, router, prefetchTargets]);
 
   return (
     <nav
       aria-label={t("primary_nav")}
-      className="fixed bottom-0 inset-x-0 z-40 border-t border-border/60 bg-background/85 backdrop-blur-xl"
+      className={cn(
+        "fixed bottom-0 inset-x-0 z-40 border-t border-border/60 bg-background/85 backdrop-blur-xl lg:hidden",
+        className,
+      )}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <ul className="mx-auto flex max-w-md items-stretch justify-between px-2 py-1.5">
-        {items.map(({ to, labelKey, icon: Icon }) => {
-          const active = to === "/app" ? pathname === "/app" : pathname.startsWith(to);
+      <ul className={cn("flex items-stretch justify-between py-1.5", APP_SHELL_CONTENT_WIDTH)}>
+        {APP_PRIMARY_NAV_ITEMS.map(({ to, labelKey, icon: Icon }) => {
+          const active = isAppPrimaryNavActive(pathname, to);
 
           return (
             <li key={to} className="flex-1">

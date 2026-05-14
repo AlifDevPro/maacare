@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Mic, MicOff, PhoneOff, Volume2, VolumeX, Loader2, MessagesSquare } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
 import { cn } from "@/lib/utils";
 import type { VoiceCallState } from "@/lib/voice/useVoiceCall";
 
@@ -67,7 +68,12 @@ export function VoiceCallPanel({
   const ss = useMemo(() => String(seconds % 60).padStart(2, "0"), [seconds]);
 
   return (
-    <div className="fixed inset-x-0 top-14 z-50 mx-auto flex h-[calc(100dvh-3.5rem-5rem-env(safe-area-inset-bottom))] max-w-md flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div
+      className={cn(
+        "fixed inset-x-0 top-14 z-50 flex h-[calc(100dvh-3.5rem-5rem-env(safe-area-inset-bottom))] flex-col pb-[max(1rem,env(safe-area-inset-bottom))] lg:h-[calc(100dvh-3.5rem-2rem-env(safe-area-inset-bottom))]",
+        APP_SHELL_CONTENT_WIDTH,
+      )}
+    >
       <div className="flex items-center justify-between pt-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">MaaCare Voice</p>

@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -440,7 +441,7 @@ function ChatPageContent() {
       <div
         ref={scrollRef}
         className={cn(
-          "space-y-4 overflow-y-auto px-4 pt-4 pb-2",
+          "space-y-4 overflow-y-auto px-0 pt-4 pb-2",
           voiceMode && !showVoiceTranscript && "hidden",
         )}
         style={{
@@ -549,7 +550,7 @@ function ChatPageContent() {
             disabled={!voice.supported}
           />
           {!voice.supported ? (
-            <div className="fixed inset-x-0 top-16 z-[60] mx-auto max-w-md px-4">
+            <div className={cn("fixed inset-x-0 top-16 z-[60]", APP_SHELL_CONTENT_WIDTH)}>
               <div className="rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-xs text-amber-800 shadow-soft dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">
                 Voice is not available on this browser (common on iPhone Safari). Text chat still works.
               </div>
@@ -561,11 +562,10 @@ function ChatPageContent() {
       {/* Text composer (hidden during call mode) */}
       {!voiceMode ? (
         <div
-          className="fixed inset-x-0 z-30 mx-auto max-w-md border-t border-border/60 bg-background/95 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl"
-          style={{
-            /* Sit above BottomNav (z-40); do not overlap — nav stays tappable */
-            bottom: "calc(env(safe-area-inset-bottom) + 5rem)",
-          }}
+          className={cn(
+            "fixed inset-x-0 z-30 border-t border-border/60 bg-background/95 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl bottom-[calc(env(safe-area-inset-bottom)+5rem)] lg:bottom-6",
+            APP_SHELL_CONTENT_WIDTH,
+          )}
         >
           {cooldownSeconds > 0 ? (
             <div className="mb-2 rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">

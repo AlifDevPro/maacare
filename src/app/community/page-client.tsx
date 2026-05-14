@@ -665,7 +665,7 @@ export default function CommunityPageClient({
         </DialogContent>
       </Dialog>
 
-      <div className="space-y-4 px-4 pt-4">
+      <div className="space-y-4 px-0 pt-4">
         {feedRemoteHint ? (
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/30 bg-primary-soft/50 px-3 py-2.5 shadow-sm">
             <p className="text-sm font-medium text-foreground">New activity on the feed</p>

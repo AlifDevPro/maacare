@@ -13,6 +13,7 @@ import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { dispatchNotificationsUpdated } from "@/lib/notifications/events";
+import { APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
 import { Card } from "@/components/ui/card";
 import {
   Dialog,
@@ -773,10 +774,10 @@ export default function PostDetailPage() {
 
       <div
         id="community-reply-composer"
-        className="fixed inset-x-0 z-30 mx-auto max-w-md scroll-mt-4 border-t border-border/60 bg-background/95 px-3 pt-2 backdrop-blur-xl"
-        style={{
-          bottom: "calc(env(safe-area-inset-bottom) + 5.75rem)",
-        }}
+        className={cn(
+          "fixed inset-x-0 z-30 scroll-mt-4 border-t border-border/60 bg-background/95 pt-2 backdrop-blur-xl bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] lg:bottom-6",
+          APP_SHELL_CONTENT_WIDTH,
+        )}
       >
         {replyToCommentId ? (
           <div className="mb-2 flex items-center justify-between rounded-xl border border-border bg-muted/40 px-3 py-1.5 text-xs">
