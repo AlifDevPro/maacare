@@ -1,13 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { CornerDownRight, Shield, Stethoscope } from "lucide-react";
+import { CornerDownRight } from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { CommunityAvatar } from "@/components/community/community-avatar";
+import { CommunityAuthorBadges, authorRowHighlightClass } from "@/components/community/community-author-badges";
 import {
   COMMUNITY_COMMENT_ACTION,
   COMMUNITY_COMMENT_ACTION_ICON,
@@ -124,7 +123,6 @@ function CommentBranch({
   siblingCount = 1,
 }: CommentBranchProps) {
   const safeDepth = Math.min(depth, 8);
-  const verifiedDoctor = node.authorVerifiedProfessional && node.authorProfession === "clinician";
   const hasChildren = node.children.length > 0;
   const replyCount = node.children.length;
   const threadOpen = expandedThreadIds.has(node.id);
@@ -171,47 +169,17 @@ function CommentBranch({
             <div
               className={cn(
                 "rounded-xl px-0 py-0",
-                verifiedDoctor && "border border-sky-500/35 bg-sky-500/[0.06] px-2.5 py-2 sm:px-3",
+                authorRowHighlightClass(node.authorProfession, node.authorVerifiedProfessional),
               )}
             >
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              {node.authorId ? (
-                <Link
-                  href={`/community/member/${node.authorId}`}
-                  className="truncate text-[15px] font-bold leading-tight text-foreground hover:underline sm:text-base"
-                >
-                  {node.authorDisplayName}
-                </Link>
-              ) : (
-                <span className="truncate text-[15px] font-bold leading-tight sm:text-base">{node.authorDisplayName}</span>
-              )}
-              <span className="text-[13px] text-muted-foreground tabular-nums sm:text-sm">
-                · {formatDistanceToNow(new Date(node.createdAt), { addSuffix: true })}
-              </span>
-              {node.authorRole === "admin" ? (
-                <Badge
-                  variant="outline"
-                  className="h-5 gap-0.5 border-amber-500/50 bg-amber-500/10 px-1.5 text-[10px] font-semibold uppercase text-amber-900 dark:text-amber-100"
-                >
-                  <Shield className="h-3 w-3" />
-                  Admin
-                </Badge>
-              ) : null}
-              {node.authorRole === "moderator" ? (
-                <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-semibold uppercase">
-                  Mod
-                </Badge>
-              ) : null}
-              {verifiedDoctor ? (
-                <Badge
-                  variant="outline"
-                  className="h-5 gap-0.5 border-sky-500/50 bg-sky-500/10 px-1.5 text-[10px] font-semibold uppercase text-sky-900 dark:text-sky-100"
-                >
-                  <Stethoscope className="h-3 w-3" />
-                  Verified
-                </Badge>
-              ) : null}
-            </div>
+              <CommunityAuthorBadges
+                authorId={node.authorId}
+                authorDisplayName={node.authorDisplayName}
+                authorRole={node.authorRole}
+                authorProfession={node.authorProfession}
+                authorVerifiedProfessional={node.authorVerifiedProfessional}
+                timeLabel={formatDistanceToNow(new Date(node.createdAt), { addSuffix: true })}
+              />
             <p className={cn("mt-1 whitespace-pre-wrap leading-relaxed text-foreground/95", safeDepth > 0 ? "text-sm" : "text-[15px] sm:text-base")}>
               {node.body}
             </p>

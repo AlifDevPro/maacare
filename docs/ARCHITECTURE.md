@@ -100,6 +100,7 @@ sequenceDiagram
 
 - **`getSessionFromCookies`** (see `src/lib/auth/get-session.ts`) is the gate for protected APIs.
 - **RLS** enforces tenant isolation on almost all user tables; admin routes use a **service-role gate** pattern where applicable.
+- **Auth roles on `profiles`:** `PATCH /api/profile` accepts only the allowlisted profile fields in `src/app/api/profile/route.ts`. The JSON body must **not** include `role`, `moderator`, or `verified_professional` (those keys are ignored by the schema and are not written from this route). New accounts receive `role = user` from the database default; **moderator** and **admin** are assigned only through admin surfaces (for example `src/app/admin/users/[userId]`), not from public signup or profile self-service.
 
 ---
 
@@ -269,10 +270,11 @@ flowchart LR
 
 **Implementation details:**
 
-- **Prep step:** [`prepareMultilingualChatTurn`](src/lib/chat/multilingual-prep.ts) calls **`generateTextWithGeminiGroqFailover`** once with a JSON-only contract: **`ietfLanguageTag`** (BCP-47), **`englishRetrievalQuery`** (concise English for embedding over the English-only corpus), optional **`languageHintForPrompt`**. The immediately prior **assistant** snippet (when present) is passed in to disambiguate very short user replies.
+- **Prep step:** [`prepareMultilingualChatTurn`](src/lib/chat/multilingual-prep.ts) calls **`generateTextWithGeminiGroqFailover`** once with a JSON-only contract: **`ietfLanguageTag`** (BCP-47), **`englishRetrievalQuery`** (concise English for embedding over the English-only corpus), optional **`languageHintForPrompt`**. The immediately prior **assistant** snippet (when present) is passed in to disambiguate very short user replies. Optional **`profiles.language`** (`en` / `bn`) is a **tie-breaker** for ambiguous short replies; **`applyReplyLanguageOverrides`** then corrects obvious mismatches (e.g. Latin-script English mis-tagged as Bangla, or Bengali script forcing Bangla).
+- **Nearby facilities intent:** [`detectNearbyFacilitiesIntent`](src/lib/bd-facilities/chat-nearby-context.ts) runs on **both** the original latest user message and the **English retrieval query**; results are merged with [`mergeNearbyIntents`](src/lib/bd-facilities/chat-nearby-context.ts) so non-English questions still match after translation.
 - **Validation / fallback:** Response is parsed with **Zod**; on failure the server falls back to **`en`** and uses the **raw** latest user message as the retrieval string so chat never hard-fails.
 - **Retrieval:** `searchKnowledge` always embeds the **English retrieval query**; chunk text in Postgres remains English.
-- **Final model:** `systemInstruction` tells the model to answer in the detected language while **CONTEXT** stays English; `userMessage` includes **original** latest turn plus the **English retrieval query** so intent is grounded without mentioning pipeline steps in the reply.
+- **Final model:** `systemInstruction` tells the model to answer in the detected language while **CONTEXT** stays English; `userMessage` includes **original** latest turn plus the **English retrieval query** so intent is grounded without mentioning pipeline steps in the reply. A **BOUNDARIES** block covers harmful or off-topic requests calmly in the same reply language.
 
 ### 6.4 Voice channel (`replyChannel: "voice"`)
 

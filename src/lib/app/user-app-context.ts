@@ -29,7 +29,8 @@ export function buildUserAppContext(input: {
   return {
     primaryUseCase,
     isPartnerSupport: primaryUseCase === "partner_support",
-    isStudentResearch: primaryUseCase === "student_research",
+    isStudentResearch:
+      primaryUseCase === "student_research" || input.profession === "student_researcher",
     isClinicianPersona: primaryUseCase === "clinician" || input.profession === "clinician",
   };
 }

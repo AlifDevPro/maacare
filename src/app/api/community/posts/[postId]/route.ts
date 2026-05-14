@@ -45,7 +45,9 @@ const SELECT_DETAIL_FULL = `
   profiles!author_id (
     display_name,
     role,
-    avatar_url
+    avatar_url,
+    profession,
+    verified_professional
   )
 `;
 
@@ -62,7 +64,9 @@ const SELECT_DETAIL_MINIMAL = `
   profiles!author_id (
     display_name,
     role,
-    avatar_url
+    avatar_url,
+    profession,
+    verified_professional
   )
 `;
 
@@ -159,6 +163,8 @@ export async function GET(
         authorDisplayName: profile?.display_name ?? "Member",
         authorRole: profile?.role ?? "user",
         authorAvatarUrl: profile?.avatar_url ?? null,
+        authorProfession: profile?.profession ?? null,
+        authorVerifiedProfessional: profile?.verified_professional === true,
         likeCount,
         commentCount,
         likedByMe: !!myLike,

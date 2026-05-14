@@ -11,7 +11,20 @@ import {
 
 export type NearbyFacilitiesIntent = "hospital" | "pharmacy" | "both" | null;
 
-/** Detect if the user is asking for nearby physical facilities (EN/BN keywords). */
+/** Combine intent from original user text and English retrieval query (original wins single-intent ties). */
+export function mergeNearbyIntents(
+  fromOriginal: NearbyFacilitiesIntent,
+  fromEnglishRetrieval: NearbyFacilitiesIntent,
+): NearbyFacilitiesIntent {
+  if (fromOriginal === "both" || fromEnglishRetrieval === "both") return "both";
+  if (fromOriginal && fromEnglishRetrieval) {
+    if (fromOriginal === fromEnglishRetrieval) return fromOriginal;
+    return "both";
+  }
+  return fromOriginal ?? fromEnglishRetrieval ?? null;
+}
+
+/** Detect if the user is asking for nearby physical facilities (EN/BN + common ES/FR Latin keywords). */
 export function detectNearbyFacilitiesIntent(text: string): NearbyFacilitiesIntent {
   const t = text.toLowerCase();
   const bnHospital = /হাসপাতাল/.test(text);
@@ -19,12 +32,17 @@ export function detectNearbyFacilitiesIntent(text: string): NearbyFacilitiesInte
 
   const pharmacy =
     bnPharmacy ||
-    /\b(pharmacy|chemist|medicine shop|drug\s*store|drugstore|prescription)\b/i.test(t);
-  const hospital =
-    bnHospital ||
-    /\b(hospital|clinics?|emergency room|emergency department|\ber\b|nearest hospital|nearby hospital)\b/i.test(
+    /\b(pharmacy|chemist|medicine shop|drug\s*store|drugstore|prescription|farmacia|pharmacie|farmacie)\b/i.test(
       t,
     );
+  const hospital =
+    bnHospital ||
+    /\b(hospital|clinics?|clínica|clinica|emergency room|emergency department|urgencia|\ber\b|nearest hospital|nearby hospital)\b/i.test(
+      t,
+    ) ||
+    /\b(hôpital|hopital|clinique)\b/i.test(text) ||
+    (/\b(cerca|cercan[oa]|próximo|proximo)\b/i.test(t) &&
+      /\b(hospital|clínica|clinica|urgencia)\b/i.test(t));
 
   if (pharmacy && hospital) return "both";
   if (pharmacy) return "pharmacy";

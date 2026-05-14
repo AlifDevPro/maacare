@@ -12,7 +12,6 @@ import { BLOOD_TYPES } from "@/app/profile/profile-field-options";
 import {
   JourneyStatusPicker,
   ProfessionPicker,
-  PROFESSION_VALUES,
   type ProfessionValue,
 } from "@/components/profile/journey-profession-pickers";
 import { AppShell } from "@/components/app/AppShell";
@@ -41,6 +40,7 @@ import {
   PRIMARY_USE_CASE_VALUES,
   PRIMARY_USE_LABEL,
 } from "@/lib/profile/primary-use-case";
+import { normalizeProfessionValue } from "@/lib/profile/profession-values";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 
@@ -83,8 +83,6 @@ const SECTION_META: Record<SectionKey, { title: string; subtitle: string }> = {
   },
 };
 
-const KNOWN_PROFESSION = new Set<string>(PROFESSION_VALUES);
-
 /** Map legacy or free-text profession values to the picker + preserve text in notes. */
 function migrateUnknownProfession(
   raw: string | null | undefined,
@@ -93,12 +91,13 @@ function migrateUnknownProfession(
   const trimmed = raw?.trim() ?? "";
   const base = existingNotes?.trim() ?? "";
   if (!trimmed) return { profession: "", notes: base };
-  if (KNOWN_PROFESSION.has(trimmed)) {
-    return { profession: trimmed as ProfessionValue, notes: base };
+  const normalized = normalizeProfessionValue(trimmed);
+  if (normalized) {
+    return { profession: normalized, notes: base };
   }
   const tag = `Previous role on file: ${trimmed}`;
-  if (base.includes(tag)) return { profession: "other", notes: base };
-  return { profession: "other", notes: base ? `${base}\n\n${tag}` : tag };
+  if (base.includes(tag)) return { profession: "student_researcher", notes: base };
+  return { profession: "student_researcher", notes: base ? `${base}\n\n${tag}` : tag };
 }
 
 function extFromMime(mime: string): string | null {
@@ -151,6 +150,10 @@ export function ProfileEditClient({
   const [activeSection, setActiveSection] = useState<SectionKey>("personal");
   const [timezone, setTimezone] = useState("");
   const [profession, setProfession] = useState<ProfessionValue | "">("");
+  const [clinicianSpecialty, setClinicianSpecialty] = useState("");
+  const [clinicianInstitution, setClinicianInstitution] = useState("");
+  const [studentAffiliation, setStudentAffiliation] = useState("");
+  const [studentFieldOfStudy, setStudentFieldOfStudy] = useState("");
   const [primaryUseCase, setPrimaryUseCase] = useState<string>("self_maternal");
 
   const fieldClass = "rounded-sm shadow-none";
@@ -198,6 +201,12 @@ export function ProfileEditClient({
     setTimezone(p?.timezone ?? "");
     setProfession(profHydrated);
     setPrimaryUseCase(normalizePrimaryUseCase(p?.primary_use_case as string | null | undefined));
+    const cc = (p?.clinician_context ?? null) as Record<string, unknown> | null;
+    const sc = (p?.student_context ?? null) as Record<string, unknown> | null;
+    setClinicianSpecialty(typeof cc?.specialty === "string" ? cc.specialty : "");
+    setClinicianInstitution(typeof cc?.institution === "string" ? cc.institution : "");
+    setStudentAffiliation(typeof sc?.affiliation === "string" ? sc.affiliation : "");
+    setStudentFieldOfStudy(typeof sc?.fieldOfStudy === "string" ? sc.fieldOfStudy : "");
   }, [bundle, user, session.name]);
 
   const activeIdx = SECTION_ORDER.indexOf(activeSection);
@@ -332,6 +341,27 @@ export function ProfileEditClient({
       payload.insuranceMemberId = memberId.trim() || null;
       payload.healthNotes = healthNotes.trim() || null;
 
+      if (profession === "clinician") {
+        const specialty = clinicianSpecialty.trim();
+        const institution = clinicianInstitution.trim();
+        payload.clinicianContext = {
+          ...(specialty ? { specialty } : {}),
+          ...(institution ? { institution } : {}),
+        };
+      } else {
+        payload.clinicianContext = null;
+      }
+      if (profession === "student_researcher") {
+        const affiliation = studentAffiliation.trim();
+        const fieldOfStudy = studentFieldOfStudy.trim();
+        payload.studentContext = {
+          ...(affiliation ? { affiliation } : {}),
+          ...(fieldOfStudy ? { fieldOfStudy } : {}),
+        };
+      } else {
+        payload.studentContext = null;
+      }
+
       const res = await fetch("/api/profile", {
         method: "PATCH",
         credentials: "include",
@@ -449,8 +479,8 @@ export function ProfileEditClient({
         ? "Parent or caregiver"
         : profession === "clinician"
           ? "Clinician"
-          : profession === "other"
-            ? "Other"
+          : profession === "student_researcher"
+            ? "Student / researcher"
             : "Not set";
     return { journeySummaryLabel: j, roleSummaryLabel: r };
   }, [pregnancyStatus, profession]);
@@ -650,6 +680,62 @@ export function ProfileEditClient({
                     </p>
                     <ProfessionPicker value={profession} onChange={(v) => setProfession(v)} />
                   </div>
+
+                  {profession === "clinician" ? (
+                    <div className="grid gap-3 rounded-md border border-border/60 bg-muted/10 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Clinician details
+                      </p>
+                      <div className="grid gap-2">
+                        <FieldLabel htmlFor="clin-spec">Specialty or role</FieldLabel>
+                        <Input
+                          id="clin-spec"
+                          className={fieldClass}
+                          value={clinicianSpecialty}
+                          onChange={(e) => setClinicianSpecialty(e.target.value)}
+                          placeholder="e.g. Obstetrics"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <FieldLabel htmlFor="clin-inst">Institution (optional)</FieldLabel>
+                        <Input
+                          id="clin-inst"
+                          className={fieldClass}
+                          value={clinicianInstitution}
+                          onChange={(e) => setClinicianInstitution(e.target.value)}
+                          placeholder="Hospital or clinic"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {profession === "student_researcher" ? (
+                    <div className="grid gap-3 rounded-md border border-border/60 bg-muted/10 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Student / researcher
+                      </p>
+                      <div className="grid gap-2">
+                        <FieldLabel htmlFor="stu-aff">Affiliation</FieldLabel>
+                        <Input
+                          id="stu-aff"
+                          className={fieldClass}
+                          value={studentAffiliation}
+                          onChange={(e) => setStudentAffiliation(e.target.value)}
+                          placeholder="School or lab"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <FieldLabel htmlFor="stu-field">Field of study</FieldLabel>
+                        <Input
+                          id="stu-field"
+                          className={fieldClass}
+                          value={studentFieldOfStudy}
+                          onChange={(e) => setStudentFieldOfStudy(e.target.value)}
+                          placeholder="Topic or program"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
             </TabsContent>

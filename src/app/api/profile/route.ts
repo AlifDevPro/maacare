@@ -5,7 +5,11 @@ import { validationJsonResponse, failJson, serverErrorJson } from "@/lib/api/err
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { loadProfileBundle } from "@/lib/app/profile-bundle-data";
 import { PRIMARY_USE_CASE_VALUES } from "@/lib/profile/primary-use-case";
+import { PROFESSION_VALUES } from "@/lib/profile/profession-values";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+/** Allowlisted profile fields only — `role` / moderator flags are never applied from this route (see docs/ARCHITECTURE.md). */
+const professionEnum = z.enum(PROFESSION_VALUES as unknown as [string, ...string[]]);
 
 const bloodEnum = z.enum(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"]).nullable().optional();
 const sexEnum = z.enum(["female", "male", "other", "unknown"]).nullable().optional();
@@ -15,42 +19,52 @@ const primaryUseCaseEnum = z
   .nullable()
   .optional();
 const jsonContext = z.record(z.string(), z.unknown()).nullable().optional();
+const personaProfileSchema = z
+  .record(z.string().max(64), z.union([z.string().max(500), z.number(), z.boolean()]))
+  .optional()
+  .refine((obj) => !obj || Object.keys(obj).length <= 40, { message: "personaProfile too many keys" });
 
-const patchSchema = z.object({
-  displayName: z.string().min(1).max(200).optional(),
-  phone: z.string().max(40).nullable().optional(),
-  dateOfBirth: z.string().max(32).nullable().optional(),
-  sex: sexEnum,
-  timezone: z.string().max(64).optional(),
-  pregnancyStatus: pregStatusEnum,
-  lmpDate: z.string().max(32).nullable().optional(),
-  eddDate: z.string().max(32).nullable().optional(),
-  gestationalAgeWeeks: z.number().int().min(0).max(45).nullable().optional(),
-  babyBirthDate: z.string().max(32).nullable().optional(),
-  gravida: z.number().int().min(0).max(30).nullable().optional(),
-  para: z.number().int().min(0).max(30).nullable().optional(),
-  bloodType: bloodEnum,
-  heightCm: z.number().positive().max(300).nullable().optional(),
-  weightKg: z.number().positive().max(400).nullable().optional(),
-  emergencyContactName: z.string().max(200).nullable().optional(),
-  emergencyContactPhone: z.string().max(40).nullable().optional(),
-  emergencyContactRelation: z.string().max(120).nullable().optional(),
-  primaryCareProvider: z.string().max(200).nullable().optional(),
-  insuranceProvider: z.string().max(200).nullable().optional(),
-  insuranceMemberId: z.string().max(120).nullable().optional(),
-  healthNotes: z.string().max(5000).nullable().optional(),
-  allergies: z.array(z.string().max(200)).max(50).optional(),
-  conditions: z.array(z.string().max(200)).max(50).optional(),
-  notifyCommunityActivity: z.boolean().optional(),
-  notifyDailyReminders: z.boolean().optional(),
-  profession: z.string().max(64).nullable().optional(),
-  primaryUseCase: primaryUseCaseEnum,
-  studentContext: jsonContext,
-  clinicianContext: jsonContext,
-  partnerSupportContext: jsonContext,
-  communityShowExtendedProfile: z.boolean().optional(),
-  avatarUrl: z.union([z.string().url().max(2048), z.literal(""), z.null()]).optional(),
-});
+const patchSchema = z
+  .object({
+    displayName: z.string().min(1).max(200).optional(),
+    phone: z.string().max(40).nullable().optional(),
+    dateOfBirth: z.string().max(32).nullable().optional(),
+    sex: sexEnum,
+    timezone: z.string().max(64).optional(),
+    pregnancyStatus: pregStatusEnum,
+    lmpDate: z.string().max(32).nullable().optional(),
+    eddDate: z.string().max(32).nullable().optional(),
+    gestationalAgeWeeks: z.number().int().min(0).max(45).nullable().optional(),
+    babyBirthDate: z.string().max(32).nullable().optional(),
+    gravida: z.number().int().min(0).max(30).nullable().optional(),
+    para: z.number().int().min(0).max(30).nullable().optional(),
+    bloodType: bloodEnum,
+    heightCm: z.number().positive().max(300).nullable().optional(),
+    weightKg: z.number().positive().max(400).nullable().optional(),
+    emergencyContactName: z.string().max(200).nullable().optional(),
+    emergencyContactPhone: z.string().max(40).nullable().optional(),
+    emergencyContactRelation: z.string().max(120).nullable().optional(),
+    primaryCareProvider: z.string().max(200).nullable().optional(),
+    insuranceProvider: z.string().max(200).nullable().optional(),
+    insuranceMemberId: z.string().max(120).nullable().optional(),
+    healthNotes: z.string().max(5000).nullable().optional(),
+    allergies: z.array(z.string().max(200)).max(50).optional(),
+    conditions: z.array(z.string().max(200)).max(50).optional(),
+    notifyCommunityActivity: z.boolean().optional(),
+    notifyDailyReminders: z.boolean().optional(),
+    profession: z
+      .union([professionEnum, z.literal("other")])
+      .nullable()
+      .optional()
+      .transform((v) => (v === "other" ? "student_researcher" : v)),
+    primaryUseCase: primaryUseCaseEnum,
+    personaProfile: personaProfileSchema,
+    studentContext: jsonContext,
+    clinicianContext: jsonContext,
+    partnerSupportContext: jsonContext,
+    communityShowExtendedProfile: z.boolean().optional(),
+    avatarUrl: z.union([z.string().url().max(2048), z.literal(""), z.null()]).optional(),
+  });
 
 export async function GET() {
   try {
@@ -106,6 +120,9 @@ export async function PATCH(req: Request) {
     }
     if (body.primaryUseCase !== undefined) {
       profileUpdates.primary_use_case = body.primaryUseCase;
+    }
+    if (body.personaProfile !== undefined) {
+      profileUpdates.persona_profile = body.personaProfile;
     }
     if (body.studentContext !== undefined) {
       profileUpdates.student_context = body.studentContext;

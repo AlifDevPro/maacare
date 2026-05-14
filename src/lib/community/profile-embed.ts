@@ -8,14 +8,19 @@ export function unwrapProfileEmbed(p: unknown): {
   verified_professional?: boolean;
 } | null {
   if (!p) return null;
-  const mapRow = (o: Record<string, unknown>) => ({
-    display_name: typeof o.display_name === "string" ? o.display_name : "Member",
-    role: typeof o.role === "string" ? o.role : "user",
-    avatar_url: typeof o.avatar_url === "string" ? o.avatar_url : null,
-    email: typeof o.email === "string" ? o.email : null,
-    profession: typeof o.profession === "string" ? o.profession : null,
-    verified_professional: o.verified_professional === true,
-  });
+  const mapRow = (o: Record<string, unknown>) => {
+    const rawProf = typeof o.profession === "string" ? o.profession : null;
+    const profession =
+      rawProf === "other" ? "student_researcher" : rawProf;
+    return {
+      display_name: typeof o.display_name === "string" ? o.display_name : "Member",
+      role: typeof o.role === "string" ? o.role : "user",
+      avatar_url: typeof o.avatar_url === "string" ? o.avatar_url : null,
+      email: typeof o.email === "string" ? o.email : null,
+      profession,
+      verified_professional: o.verified_professional === true,
+    };
+  };
   if (Array.isArray(p)) {
     const row = p[0];
     if (!row || typeof row !== "object") return null;

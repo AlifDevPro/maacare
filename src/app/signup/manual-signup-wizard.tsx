@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 
 import { Mail, Lock, User, ChevronRight } from "lucide-react";
 import {
@@ -10,6 +11,7 @@ import {
   ProfessionPicker,
   type ProfessionValue,
 } from "@/components/profile/journey-profession-pickers";
+import { StepProgressRail } from "@/components/onboarding/step-progress-rail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PopoverDateInput } from "@/components/ui/popover-date-input";
@@ -34,37 +36,73 @@ import { cn } from "@/lib/utils";
 
 import { SexIconCards } from "@/components/profile/sex-icon-cards";
 
-type StepId = "account" | "about" | "journey" | "pregnancy" | "health" | "preferences" | "consent";
+type StepId =
+  | "persona"
+  | "account"
+  | "parent_intent"
+  | "clinician_profile"
+  | "student_profile"
+  | "journey"
+  | "pregnancy"
+  | "health"
+  | "preferences"
+  | "consent";
 
-const STEP_DEFS: { id: StepId; title: string; optional?: boolean }[] = [
-  { id: "account", title: "Account" },
-  { id: "about", title: "About you" },
-  { id: "journey", title: "Your journey" },
-  { id: "pregnancy", title: "Pregnancy details", optional: true },
-  { id: "health", title: "Health", optional: true },
-  { id: "preferences", title: "Preferences", optional: true },
-  { id: "consent", title: "Finish" },
+type StepDef = { id: StepId; titleKey: string; optional?: boolean };
+
+const STEP_FALLBACK_ORDER: StepId[] = [
+  "persona",
+  "account",
+  "parent_intent",
+  "clinician_profile",
+  "student_profile",
+  "journey",
+  "pregnancy",
+  "health",
+  "preferences",
+  "consent",
 ];
 
+function buildStepDefs(
+  profession: ProfessionValue | "",
+  primaryUseCase: PrimaryUseCaseValue | "",
+): StepDef[] {
+  const out: StepDef[] = [
+    { id: "persona", titleKey: "signup_wizard_step_persona" },
+    { id: "account", titleKey: "signup_wizard_step_account" },
+  ];
+  if (!profession) return out;
+
+  if (profession === "parent_caregiver") {
+    out.push({ id: "parent_intent", titleKey: "signup_wizard_step_about_you" });
+    if (primaryUseCase !== "partner_support") {
+      out.push({ id: "journey", titleKey: "signup_wizard_step_journey" });
+      out.push({ id: "pregnancy", titleKey: "signup_wizard_step_pregnancy", optional: true });
+    }
+  } else if (profession === "clinician") {
+    out.push({ id: "clinician_profile", titleKey: "signup_wizard_step_clinician" });
+  } else if (profession === "student_researcher") {
+    out.push({ id: "student_profile", titleKey: "signup_wizard_step_student" });
+  }
+
+  out.push(
+    { id: "health", titleKey: "signup_wizard_step_health", optional: true },
+    { id: "preferences", titleKey: "signup_wizard_step_preferences", optional: true },
+    { id: "consent", titleKey: "signup_wizard_step_finish" },
+  );
+  return out;
+}
+
 const fieldBase =
-  "rounded-sm shadow-none focus-visible:ring-1 h-10 w-full min-w-0";
+  "rounded-md border border-input bg-background shadow-none focus-visible:ring-1 h-11 w-full min-w-0 px-3";
 
 export function ManualSignupWizard() {
+  const { t } = useTranslation("auth");
   const router = useRouter();
-  const [step, setStep] = useState(0);
+  const [stepId, setStepId] = useState<StepId>("persona");
+
   const [sex, setSex] = useState<SignupProfileDraft["sex"]>("");
   const [primaryUseCase, setPrimaryUseCase] = useState<PrimaryUseCaseValue | "">("self_maternal");
-
-  const steps = useMemo(() => {
-    if (primaryUseCase === "partner_support") {
-      return STEP_DEFS.filter((s) => s.id !== "journey" && s.id !== "pregnancy");
-    }
-    return STEP_DEFS;
-  }, [primaryUseCase]);
-
-  useEffect(() => {
-    setStep((s) => Math.min(s, Math.max(0, steps.length - 1)));
-  }, [steps.length]);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -83,6 +121,11 @@ export function ManualSignupWizard() {
   const [gravida, setGravida] = useState("");
   const [para, setPara] = useState("");
 
+  const [clinicianSpecialty, setClinicianSpecialty] = useState("");
+  const [clinicianInstitution, setClinicianInstitution] = useState("");
+  const [studentAffiliation, setStudentAffiliation] = useState("");
+  const [studentFieldOfStudy, setStudentFieldOfStudy] = useState("");
+
   const [bloodType, setBloodType] = useState("unknown");
   const [heightCm, setHeightCm] = useState("");
   const [weightKg, setWeightKg] = useState("");
@@ -97,20 +140,31 @@ export function ManualSignupWizard() {
   const [terms, setTerms] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const current = steps[step] ?? steps[0]!;
-  const isLast = step === steps.length - 1;
+  const steps = useMemo(
+    () => buildStepDefs(profession, (primaryUseCase || "self_maternal") as PrimaryUseCaseValue),
+    [profession, primaryUseCase],
+  );
 
-  const progress = useMemo(() => ((step + 1) / steps.length) * 100, [step, steps.length]);
+  useEffect(() => {
+    if (steps.some((s) => s.id === stepId)) return;
+    const idx = STEP_FALLBACK_ORDER.indexOf(stepId);
+    const nextId =
+      STEP_FALLBACK_ORDER.slice(idx >= 0 ? idx : 0).find((id) => steps.some((s) => s.id === id)) ??
+      steps[0]?.id ??
+      "persona";
+    queueMicrotask(() => setStepId(nextId));
+  }, [steps, stepId]);
+
+  const resolvedIdx = steps.findIndex((s) => s.id === stepId);
+  const stepIndex = resolvedIdx === -1 ? 0 : resolvedIdx;
+  const current = steps[stepIndex] ?? steps[0]!;
+  const isLast = stepIndex === steps.length - 1;
+
+  const progress = useMemo(() => ((stepIndex + 1) / steps.length) * 100, [stepIndex, steps.length]);
   const pregVis = useMemo(
     () => resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase || "self_maternal"),
     [pregnancyStatus, primaryUseCase],
   );
-
-  useEffect(() => {
-    if (primaryUseCase === "partner_support") {
-      setPregnancyStatus("not_applicable");
-    }
-  }, [primaryUseCase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,7 +196,26 @@ export function ManualSignupWizard() {
     };
   }, [email]);
 
+  function goNextStepId() {
+    const i = steps.findIndex((s) => s.id === stepId);
+    const next = steps[Math.min(steps.length - 1, Math.max(0, i) + 1)];
+    if (next) setStepId(next.id);
+  }
+
+  function goPrevStepId() {
+    const i = steps.findIndex((s) => s.id === stepId);
+    const prev = steps[Math.max(0, i - 1)];
+    if (prev) setStepId(prev.id);
+  }
+
   async function nextStep() {
+    if (current.id === "persona") {
+      const perr = validateProfession(profession);
+      if (perr) {
+        toast.error(perr);
+        return;
+      }
+    }
     if (current.id === "account") {
       const err = validateAccountCredentials({ name, email, password });
       if (err) {
@@ -160,21 +233,11 @@ export function ManualSignupWizard() {
         return;
       }
     }
-    if (current.id === "about") {
-      const perr = validateProfession(profession);
-      if (perr) {
-        toast.error(perr);
-        return;
-      }
-    }
-    if (current.id === "journey") {
-      // Journey status is optional; user can refine later in Profile.
-    }
-    setStep((s) => Math.min(steps.length - 1, s + 1));
+    goNextStepId();
   }
 
   function skipStep() {
-    setStep((s) => Math.min(steps.length - 1, s + 1));
+    goNextStepId();
   }
 
   async function submit(e: React.FormEvent) {
@@ -226,6 +289,10 @@ export function ManualSignupWizard() {
       timezone,
       notifyCommunityActivity,
       notifyDailyReminders,
+      clinicianSpecialty,
+      clinicianInstitution,
+      studentAffiliation,
+      studentFieldOfStudy,
     };
     const profilePayload = buildSignupProfilePayload(draft);
 
@@ -254,411 +321,483 @@ export function ManualSignupWizard() {
     router.push("/app");
   }
 
+  const stepTitle = `${t(current.titleKey)}${current.optional ? ` (${t("signup_wizard_optional_suffix")})` : ""}`;
+
+  function professionSummaryLabel(): string {
+    if (profession === "clinician") return t("signup_wizard_role_clinician");
+    if (profession === "parent_caregiver") return t("signup_wizard_role_parent");
+    if (profession === "student_researcher") return t("signup_wizard_role_student");
+    return "—";
+  }
+
   return (
-      <form onSubmit={submit} className="min-w-0 space-y-4 overflow-x-hidden">
-        <div className="min-w-0 space-y-2">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <p className="min-w-0 max-sm:truncate text-xs font-medium text-muted-foreground sm:whitespace-normal">
-              {current.title}
-              {current.optional ? " (optional)" : ""}
-            </p>
-            <span className="shrink-0 text-xs text-muted-foreground">{Math.round(progress)}%</span>
+    <form onSubmit={submit} className="min-w-0 space-y-4 overflow-x-hidden">
+      <StepProgressRail label={stepTitle} percent={progress} />
+
+      {current.id === "persona" && (
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-foreground">{t("signup_wizard_persona_heading")}</p>
+            <p className="text-xs text-muted-foreground">{t("signup_wizard_persona_hint")}</p>
           </div>
-          <div className="h-1.5 w-full min-w-0 rounded-full bg-muted">
-            <div
-              className="h-1.5 rounded-full bg-primary transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+          <ProfessionPicker
+            value={profession}
+            onChange={(p) => {
+              setProfession(p);
+              if (p === "student_researcher") {
+                setPrimaryUseCase("student_research");
+                setPregnancyStatus("not_applicable");
+              } else if (p === "clinician") {
+                setPrimaryUseCase("clinician");
+              } else {
+                setPrimaryUseCase("self_maternal");
+              }
+            }}
+            size="prominent"
+          />
         </div>
+      )}
 
-        {current.id === "account" && (
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="name">Full name</Label>
-              <div className="relative mt-1.5">
-                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="name"
-                  placeholder="Aisha Rahman"
-                  className={`${fieldBase} pl-9`}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <div className="relative mt-1.5">
-                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  className={`${fieldBase} pl-9`}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              {emailLookupPending && isValidEmailFormat(email.trim()) ? (
-                <p className="mt-1.5 text-xs text-muted-foreground">Checking if this email is already in use…</p>
-              ) : null}
-              {emailRegistered === true ? (
-                <p className="mt-1.5 text-xs font-medium text-destructive">
-                  This email is already registered.{" "}
-                  <Link href="/login" className="underline underline-offset-2">
-                    Sign in
-                  </Link>{" "}
-                  instead.
-                </p>
-              ) : null}
-              {email.trim() && !isValidEmailFormat(email.trim()) ? (
-                <p className="mt-1.5 text-xs text-destructive">
-                  Enter a valid email address (include @ and a domain).
-                </p>
-              ) : null}
-            </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <div className="relative mt-1.5">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="At least 8 characters"
-                  className={`${fieldBase} pl-9`}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {current.id === "about" && (
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <Label className="text-base font-semibold">Sex (optional)</Label>
-              <SexIconCards
-                value={sex}
-                onChange={(v) => setSex(v as SignupProfileDraft["sex"])}
-                className="mt-1.5"
+      {current.id === "account" && (
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="name">{t("signup_wizard_full_name")}</Label>
+            <div className="relative mt-1.5">
+              <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="name"
+                placeholder="Aisha Rahman"
+                className={`${fieldBase} pl-9`}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoComplete="name"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-base font-semibold">Why are you using MaaCare?</Label>
-              <Select
-                value={primaryUseCase || "self_maternal"}
-                onValueChange={(v) => setPrimaryUseCase(v as PrimaryUseCaseValue)}
-              >
+          </div>
+          <div>
+            <Label htmlFor="email">{t("email")}</Label>
+            <div className="relative mt-1.5">
+              <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                className={`${fieldBase} pl-9`}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            {emailLookupPending && isValidEmailFormat(email.trim()) ? (
+              <p className="mt-1.5 text-xs text-muted-foreground">{t("signup_wizard_email_checking")}</p>
+            ) : null}
+            {emailRegistered === true ? (
+              <p className="mt-1.5 text-xs font-medium text-destructive">
+                {t("signup_wizard_email_taken")}{" "}
+                <Link href="/login" className="underline underline-offset-2">
+                  {t("signup_footer_login")}
+                </Link>
+              </p>
+            ) : null}
+            {email.trim() && !isValidEmailFormat(email.trim()) ? (
+              <p className="mt-1.5 text-xs text-destructive">{t("signup_wizard_email_invalid")}</p>
+            ) : null}
+          </div>
+          <div>
+            <Label htmlFor="password">{t("password")}</Label>
+            <div className="relative mt-1.5">
+              <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="password"
+                type="password"
+                autoComplete="new-password"
+                placeholder={t("signup_wizard_password_hint")}
+                className={`${fieldBase} pl-9`}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {current.id === "parent_intent" && (
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <Label className="text-base font-semibold">{t("signup_wizard_sex_optional")}</Label>
+            <SexIconCards
+              value={sex}
+              onChange={(v) => setSex(v as SignupProfileDraft["sex"])}
+              className="mt-1.5"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-base font-semibold">{t("signup_wizard_primary_focus")}</Label>
+            <Select
+              value={primaryUseCase || "self_maternal"}
+              onValueChange={(v) => {
+                const pv = v as PrimaryUseCaseValue;
+                setPrimaryUseCase(pv);
+                if (pv === "partner_support") setPregnancyStatus("not_applicable");
+              }}
+            >
+              <SelectTrigger className={cn("mt-1.5", fieldBase)}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRIMARY_USE_CASE_VALUES.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {PRIMARY_USE_LABEL[k]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
+      {current.id === "clinician_profile" && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">{t("signup_wizard_clinician_disclaimer")}</p>
+          <div className="space-y-2">
+            <Label htmlFor="spec">{t("signup_wizard_specialty_label")}</Label>
+            <Input
+              id="spec"
+              className={fieldBase}
+              placeholder={t("signup_wizard_specialty_placeholder")}
+              value={clinicianSpecialty}
+              onChange={(e) => setClinicianSpecialty(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="inst">{t("signup_wizard_institution_label")}</Label>
+            <Input
+              id="inst"
+              className={fieldBase}
+              placeholder={t("signup_wizard_institution_placeholder")}
+              value={clinicianInstitution}
+              onChange={(e) => setClinicianInstitution(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-base font-semibold">{t("signup_wizard_sex_optional")}</Label>
+            <SexIconCards value={sex} onChange={(v) => setSex(v as SignupProfileDraft["sex"])} className="mt-1.5" />
+          </div>
+        </div>
+      )}
+
+      {current.id === "student_profile" && (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="aff">{t("signup_wizard_affiliation_label")}</Label>
+            <Input
+              id="aff"
+              className={fieldBase}
+              placeholder={t("signup_wizard_affiliation_placeholder")}
+              value={studentAffiliation}
+              onChange={(e) => setStudentAffiliation(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="fos">{t("signup_wizard_field_label")}</Label>
+            <Input
+              id="fos"
+              className={fieldBase}
+              placeholder={t("signup_wizard_field_placeholder")}
+              value={studentFieldOfStudy}
+              onChange={(e) => setStudentFieldOfStudy(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-base font-semibold">{t("signup_wizard_sex_optional")}</Label>
+            <SexIconCards value={sex} onChange={(v) => setSex(v as SignupProfileDraft["sex"])} className="mt-1.5" />
+          </div>
+        </div>
+      )}
+
+      {current.id === "journey" && (
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <Label className="text-base font-semibold">{t("signup_wizard_journey_heading")}</Label>
+            <p className="text-xs text-muted-foreground">{t("signup_wizard_journey_hint")}</p>
+            <JourneyStatusPicker value={pregnancyStatus} onChange={setPregnancyStatus} />
+          </div>
+        </div>
+      )}
+
+      {current.id === "pregnancy" && (
+        <div className="min-w-0 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {t("signup_wizard_journey_status_prefix")}{" "}
+            <span className="font-medium text-foreground">{pregnancyStatus.replace("_", " ")}</span>
+            {pregnancyStatus === "not_applicable"
+              ? ` — ${t("signup_wizard_pregnancy_na")}`
+              : ` — ${t("signup_wizard_pregnancy_hint")}`}
+          </p>
+
+          {pregVis.showLmpEdd && (
+            <div className="flex w-full min-w-0 max-w-full flex-col gap-4">
+              <div className="w-full min-w-0 max-w-full">
+                <Label htmlFor="lmp">{t("signup_wizard_lmp")}</Label>
+                <div className="mt-1.5 min-w-0">
+                  <PopoverDateInput
+                    id="lmp"
+                    value={lmpDate}
+                    onChange={setLmpDate}
+                    className={fieldBase}
+                    placeholder={t("signup_wizard_lmp_ph")}
+                  />
+                </div>
+              </div>
+              <div className="w-full min-w-0 max-w-full">
+                <Label htmlFor="edd">{t("signup_wizard_edd")}</Label>
+                <div className="mt-1.5 min-w-0">
+                  <PopoverDateInput
+                    id="edd"
+                    value={eddDate}
+                    onChange={setEddDate}
+                    className={fieldBase}
+                    placeholder={t("signup_wizard_edd_ph")}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {pregVis.showGestationalWeek && (
+            <div>
+              <Label htmlFor="ga">{t("signup_wizard_ga")}</Label>
+              <Input
+                id="ga"
+                type="number"
+                min={0}
+                max={45}
+                className={cn("mt-1.5", fieldBase)}
+                value={gestationalAgeWeeks}
+                onChange={(e) => setGestationalAgeWeeks(e.target.value)}
+              />
+            </div>
+          )}
+
+          {pregVis.showBabyBirth && (
+            <div className="w-full min-w-0 max-w-full">
+              <Label htmlFor="birth">{t("signup_wizard_birth")}</Label>
+              <div className="mt-1.5 min-w-0">
+                <PopoverDateInput
+                  id="birth"
+                  value={babyBirthDate}
+                  onChange={setBabyBirthDate}
+                  className={fieldBase}
+                  placeholder={t("signup_wizard_birth_ph")}
+                />
+              </div>
+            </div>
+          )}
+
+          {pregVis.showGravidaPara && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="gravida">{t("signup_wizard_gravida")}</Label>
+                <Input
+                  id="gravida"
+                  type="number"
+                  min={0}
+                  max={30}
+                  className={cn("mt-1.5", fieldBase)}
+                  value={gravida}
+                  onChange={(e) => setGravida(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="para">{t("signup_wizard_para")}</Label>
+                <Input
+                  id="para"
+                  type="number"
+                  min={0}
+                  max={30}
+                  className={cn("mt-1.5", fieldBase)}
+                  value={para}
+                  onChange={(e) => setPara(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {current.id === "health" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="min-w-0">
+              <Label>{t("signup_wizard_blood_type")}</Label>
+              <Select value={bloodType} onValueChange={setBloodType}>
                 <SelectTrigger className={cn("mt-1.5", fieldBase)}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PRIMARY_USE_CASE_VALUES.map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {PRIMARY_USE_LABEL[k]}
+                  {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"].map((b) => (
+                    <SelectItem key={b} value={b}>
+                      {b}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label className="text-base font-semibold">How do you use MaaCare professionally?</Label>
-              <p className="text-xs text-muted-foreground">Care teams vs families — you can change this later.</p>
-              <ProfessionPicker value={profession} onChange={setProfession} />
-            </div>
-          </div>
-        )}
-
-        {current.id === "journey" && (
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <Label className="text-base font-semibold">Where are you in your journey?</Label>
-              <p className="text-xs text-muted-foreground">You can add dates later in Profile.</p>
-              <JourneyStatusPicker value={pregnancyStatus} onChange={setPregnancyStatus} />
-            </div>
-          </div>
-        )}
-
-        {current.id === "pregnancy" && (
-          <div className="min-w-0 space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Journey: <span className="font-medium text-foreground">{pregnancyStatus.replace("_", " ")}</span>
-              {pregnancyStatus === "not_applicable"
-                ? " — no pregnancy details needed."
-                : " — add what you know; you can skip and fill in later."}
-            </p>
-
-            {pregVis.showLmpEdd && (
-              <div className="flex w-full min-w-0 max-w-full flex-col gap-4">
-                <div className="w-full min-w-0 max-w-full">
-                  <Label htmlFor="lmp">Last menstrual period (LMP)</Label>
-                  <div className="mt-1.5 min-w-0">
-                    <PopoverDateInput
-                      id="lmp"
-                      value={lmpDate}
-                      onChange={setLmpDate}
-                      className={fieldBase}
-                      placeholder="Select LMP"
-                    />
-                  </div>
-                </div>
-                <div className="w-full min-w-0 max-w-full">
-                  <Label htmlFor="edd">Estimated due date (EDD)</Label>
-                  <div className="mt-1.5 min-w-0">
-                    <PopoverDateInput
-                      id="edd"
-                      value={eddDate}
-                      onChange={setEddDate}
-                      className={fieldBase}
-                      placeholder="Select due date"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {pregVis.showGestationalWeek && (
-              <div>
-                <Label htmlFor="ga">Gestational age (weeks)</Label>
-                <Input
-                  id="ga"
-                  type="number"
-                  min={0}
-                  max={45}
-                  className={cn("mt-1.5", fieldBase)}
-                  value={gestationalAgeWeeks}
-                  onChange={(e) => setGestationalAgeWeeks(e.target.value)}
-                />
-              </div>
-            )}
-
-            {pregVis.showBabyBirth && (
-              <div className="w-full min-w-0 max-w-full">
-                <Label htmlFor="birth">Baby&apos;s birth date</Label>
-                <div className="mt-1.5 min-w-0">
-                  <PopoverDateInput
-                    id="birth"
-                    value={babyBirthDate}
-                    onChange={setBabyBirthDate}
-                    className={fieldBase}
-                    placeholder="Select birth date"
-                  />
-                </div>
-              </div>
-            )}
-
-            {pregVis.showGravidaPara && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="gravida">Gravida (pregnancies)</Label>
-                  <Input
-                    id="gravida"
-                    type="number"
-                    min={0}
-                    max={30}
-                    className={cn("mt-1.5", fieldBase)}
-                    value={gravida}
-                    onChange={(e) => setGravida(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="para">Para (births)</Label>
-                  <Input
-                    id="para"
-                    type="number"
-                    min={0}
-                    max={30}
-                    className={cn("mt-1.5", fieldBase)}
-                    value={para}
-                    onChange={(e) => setPara(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {current.id === "health" && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="min-w-0">
-                <Label>Blood type</Label>
-                <Select value={bloodType} onValueChange={setBloodType}>
-                  <SelectTrigger className={cn("mt-1.5", fieldBase)}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"].map((b) => (
-                      <SelectItem key={b} value={b}>
-                        {b}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="min-w-0">
-                <Label htmlFor="h">Height (cm)</Label>
-                <Input
-                  id="h"
-                  type="number"
-                  className={cn("mt-1.5", fieldBase)}
-                  value={heightCm}
-                  onChange={(e) => setHeightCm(e.target.value)}
-                />
-              </div>
-              <div className="min-w-0">
-                <Label htmlFor="w">Weight (kg)</Label>
-                <Input
-                  id="w"
-                  type="number"
-                  className={cn("mt-1.5", fieldBase)}
-                  value={weightKg}
-                  onChange={(e) => setWeightKg(e.target.value)}
-                />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="conditions">Medical conditions (comma separated)</Label>
+            <div className="min-w-0">
+              <Label htmlFor="h">{t("signup_wizard_height")}</Label>
               <Input
-                id="conditions"
+                id="h"
+                type="number"
                 className={cn("mt-1.5", fieldBase)}
-                placeholder="e.g. anemia, hypertension"
-                value={conditionsText}
-                onChange={(e) => setConditionsText(e.target.value)}
+                value={heightCm}
+                onChange={(e) => setHeightCm(e.target.value)}
               />
             </div>
-            <div>
-              <Label htmlFor="notes">Health notes</Label>
-              <Textarea
-                id="notes"
-                className="mt-1.5 min-h-[90px] w-full min-w-0 rounded-sm shadow-none focus-visible:ring-1"
-                placeholder="Anything important your care team should know..."
-                value={healthNotes}
-                onChange={(e) => setHealthNotes(e.target.value)}
-              />
-            </div>
-          </div>
-        )}
-
-        {current.id === "preferences" && (
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="phone">Phone (optional)</Label>
+            <div className="min-w-0">
+              <Label htmlFor="w">{t("signup_wizard_weight")}</Label>
               <Input
-                id="phone"
+                id="w"
+                type="number"
                 className={cn("mt-1.5", fieldBase)}
-                placeholder="+880..."
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                value={weightKg}
+                onChange={(e) => setWeightKg(e.target.value)}
               />
             </div>
-            <div>
-              <Label htmlFor="timezone">Time zone (optional)</Label>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">e.g. Asia/Dhaka — used for reminder timing.</p>
-              <Input
-                id="timezone"
-                className={cn("mt-1.5", fieldBase)}
-                placeholder="Asia/Dhaka"
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-              />
-            </div>
-            <label className="flex items-start gap-2.5 text-sm">
-              <Checkbox
-                checked={notifyCommunityActivity}
-                onCheckedChange={(v) => setNotifyCommunityActivity(!!v)}
-                className="mt-0.5 rounded-sm"
-              />
-              <span className="text-muted-foreground">Notify me about community replies and likes.</span>
-            </label>
-            <label className="flex items-start gap-2.5 text-sm">
-              <Checkbox
-                checked={notifyDailyReminders}
-                onCheckedChange={(v) => setNotifyDailyReminders(!!v)}
-                className="mt-0.5 rounded-sm"
-              />
-              <span className="text-muted-foreground">Notify me about daily health reminders.</span>
-            </label>
           </div>
-        )}
-
-        {current.id === "consent" && (
-          <div className="space-y-3">
-            <div className="break-words rounded-sm border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-              Account: <span className="font-medium text-foreground">{name || "—"}</span> · {email || "—"}
-              <br />
-              Primary focus:{" "}
-              <span className="font-medium text-foreground">
-                {PRIMARY_USE_LABEL[primaryUseCase || "self_maternal"]}
-              </span>
-              <br />
-              Journey: <span className="font-medium text-foreground">{pregnancyStatus.replace("_", " ")}</span>
-              <br />
-              Role:{" "}
-              <span className="font-medium text-foreground">
-                {profession === "clinician"
-                  ? "Clinician"
-                  : profession === "parent_caregiver"
-                    ? "Parent / caregiver"
-                    : profession === "other"
-                      ? "Other"
-                      : "—"}
-              </span>
-              <br />
-              You can edit any skipped details later from Profile.
-            </div>
-            <label className="flex items-start gap-2.5 text-sm">
-              <Checkbox checked={terms} onCheckedChange={(v) => setTerms(!!v)} className="mt-0.5 rounded-sm" />
-              <span className="text-muted-foreground">
-                I agree to the <a href="#" className="font-medium text-primary">Terms</a> and{" "}
-                <a href="#" className="font-medium text-primary">Privacy Policy</a>.
-              </span>
-            </label>
+          <div>
+            <Label htmlFor="conditions">{t("signup_wizard_conditions")}</Label>
+            <Input
+              id="conditions"
+              className={cn("mt-1.5", fieldBase)}
+              placeholder={t("signup_wizard_conditions_ph")}
+              value={conditionsText}
+              onChange={(e) => setConditionsText(e.target.value)}
+            />
           </div>
-        )}
-
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 pt-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-sm"
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-            disabled={step === 0 || saving}
-          >
-            Back
-          </Button>
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {current.optional && !isLast ? (
-              <Button type="button" variant="ghost" className="rounded-sm" onClick={skipStep} disabled={saving}>
-                Skip for now
-              </Button>
-            ) : null}
-
-            {!isLast ? (
-              <Button
-                type="button"
-                className="rounded-sm"
-                onClick={() => void nextStep()}
-                disabled={
-                  saving ||
-                  (current.id === "account" &&
-                    (!isValidEmailFormat(email.trim()) || emailRegistered === true))
-                }
-              >
-                Continue <ChevronRight className="ml-1 h-4 w-4" />
-              </Button>
-            ) : (
-              <Button type="submit" className="rounded-sm" disabled={saving}>
-                {saving ? "Creating account..." : "Create account"}
-              </Button>
-            )}
+          <div>
+            <Label htmlFor="notes">{t("signup_wizard_health_notes")}</Label>
+            <Textarea
+              id="notes"
+              className="mt-1.5 min-h-[90px] w-full min-w-0 rounded-md border border-input bg-background shadow-none focus-visible:ring-1"
+              placeholder={t("signup_wizard_health_notes_ph")}
+              value={healthNotes}
+              onChange={(e) => setHealthNotes(e.target.value)}
+            />
           </div>
         </div>
-      </form>
+      )}
+
+      {current.id === "preferences" && (
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="phone">{t("signup_wizard_phone_optional")}</Label>
+            <Input
+              id="phone"
+              className={cn("mt-1.5", fieldBase)}
+              placeholder="+880..."
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="timezone">{t("signup_wizard_timezone_optional")}</Label>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{t("signup_wizard_timezone_hint")}</p>
+            <Input
+              id="timezone"
+              className={cn("mt-1.5", fieldBase)}
+              placeholder="Asia/Dhaka"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+            />
+          </div>
+          <label className="flex items-start gap-2.5 text-sm">
+            <Checkbox
+              checked={notifyCommunityActivity}
+              onCheckedChange={(v) => setNotifyCommunityActivity(!!v)}
+              className="mt-0.5 rounded-sm"
+            />
+            <span className="text-muted-foreground">{t("signup_wizard_notify_community")}</span>
+          </label>
+          <label className="flex items-start gap-2.5 text-sm">
+            <Checkbox
+              checked={notifyDailyReminders}
+              onCheckedChange={(v) => setNotifyDailyReminders(!!v)}
+              className="mt-0.5 rounded-sm"
+            />
+            <span className="text-muted-foreground">{t("signup_wizard_notify_reminders")}</span>
+          </label>
+        </div>
+      )}
+
+      {current.id === "consent" && (
+        <div className="space-y-3">
+          <div className="break-words rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+            <p>
+              <span className="font-medium text-foreground">{t("signup_wizard_summary_account")}</span>{" "}
+              <span className="font-medium text-foreground">{name || "—"}</span> · {email || "—"}
+            </p>
+            <p className="mt-1">
+              <span className="font-medium text-foreground">{t("signup_wizard_summary_focus")}</span>{" "}
+              <span className="font-medium text-foreground">
+                {PRIMARY_USE_LABEL[(primaryUseCase || "self_maternal") as PrimaryUseCaseValue]}
+              </span>
+            </p>
+            <p className="mt-1">
+              <span className="font-medium text-foreground">{t("signup_wizard_summary_journey")}</span>{" "}
+              <span className="font-medium text-foreground">{pregnancyStatus.replace("_", " ")}</span>
+            </p>
+            <p className="mt-1">
+              <span className="font-medium text-foreground">{t("signup_wizard_summary_role")}</span>{" "}
+              <span className="font-medium text-foreground">{professionSummaryLabel()}</span>
+            </p>
+            <p className="mt-2 text-xs">{t("signup_wizard_summary_footer")}</p>
+          </div>
+          <label className="flex items-start gap-2.5 text-sm">
+            <Checkbox checked={terms} onCheckedChange={(v) => setTerms(!!v)} className="mt-0.5 rounded-sm" />
+            <span className="text-muted-foreground">{t("signup_wizard_terms_ack")}</span>
+          </label>
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 pt-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-md"
+          onClick={goPrevStepId}
+          disabled={stepIndex === 0 || saving}
+        >
+          {t("signup_wizard_back")}
+        </Button>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {current.optional && !isLast ? (
+            <Button type="button" variant="ghost" className="rounded-md" onClick={skipStep} disabled={saving}>
+              {t("signup_wizard_skip")}
+            </Button>
+          ) : null}
+
+          {!isLast ? (
+            <Button
+              type="button"
+              className="rounded-md"
+              onClick={() => void nextStep()}
+              disabled={
+                saving ||
+                (current.id === "account" &&
+                  (!isValidEmailFormat(email.trim()) || emailRegistered === true))
+              }
+            >
+              {t("signup_wizard_continue")} <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+          ) : (
+            <Button type="submit" className="rounded-md" disabled={saving}>
+              {saving ? t("signup_wizard_creating") : t("signup_wizard_create")}
+            </Button>
+          )}
+        </div>
+      </div>
+    </form>
   );
 }

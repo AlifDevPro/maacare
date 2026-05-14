@@ -60,7 +60,7 @@ export function normalizeSignupDraftFromUserText(
     } else if (PARENT_RE.test(combined) && !STUDENT_RESEARCHER_RE.test(combined)) {
       next = { ...next, profession: "parent_caregiver" };
     } else if (STUDENT_RESEARCHER_RE.test(combined)) {
-      next = { ...next, profession: "other", primaryUseCase: "student_research" };
+      next = { ...next, profession: "student_researcher", primaryUseCase: "student_research" };
       const raw = latestUserText.trim();
       if (raw.length > 2 && raw.length < 500) {
         next = { ...next, healthNotes: appendHealthNoteLine(next.healthNotes, raw) };

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { format, formatDistanceToNow } from "date-fns";
-import { Activity, MessageCircle, Shield, Stethoscope } from "lucide-react";
+import { Activity, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CommunityPostBody } from "@/components/community/community-post-body";
+import { CommunityAuthorBadges } from "@/components/community/community-author-badges";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,8 @@ type MemberProfile = {
   communityShowExtendedProfile: boolean;
   verifiedProfessional: boolean;
   showExtendedToViewer: boolean;
+  clinicianContext: Record<string, unknown> | null;
+  studentContext: Record<string, unknown> | null;
   postCount: number;
   commentCount: number;
   pregnancy: {
@@ -80,45 +83,14 @@ function avatarLetter(name: string): string {
   return t ? t[0]!.toUpperCase() : "?";
 }
 
-function ProfileBadges({ profile }: { profile: MemberProfile }) {
-  const chips: ReactNode[] = [];
-  if (profile.role === "admin") {
-    chips.push(
-      <span
-        key="admin"
-        className="inline-flex items-center gap-1 rounded-full border border-amber-500/50 bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800 shadow-[0_0_12px_rgba(245,158,11,0.35)] dark:text-amber-200"
-      >
-        <Shield className="h-3 w-3" />
-        Admin
-      </span>,
-    );
-  } else if (profile.role === "moderator") {
-    chips.push(
-      <span
-        key="mod"
-        className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/12 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-violet-800 shadow-[0_0_10px_rgba(139,92,246,0.25)] dark:text-violet-200"
-      >
-        Moderator
-      </span>,
-    );
-  }
-
-  const isDoctorBadge =
-    profile.verifiedProfessional && profile.profession === "clinician";
-  if (isDoctorBadge) {
-    chips.push(
-      <span
-        key="doc"
-        className="inline-flex items-center gap-1 rounded-full border border-sky-500/45 bg-sky-500/12 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-sky-900 shadow-[0_0_14px_rgba(14,165,233,0.35)] dark:text-sky-100"
-      >
-        <Stethoscope className="h-3 w-3" />
-        Verified doctor
-      </span>,
-    );
-  }
-
-  if (chips.length === 0) return null;
-  return <div className="mt-2 flex flex-wrap gap-2">{chips}</div>;
+function contextLine(label: string, value: string): ReactNode | null {
+  const v = value.trim();
+  if (!v) return null;
+  return (
+    <p className="text-sm text-muted-foreground">
+      <span className="font-medium text-foreground/85">{label}</span> {v}
+    </p>
+  );
 }
 
 export default function CommunityMemberPage() {
@@ -265,11 +237,43 @@ export default function CommunityMemberPage() {
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <p className="font-display text-lg font-semibold leading-tight">{profile.displayName}</p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="font-display text-xl font-semibold leading-tight sm:text-2xl">{profile.displayName}</p>
+              <p className="text-xs text-muted-foreground sm:text-sm">
                 Member since {formatDistanceToNow(new Date(profile.memberSince), { addSuffix: true })}
                 {joinedDateLabel ? ` · ${joinedDateLabel}` : ""}
               </p>
+              <div className="mt-3 min-w-0">
+                <CommunityAuthorBadges
+                  authorId={profile.id}
+                  authorDisplayName={profile.displayName}
+                  authorRole={profile.role}
+                  authorProfession={profile.profession}
+                  authorVerifiedProfessional={profile.verifiedProfessional}
+                  variant="prominent"
+                />
+              </div>
+              <div className="mt-2 space-y-1">
+                {contextLine(
+                  "Specialty",
+                  typeof profile.clinicianContext?.specialty === "string" ? profile.clinicianContext.specialty : "",
+                )}
+                {contextLine(
+                  "Institution",
+                  typeof profile.clinicianContext?.institution === "string"
+                    ? profile.clinicianContext.institution
+                    : "",
+                )}
+                {contextLine(
+                  "Affiliation",
+                  typeof profile.studentContext?.affiliation === "string" ? profile.studentContext.affiliation : "",
+                )}
+                {contextLine(
+                  "Field of study",
+                  typeof profile.studentContext?.fieldOfStudy === "string"
+                    ? profile.studentContext.fieldOfStudy
+                    : "",
+                )}
+              </div>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                 <span className="rounded-full border border-border/70 bg-muted/40 px-2.5 py-1 font-medium tabular-nums text-foreground/85">
                   {profile.postCount ?? 0} posts
@@ -281,12 +285,6 @@ export default function CommunityMemberPage() {
                   {profile.languageLabel ?? (profile.language === "bn" ? "Bengali" : "English")}
                 </span>
               </div>
-              {profile.professionLabel ? (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground/80">Profession:</span> {profile.professionLabel}
-                </p>
-              ) : null}
-              <ProfileBadges profile={profile} />
               {user?.id && user.id !== profile.id ? (
                 <Button asChild className="mt-3 h-10 w-full rounded-xl text-sm font-semibold" size="default">
                   <Link href={`/messages/start?peer=${profile.id}`}>

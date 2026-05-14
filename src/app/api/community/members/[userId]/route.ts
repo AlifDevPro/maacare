@@ -53,7 +53,7 @@ export async function GET(
     const { data: profile, error: pErr } = await supabase
       .from("profiles")
       .select(
-        "id, display_name, avatar_url, role, created_at, profession, language, community_show_extended_profile, verified_professional",
+        "id, display_name, avatar_url, role, created_at, profession, language, community_show_extended_profile, verified_professional, student_context, clinician_context",
       )
       .eq("id", uid)
       .maybeSingle();
@@ -216,11 +216,20 @@ export async function GET(
         ? "Clinician"
         : profile.profession === "parent_caregiver"
           ? "Parent / caregiver"
-          : profile.profession === "other"
-            ? "Other"
+          : profile.profession === "student_researcher" || profile.profession === "other"
+            ? "Student / researcher"
             : profile.profession
               ? String(profile.profession)
               : null;
+
+    const clinicianContext =
+      profile.clinician_context && typeof profile.clinician_context === "object"
+        ? (profile.clinician_context as Record<string, unknown>)
+        : null;
+    const studentContext =
+      profile.student_context && typeof profile.student_context === "object"
+        ? (profile.student_context as Record<string, unknown>)
+        : null;
 
     const lang = (profile.language as string | null) ?? "en";
     const languageLabel = lang === "bn" ? "Bengali" : "English";
@@ -239,6 +248,8 @@ export async function GET(
         communityShowExtendedProfile: profile.community_show_extended_profile === true,
         verifiedProfessional: profile.verified_professional === true,
         showExtendedToViewer: showExtended,
+        clinicianContext,
+        studentContext,
         pregnancy: pregnancyPublic,
         postCount,
         commentCount,

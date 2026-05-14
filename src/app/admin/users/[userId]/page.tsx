@@ -314,7 +314,7 @@ export default function AdminUserDetailPage() {
                 <SelectItem value="none">Not set</SelectItem>
                 <SelectItem value="parent_caregiver">Parent / caregiver</SelectItem>
                 <SelectItem value="clinician">Clinician</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
+                <SelectItem value="student_researcher">Student / researcher</SelectItem>
               </SelectContent>
             </Select>
           </div>

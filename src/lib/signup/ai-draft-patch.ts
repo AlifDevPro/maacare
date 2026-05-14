@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { ProfessionValue } from "@/lib/profile/profession-values";
 import { PROFESSION_VALUES } from "@/lib/profile/profession-values";
 
 import { PRIMARY_USE_CASE_VALUES } from "@/lib/profile/primary-use-case";
@@ -18,7 +19,13 @@ export const signupAiDraftPatchSchema = z
     displayName: z.string().max(200).optional(),
     sex: z.enum(["female", "male", "other", "unknown"]).optional(),
     primaryUseCase: primaryUseCaseEnum.optional(),
-    profession: z.enum(PROFESSION_VALUES).optional(),
+    profession: z
+      .union([z.enum(PROFESSION_VALUES as unknown as [string, ...string[]]), z.literal("other")])
+      .optional()
+      .transform((v): ProfessionValue | undefined => {
+        if (v === undefined) return undefined;
+        return v === "other" ? "student_researcher" : (v as ProfessionValue);
+      }),
     pregnancyStatus: pregnancyEnum.optional(),
     lmpDate: z.string().max(40).optional(),
     eddDate: z.string().max(40).optional(),

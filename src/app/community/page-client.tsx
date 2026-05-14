@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { formatDistanceToNow } from "date-fns";
 import {
   Heart,
   Loader2,
@@ -58,6 +59,10 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { dispatchNotificationsUpdated } from "@/lib/notifications/events";
 import { CommunityAvatar } from "@/components/community/community-avatar";
+import {
+  CommunityAuthorBadges,
+  authorRowHighlightClass,
+} from "@/components/community/community-author-badges";
 import { CommunityPostBody } from "@/components/community/community-post-body";
 import { CommunityRichEditor } from "@/components/community/community-rich-editor";
 import { isRichPostBodyEmpty } from "@/lib/community/rich-post-empty";
@@ -110,6 +115,8 @@ export type FeedPost = {
   authorDisplayName: string;
   authorRole: string;
   authorAvatarUrl?: string | null;
+  authorProfession?: string | null;
+  authorVerifiedProfessional?: boolean;
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
@@ -808,27 +815,40 @@ export default function CommunityPageClient({
                     </div>
                   ) : null}
                   <div className={cn("px-4 pb-2 pt-4", isOwner && "pr-12")}>
-                    <Link
-                      href={`/community/member/${p.authorId}`}
-                      onClick={saveFeedScroll}
-                      className="mb-2 flex items-center gap-2.5 rounded-xl py-0.5 outline-none ring-offset-background transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
+                    <div
+                      className={cn(
+                        "mb-2 flex items-start gap-2.5 rounded-xl py-1",
+                        authorRowHighlightClass(p.authorProfession, p.authorVerifiedProfessional),
+                      )}
                     >
-                      <CommunityAvatar
-                        url={p.authorAvatarUrl}
-                        name={p.authorDisplayName}
-                        className="h-9 w-9"
-                        fallbackClassName="bg-primary-soft text-sm font-semibold"
-                      />
+                      <Link
+                        href={`/community/member/${p.authorId}`}
+                        onClick={saveFeedScroll}
+                        className="shrink-0 pt-0.5 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <CommunityAvatar
+                          url={p.authorAvatarUrl}
+                          name={p.authorDisplayName}
+                          className="h-10 w-10 sm:h-11 sm:w-11"
+                          fallbackClassName="bg-primary-soft text-sm font-semibold"
+                        />
+                      </Link>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <p className="truncate text-sm font-semibold">{p.authorDisplayName}</p>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">
+                        <CommunityAuthorBadges
+                          authorId={p.authorId}
+                          authorDisplayName={p.authorDisplayName}
+                          authorRole={p.authorRole}
+                          authorProfession={p.authorProfession}
+                          authorVerifiedProfessional={p.authorVerifiedProfessional}
+                          timeLabel={formatDistanceToNow(new Date(p.createdAt), { addSuffix: true })}
+                          variant="prominent"
+                        />
+                        <p className="mt-0.5 text-xs text-muted-foreground">
                           {kindLabel(p.postKind)}
                           {p.gestationalWeekSnapshot != null ? ` · Week ${p.gestationalWeekSnapshot}` : ""}
                         </p>
                       </div>
-                    </Link>
+                    </div>
                     <Link
                       href={`/community/${p.id}`}
                       onClick={saveFeedScroll}

@@ -14,8 +14,10 @@ export type ProfileBundle = {
     timezone: string | null;
     notify_community_activity?: boolean | null;
     notify_daily_reminders?: boolean | null;
-    /** Self-reported: parent_caregiver | clinician | other — not the auth `role`. */
+    /** Self-reported: parent_caregiver | clinician | student_researcher — not the auth `role`. */
     profession?: string | null;
+    /** Optional persona-specific key/value blob; validated on PATCH by profession. */
+    persona_profile?: Record<string, unknown> | null;
     primary_use_case?: string | null;
     student_context?: Record<string, unknown> | null;
     clinician_context?: Record<string, unknown> | null;

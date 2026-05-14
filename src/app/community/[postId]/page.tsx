@@ -5,14 +5,13 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { formatDistanceToNow } from "date-fns";
-import { Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Stethoscope, Trash2 } from "lucide-react";
+import { Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { dispatchNotificationsUpdated } from "@/lib/notifications/events";
 import { Card } from "@/components/ui/card";
 import {
@@ -51,7 +50,10 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { CommunityAvatar } from "@/components/community/community-avatar";
 import {
-  CommunityCommentThread,
+  CommunityAuthorBadges,
+  authorRowHighlightClass,
+} from "@/components/community/community-author-badges";
+import { CommunityCommentThread,
   type CommunityCommentNode as CommentNode,
   type CommunityCommentRow as CommentRow,
 } from "@/components/community/community-comment-thread";
@@ -77,6 +79,8 @@ type PostPayload = {
   authorDisplayName: string;
   authorRole: string;
   authorAvatarUrl?: string | null;
+  authorProfession?: string | null;
+  authorVerifiedProfessional?: boolean;
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
@@ -416,11 +420,7 @@ export default function PostDetailPage() {
     );
   }
 
-  const meta = [
-    kindLabel(post.postKind),
-    post.gestationalWeekSnapshot != null ? `Week ${post.gestationalWeekSnapshot}` : null,
-    formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }),
-  ]
+  const meta = [kindLabel(post.postKind), post.gestationalWeekSnapshot != null ? `Week ${post.gestationalWeekSnapshot}` : null]
     .filter(Boolean)
     .join(" · ");
 
@@ -681,23 +681,35 @@ export default function PostDetailPage() {
               </DropdownMenu>
             </div>
           ) : null}
-          <div className={cn("mb-2 flex items-center gap-2.5", (isOwner || isModerator) && "pr-10")}>
-            <CommunityAvatar
-              url={post.authorAvatarUrl}
-              name={post.authorDisplayName}
-              className="h-9 w-9"
-              fallbackClassName="bg-primary-soft text-sm font-semibold"
-            />
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Link
-                  href={`/community/member/${post.authorId}`}
-                  className="text-sm font-semibold text-primary hover:underline"
-                >
-                  {post.authorDisplayName}
-                </Link>
-              </div>
-              <p className="text-[11px] text-muted-foreground">{meta}</p>
+          <div
+            className={cn(
+              "mb-2 flex items-start gap-2.5",
+              (isOwner || isModerator) && "pr-10",
+              authorRowHighlightClass(post.authorProfession, post.authorVerifiedProfessional),
+            )}
+          >
+            <Link
+              href={`/community/member/${post.authorId}`}
+              className="shrink-0 pt-0.5 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <CommunityAvatar
+                url={post.authorAvatarUrl}
+                name={post.authorDisplayName}
+                className="h-10 w-10 sm:h-11 sm:w-11"
+                fallbackClassName="bg-primary-soft text-sm font-semibold"
+              />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <CommunityAuthorBadges
+                authorId={post.authorId}
+                authorDisplayName={post.authorDisplayName}
+                authorRole={post.authorRole}
+                authorProfession={post.authorProfession}
+                authorVerifiedProfessional={post.authorVerifiedProfessional}
+                timeLabel={formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
+                variant="prominent"
+              />
+              <p className="mt-0.5 text-xs text-muted-foreground">{meta}</p>
             </div>
           </div>
           {post.title ? <p className="mb-2 font-display text-base font-semibold">{post.title}</p> : null}

@@ -39,7 +39,9 @@ const SELECT_POSTS_FULL = `
   profiles!author_id (
     display_name,
     role,
-    avatar_url
+    avatar_url,
+    profession,
+    verified_professional
   )
 `;
 
@@ -56,7 +58,9 @@ const SELECT_POSTS_MINIMAL = `
   profiles!author_id (
     display_name,
     role,
-    avatar_url
+    avatar_url,
+    profession,
+    verified_professional
   )
 `;
 
@@ -256,6 +260,8 @@ export async function GET(req: NextRequest) {
         authorDisplayName: profile?.display_name ?? "Member",
         authorRole: profile?.role ?? "user",
         authorAvatarUrl: profile?.avatar_url ?? null,
+        authorProfession: profile?.profession ?? null,
+        authorVerifiedProfessional: profile?.verified_professional === true,
         bodyFormat: typeof row.body_format === "string" && row.body_format === "html" ? "html" : "plain",
         likeCount: likesByPost[id] ?? 0,
         commentCount: commentsByPost[id] ?? 0,

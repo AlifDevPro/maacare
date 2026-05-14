@@ -28,6 +28,12 @@ export type SignupProfileDraft = {
   timezone: string;
   notifyCommunityActivity: boolean;
   notifyDailyReminders: boolean;
+  /** Clinician onboarding (saved to clinician_context). */
+  clinicianSpecialty: string;
+  clinicianInstitution: string;
+  /** Student / researcher onboarding (saved to student_context). */
+  studentAffiliation: string;
+  studentFieldOfStudy: string;
 };
 
 export function emptySignupProfileDraft(): SignupProfileDraft {
@@ -52,6 +58,10 @@ export function emptySignupProfileDraft(): SignupProfileDraft {
     timezone: "",
     notifyCommunityActivity: true,
     notifyDailyReminders: true,
+    clinicianSpecialty: "",
+    clinicianInstitution: "",
+    studentAffiliation: "",
+    studentFieldOfStudy: "",
   };
 }
 
@@ -89,4 +99,8 @@ export const signupProfileDraftSchema = z.object({
   timezone: z.string().max(120),
   notifyCommunityActivity: z.boolean(),
   notifyDailyReminders: z.boolean(),
+  clinicianSpecialty: z.string().max(200),
+  clinicianInstitution: z.string().max(200),
+  studentAffiliation: z.string().max(200),
+  studentFieldOfStudy: z.string().max(200),
 });
