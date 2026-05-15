@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   Camera,
@@ -22,6 +22,12 @@ import type { ProfileBundle } from "@/app/profile/profile-types";
 import type { PublicUser } from "@/lib/auth/types";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { InstantLink } from "@/components/app/instant-link";
+import {
+  invalidateProfileBundle,
+  setProfileBundleCache,
+  useProfileBundle,
+} from "@/lib/app/profile-bundle-query";
 import { SmartHealthNudge } from "@/components/app/smart-health-nudge";
 import { ProfileAvatarUploadDialog } from "@/components/profile/profile-avatar-upload-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -67,9 +73,10 @@ export function ProfilePageClient({
 }) {
   const { t } = useTranslation("health");
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isPending, startTransition] = useTransition();
   const { user } = useSession();
-  const [bundle, setBundle] = useState(initialBundle);
+  const { data: bundle = initialBundle } = useProfileBundle(initialBundle);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [prefs, setPrefs] = useState<Prefs>({
@@ -78,11 +85,11 @@ export function ProfilePageClient({
   });
 
   useEffect(() => {
-    setBundle(initialBundle);
-  }, [initialBundle]);
+    setPrefs(loadPrefs());
+  }, []);
 
   useEffect(() => {
-    setPrefs(loadPrefs());
+    void import("@/app/profile/edit/profile-edit-client");
   }, []);
 
   const [communityExtended, setCommunityExtended] = useState(false);
@@ -106,7 +113,7 @@ export function ProfilePageClient({
 
   function refreshFromServer() {
     startTransition(() => {
-      router.refresh();
+      void invalidateProfileBundle(queryClient);
     });
   }
 
@@ -203,9 +210,9 @@ export function ProfilePageClient({
                 disabled={isPending}
                 asChild
               >
-                <Link href="/profile/edit">
+                <InstantLink href="/profile/edit">
                   <Pencil className="mr-1 h-3 w-3" /> Edit profile
-                </Link>
+                </InstantLink>
               </Button>
             </div>
           </div>
@@ -381,10 +388,12 @@ export function ProfilePageClient({
         userId={session.id}
         onBusy={setAvatarUploading}
         onUploaded={(publicUrl) => {
-          setBundle((prev) => {
-            if (!prev.profile) return prev;
-            return { ...prev, profile: { ...prev.profile, avatar_url: publicUrl } };
-          });
+          if (bundle.profile) {
+            setProfileBundleCache(queryClient, {
+              ...bundle,
+              profile: { ...bundle.profile, avatar_url: publicUrl },
+            });
+          }
           refreshFromServer();
         }}
       />

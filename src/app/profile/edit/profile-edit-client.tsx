@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { ChevronLeft, ChevronRight, Camera, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -13,6 +14,11 @@ import { FORM_FOCUS_SAFE } from "@/lib/form-control-focus";
 import { JourneyStatusPicker, ProfessionPicker } from "@/components/profile/journey-profession-pickers";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import {
+  invalidateProfileBundle,
+  setProfileBundleCache,
+  useProfileBundle,
+} from "@/lib/app/profile-bundle-query";
 import { ProfileAvatarUploadDialog } from "@/components/profile/profile-avatar-upload-dialog";
 import { SexIconCards } from "@/components/profile/sex-icon-cards";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -94,8 +100,9 @@ export function ProfileEditClient({
 }) {
   const { t } = useTranslation("health");
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user } = useSession();
-  const [bundle, setBundle] = useState(initialBundle);
+  const { data: bundle = initialBundle } = useProfileBundle(initialBundle);
   const [saving, setSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
@@ -134,10 +141,6 @@ export function ProfileEditClient({
 
   const fieldClass = "rounded-sm shadow-none";
   const dateFieldClass = cn(fieldClass, "date-input-icon-end");
-
-  useEffect(() => {
-    setBundle(initialBundle);
-  }, [initialBundle]);
 
   useEffect(() => {
     const p = bundle.profile;
@@ -238,10 +241,12 @@ export function ProfileEditClient({
         toast.error(j.message ?? "Could not remove photo.");
         return;
       }
-      setBundle((prev) => {
-        if (!prev.profile) return prev;
-        return { ...prev, profile: { ...prev.profile, avatar_url: null } };
-      });
+      if (bundle.profile) {
+        setProfileBundleCache(queryClient, {
+          ...bundle,
+          profile: { ...bundle.profile, avatar_url: null },
+        });
+      }
       toast.success("Profile photo removed");
       await refreshSession();
     } catch (err) {
@@ -385,6 +390,8 @@ export function ProfileEditClient({
 
       toast.success("Profile saved");
       await refreshSession();
+      await invalidateProfileBundle(queryClient);
+      router.prefetch("/profile");
       router.push("/profile");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save");
@@ -1068,10 +1075,12 @@ export function ProfileEditClient({
         userId={session.id}
         onBusy={setAvatarUploading}
         onUploaded={async (publicUrl) => {
-          setBundle((prev) => {
-            if (!prev.profile) return prev;
-            return { ...prev, profile: { ...prev.profile, avatar_url: publicUrl } };
-          });
+          if (bundle.profile) {
+            setProfileBundleCache(queryClient, {
+              ...bundle,
+              profile: { ...bundle.profile, avatar_url: publicUrl },
+            });
+          }
           await refreshSession();
         }}
       />

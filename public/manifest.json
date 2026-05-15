@@ -1,0 +1,10 @@
+{
+  "name": "MaaCare",
+  "short_name": "MaaCare",
+  "description": "AI maternal health companion",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#fdf6f3",
+  "theme_color": "#fdf6f3",
+  "orientation": "portrait-primary"
+}

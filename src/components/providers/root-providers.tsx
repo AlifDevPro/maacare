@@ -23,7 +23,17 @@ function AuthSessionInvalidator() {
 
 /** Matches TanStack root: react-query plus initial theme hydration from localStorage. */
 export function RootProviders({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 60_000,
+            refetchOnWindowFocus: false,
+          },
+        },
+      }),
+  );
 
   useEffect(() => {
     applyTheme(getTheme());

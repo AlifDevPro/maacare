@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   User,
@@ -16,8 +17,11 @@ import {
   LogIn,
   BookOpen,
   Code2,
+  Pencil,
 } from "lucide-react";
 import { GlobalLanguageSwitcher } from "@/components/app/global-language-switcher";
+import { InstantLink } from "@/components/app/instant-link";
+import { prefetchProfileBundle } from "@/lib/app/profile-bundle-query";
 import {
   ProfileMenuIconSegment,
   ProfileMenuSegment,
@@ -26,7 +30,8 @@ import {
 import { useProfileMenuOpen } from "@/components/app/profile-menu-state";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { AppShellInsetSheetContent } from "@/components/app/app-shell-inset-sheet";
+import { Sheet, SheetTitle } from "@/components/ui/sheet";
 import { signOut, updateUserLanguage, useSession } from "@/lib/auth-client";
 import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
@@ -63,28 +68,31 @@ function ProfileMenuLinks({
 
   return (
     <>
-      <Link href="/profile" prefetch className={linkClass} onClick={onNavigate}>
+      <InstantLink href="/profile" className={linkClass} onClick={onNavigate}>
         <User className="h-4 w-4 shrink-0" /> {t("view_profile")}
-      </Link>
+      </InstantLink>
+      <InstantLink href="/profile/edit" className={linkClass} onClick={onNavigate}>
+        <Pencil className="h-4 w-4 shrink-0" /> {t("edit_profile")}
+      </InstantLink>
       {user.isTeamDeveloper ? (
-        <Link href="/developer" prefetch className={linkClass} onClick={onNavigate}>
+        <InstantLink href="/developer" className={linkClass} onClick={onNavigate}>
           <Code2 className="h-4 w-4 shrink-0" /> {t("developer")}
-        </Link>
+        </InstantLink>
       ) : null}
       {user.role === "admin" ? (
-        <Link href="/admin" prefetch className={linkClass} onClick={onNavigate}>
+        <InstantLink href="/admin" className={linkClass} onClick={onNavigate}>
           <ShieldCheck className="h-4 w-4 shrink-0" /> {t("admin_panel")}
-        </Link>
+        </InstantLink>
       ) : null}
-      <Link href="/settings" prefetch className={linkClass} onClick={onNavigate}>
+      <InstantLink href="/settings" className={linkClass} onClick={onNavigate}>
         <Settings className="h-4 w-4 shrink-0" /> {t("settings")}
-      </Link>
-      <Link href="/help" prefetch className={linkClass} onClick={onNavigate}>
+      </InstantLink>
+      <InstantLink href="/help" className={linkClass} onClick={onNavigate}>
         <HelpCircle className="h-4 w-4 shrink-0" /> {t("help_support")}
-      </Link>
-      <Link href="/docs" prefetch className={linkClass} onClick={onNavigate}>
+      </InstantLink>
+      <InstantLink href="/docs" className={linkClass} onClick={onNavigate}>
         <BookOpen className="h-4 w-4 shrink-0" /> {t("documentation")}
-      </Link>
+      </InstantLink>
     </>
   );
 }
@@ -231,6 +239,17 @@ export function ProfileMenu() {
   const { t } = useTranslation("shell");
   const { user, loading } = useSession();
   const { open, setOpen } = useProfileMenuOpen();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!open || !user) return;
+    router.prefetch("/profile");
+    router.prefetch("/profile/edit");
+    router.prefetch("/settings");
+    void prefetchProfileBundle(queryClient);
+    void import("@/app/profile/edit/profile-edit-client");
+  }, [open, queryClient, router, user]);
 
   const initials = useMemo(() => {
     if (!user) return "";
@@ -272,16 +291,15 @@ export function ProfileMenu() {
         onClick={() => setOpen(true)}
       />
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent
-          side="right"
+        <AppShellInsetSheetContent
           className={cn(
-            "z-[60] flex h-[100dvh] w-full max-w-full flex-col gap-0 border-l-0 p-0",
-            "lg:max-w-sm [&>button]:right-4 [&>button]:top-4",
+            "z-[60] h-full w-full max-w-full p-0",
+            "[&>button]:right-4 [&>button]:top-4",
           )}
         >
           <SheetTitle className="sr-only">{t("account_menu_aria")}</SheetTitle>
           <ProfileMenuPanel user={user} initials={initials} onClose={() => setOpen(false)} />
-        </SheetContent>
+        </AppShellInsetSheetContent>
       </Sheet>
     </>
   );

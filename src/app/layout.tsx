@@ -16,6 +16,12 @@ export const metadata: Metadata = {
   description:
     "Personalized pregnancy guidance, symptom checks, and 24/7 AI support for expecting and new mothers.",
   authors: [{ name: "MaaCare" }],
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "MaaCare",
+  },
 };
 
 export default function RootLayout({

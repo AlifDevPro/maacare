@@ -10,9 +10,9 @@ import { Bell, ChevronRight, Loader2 } from "lucide-react";
 import { CommunityAvatar } from "@/components/community/community-avatar";
 import type { NotificationDTO } from "@/lib/notifications/types";
 import { Button } from "@/components/ui/button";
+import { AppShellInsetSheetContent } from "@/components/app/app-shell-inset-sheet";
 import {
   Sheet,
-  SheetContent,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -130,10 +130,7 @@ export function NotificationBell() {
         </Button>
       </SheetTrigger>
 
-      <SheetContent
-        side="right"
-        className="flex h-[100dvh] w-full max-w-full flex-col gap-0 border-l-0 p-0 sm:max-w-md"
-      >
+      <AppShellInsetSheetContent className="flex h-full w-full max-w-full flex-col gap-0 p-0">
         <SheetHeader className="shrink-0 space-y-0 border-b border-border/60 px-4 pb-3 pt-4 text-left">
           <div className="flex items-center justify-between gap-2 pr-10">
             <SheetTitle className="font-display text-lg">Notifications</SheetTitle>
@@ -194,7 +191,7 @@ export function NotificationBell() {
             </Link>
           </Button>
         </div>
-      </SheetContent>
+      </AppShellInsetSheetContent>
     </Sheet>
   );
 }
