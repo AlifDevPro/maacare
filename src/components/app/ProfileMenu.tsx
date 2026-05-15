@@ -26,9 +26,7 @@ import {
 import { useProfileMenuOpen } from "@/components/app/profile-menu-state";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { signOut, updateUserLanguage, useSession } from "@/lib/auth-client";
 import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
@@ -204,15 +202,18 @@ function ProfileMenuTriggerButton({
   avatarUrl,
   open,
   label,
+  onClick,
 }: {
   initials: string;
   avatarUrl?: string | null;
   open: boolean;
   label: string;
+  onClick?: () => void;
 }) {
   return (
     <button
       type="button"
+      onClick={onClick}
       className={cn(
         "rounded-full outline-none ring-offset-background transition-[box-shadow,transform] duration-150",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -229,7 +230,6 @@ function ProfileMenuTriggerButton({
 export function ProfileMenu() {
   const { t } = useTranslation("shell");
   const { user, loading } = useSession();
-  const isMobile = useIsMobile();
   const { open, setOpen } = useProfileMenuOpen();
 
   const initials = useMemo(() => {
@@ -262,38 +262,27 @@ export function ProfileMenu() {
     );
   }
 
-  const trigger = (
-    <ProfileMenuTriggerButton
-      initials={initials}
-      avatarUrl={user.avatarUrl}
-      open={open}
-      label={t("account_menu_aria")}
-    />
-  );
-
-  if (isMobile) {
-    return (
+  return (
+    <>
+      <ProfileMenuTriggerButton
+        initials={initials}
+        avatarUrl={user.avatarUrl}
+        open={open}
+        label={t("account_menu_aria")}
+        onClick={() => setOpen(true)}
+      />
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild className="shrink-0">
-          {trigger}
-        </SheetTrigger>
         <SheetContent
           side="right"
-          className="flex h-[100dvh] w-full max-w-full flex-col gap-0 border-l-0 p-0 sm:max-w-full [&>button]:right-4 [&>button]:top-4"
+          className={cn(
+            "z-[60] flex h-[100dvh] w-full max-w-full flex-col gap-0 border-l-0 p-0",
+            "lg:max-w-sm [&>button]:right-4 [&>button]:top-4",
+          )}
         >
           <SheetTitle className="sr-only">{t("account_menu_aria")}</SheetTitle>
           <ProfileMenuPanel user={user} initials={initials} onClose={() => setOpen(false)} />
         </SheetContent>
       </Sheet>
-    );
-  }
-
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="hidden w-72 min-w-72 max-w-none p-0 lg:block">
-        <ProfileMenuPanel user={user} initials={initials} onClose={() => setOpen(false)} />
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </>
   );
 }
