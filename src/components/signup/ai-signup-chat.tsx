@@ -30,6 +30,7 @@ import {
   validateAccountCredentials,
   validateTermsAccepted,
 } from "@/lib/signup/validators";
+import { FORM_FOCUS_SAFE } from "@/lib/form-control-focus";
 import { isValidEmailFormat } from "@/lib/validation/email";
 import { cn } from "@/lib/utils";
 
@@ -331,7 +332,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
         <form
           id={AI_SIGNUP_FORM_ID}
           onSubmit={(ev) => void createAccount(ev)}
-          className="space-y-3 border-t border-border/60 pt-4"
+          className={cn("space-y-3 border-t border-border/60 pt-4", FORM_FOCUS_SAFE)}
         >
           <p className="text-xs font-medium text-muted-foreground">
             Secure step — email and password on device only.

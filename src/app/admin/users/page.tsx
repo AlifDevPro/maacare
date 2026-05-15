@@ -12,6 +12,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  MailCheck,
+  MailWarning,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJsonCached, invalidateByPrefix } from "@/lib/client/request-cache";
@@ -52,6 +54,7 @@ type AdminUserRow = {
   display_name: string | null;
   role: Role;
   created_at: string;
+  email_confirmed_at: string | null;
 };
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
@@ -79,6 +82,7 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
   const [patchingId, setPatchingId] = useState<string | null>(null);
+  const [authEnrichmentAvailable, setAuthEnrichmentAvailable] = useState(true);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 320);
@@ -125,10 +129,12 @@ export default function UsersPage() {
       const { data: j } = await fetchJsonCached<{
         users?: AdminUserRow[];
         total?: number;
+        authEnrichmentAvailable?: boolean;
         message?: string;
       }>(key, `/api/admin/users?${qs}`, { credentials: "include" }, 20_000);
       setRows(j.users ?? []);
       setTotal(typeof j.total === "number" ? j.total : j.users?.length ?? 0);
+      setAuthEnrichmentAvailable(j.authEnrichmentAvailable !== false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not load users.");
       setRows([]);
@@ -240,7 +246,14 @@ export default function UsersPage() {
         <div className="border-b border-border/60 px-5 pb-3 pt-5">
           <h2 className="font-display text-base font-semibold">Directory</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {loading ? "Loading…" : `${total.toLocaleString()} match${total === 1 ? "" : "es"} · scroll below`}
+            {loading
+              ? "Loading…"
+              : `${total.toLocaleString()} match${total === 1 ? "" : "es"} · scroll below`}
+            {!loading && !authEnrichmentAvailable ? (
+              <span className="block text-amber-800 dark:text-amber-200">
+                Email status needs SUPABASE_SERVICE_ROLE_KEY on the server.
+              </span>
+            ) : null}
           </p>
         </div>
         <div className="max-h-[min(70vh,32rem)] overflow-y-auto overscroll-contain">
@@ -248,6 +261,7 @@ export default function UsersPage() {
             <TableHeader className="sticky top-0 z-10 border-0 bg-card shadow-[inset_0_-1px_0_0_var(--color-border)]">
               <TableRow className="border-b-0 hover:bg-transparent">
                 <TableHead className="bg-card">User</TableHead>
+                <TableHead className="bg-card">Email</TableHead>
                 <TableHead className="bg-card">Role</TableHead>
                 <TableHead className="bg-card">Joined</TableHead>
                 <TableHead className="w-12 bg-card" />
@@ -256,14 +270,14 @@ export default function UsersPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
                     <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin opacity-60" />
                     Loading users…
                   </TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
                     No users match your filters.
                   </TableCell>
                 </TableRow>
@@ -284,6 +298,27 @@ export default function UsersPage() {
                           <p className="truncate text-xs text-muted-foreground">{r.email ?? "—"}</p>
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {!authEnrichmentAvailable ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : r.email_confirmed_at ? (
+                        <Badge
+                          variant="secondary"
+                          className="gap-1 border-emerald-500/25 bg-emerald-500/10 font-normal text-emerald-800 dark:text-emerald-200"
+                        >
+                          <MailCheck className="h-3 w-3" aria-hidden />
+                          Verified
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="gap-1 border-amber-500/40 bg-amber-500/10 font-normal text-amber-900 dark:text-amber-100"
+                        >
+                          <MailWarning className="h-3 w-3" aria-hidden />
+                          Not verified
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="capitalize font-normal">

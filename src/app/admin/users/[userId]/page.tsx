@@ -5,9 +5,10 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { formatDistanceToNow } from "date-fns";
-import { ArrowLeft, Loader2, MailCheck, ShieldBan } from "lucide-react";
+import { ArrowLeft, Loader2, MailCheck, MailWarning, ShieldBan } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -203,6 +204,7 @@ export default function AdminUserDetailPage() {
   }
 
   const banned = !!data.auth.bannedUntil && new Date(data.auth.bannedUntil) > new Date();
+  const emailVerified = !!data.auth.emailConfirmedAt;
 
   return (
     <div className="space-y-6">
@@ -215,10 +217,29 @@ export default function AdminUserDetailPage() {
       </div>
 
       <div>
-        <h1 className="font-display text-2xl font-semibold tracking-tight">
-          {data.profile.display_name?.trim() || "Member"}
-        </h1>
-        <p className="text-sm text-muted-foreground">{data.auth.email ?? data.profile.email ?? "—"}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="font-display text-2xl font-semibold tracking-tight">
+            {data.profile.display_name?.trim() || "Member"}
+          </h1>
+          {emailVerified ? (
+            <Badge
+              variant="secondary"
+              className="gap-1 border-emerald-500/25 bg-emerald-500/10 font-normal text-emerald-800 dark:text-emerald-200"
+            >
+              <MailCheck className="h-3 w-3" aria-hidden />
+              Email verified
+            </Badge>
+          ) : (
+            <Badge
+              variant="outline"
+              className="gap-1 border-amber-500/40 bg-amber-500/10 font-normal text-amber-900 dark:text-amber-100"
+            >
+              <MailWarning className="h-3 w-3" aria-hidden />
+              Email not verified
+            </Badge>
+          )}
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">{data.auth.email ?? data.profile.email ?? "—"}</p>
         {banned ? (
           <p className="mt-1 text-xs font-medium text-destructive">Account is currently banned.</p>
         ) : null}
@@ -228,8 +249,20 @@ export default function AdminUserDetailPage() {
         <h2 className="font-display text-base font-semibold">Auth</h2>
         <div className="grid gap-2 text-sm sm:grid-cols-2">
           <div>
-            <span className="text-muted-foreground">Email confirmed</span>
-            <p>{data.auth.emailConfirmedAt ? formatDistanceToNow(new Date(data.auth.emailConfirmedAt), { addSuffix: true }) : "No"}</p>
+            <span className="text-muted-foreground">Email verified</span>
+            <p className="mt-0.5">
+              {emailVerified ? (
+                <span className="inline-flex items-center gap-1.5 text-foreground">
+                  <MailCheck className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
+                  Yes · {formatDistanceToNow(new Date(data.auth.emailConfirmedAt!), { addSuffix: true })}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-amber-800 dark:text-amber-200">
+                  <MailWarning className="h-3.5 w-3.5" aria-hidden />
+                  Not verified
+                </span>
+              )}
+            </p>
           </div>
           <div>
             <span className="text-muted-foreground">Last sign-in</span>
@@ -248,18 +281,39 @@ export default function AdminUserDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 pt-2">
-          <Button type="button" variant="outline" size="sm" disabled={authBusy} onClick={() => void confirmEmail()}>
-            <MailCheck className="mr-2 h-4 w-4" />
-            Approve email (confirm)
+        <div className="flex flex-wrap items-center gap-2 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 min-h-9 px-3 py-2"
+            disabled={authBusy || emailVerified}
+            onClick={() => void confirmEmail()}
+          >
+            <MailCheck className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+            {emailVerified ? "Verified" : "Confirm email"}
           </Button>
           {!banned ? (
-            <Button type="button" variant="destructive" size="sm" disabled={authBusy} onClick={() => void setBanned(true)}>
-              <ShieldBan className="mr-2 h-4 w-4" />
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="h-9 min-h-9 px-3 py-2"
+              disabled={authBusy}
+              onClick={() => void setBanned(true)}
+            >
+              <ShieldBan className="mr-1.5 h-3.5 w-3.5 shrink-0" />
               Ban user
             </Button>
           ) : (
-            <Button type="button" variant="outline" size="sm" disabled={authBusy} onClick={() => void setBanned(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 min-h-9 px-3 py-2"
+              disabled={authBusy}
+              onClick={() => void setBanned(false)}
+            >
               Lift ban
             </Button>
           )}

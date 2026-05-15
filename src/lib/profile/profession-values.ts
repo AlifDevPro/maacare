@@ -10,3 +10,10 @@ export function normalizeProfessionValue(raw: string | null | undefined): Profes
   if (t === "parent_caregiver" || t === "clinician") return t;
   return null;
 }
+
+/** Pregnancy journey + shared access editing is for parents/caregivers only. */
+export function canEditPregnancyProfile(
+  profession: ProfessionValue | "" | null | undefined,
+): boolean {
+  return profession === "parent_caregiver";
+}

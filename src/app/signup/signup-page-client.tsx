@@ -17,6 +17,9 @@ import { ManualSignupWizard, MANUAL_SIGNUP_FORM_ID } from "./manual-signup-wizar
 
 type SignupPhase = "choose" | SignupMode;
 
+/** Wizard steps need a bit more width on md+; persona cards stay single-column inside. */
+const SIGNUP_WIZARD_CARD_CLASS = "md:max-w-lg lg:max-w-xl";
+
 export function SignupPageClient() {
   const { t } = useTranslation("auth");
   const router = useRouter();
@@ -73,11 +76,13 @@ export function SignupPageClient() {
           bottom: null,
           skip: undefined,
           cardClassName: "sm:max-w-xl",
+          compactTitle: false,
         };
       case "manual":
         return {
           title: t("signup_title"),
-          subtitle: t("signup_subtitle_manual_short"),
+          subtitle: undefined,
+          compactTitle: true,
           bottom: wizardNav
             ? {
                 label: wizardNav.primaryLabel,
@@ -95,12 +100,13 @@ export function SignupPageClient() {
                   disabled: wizardNav.primaryDisabled,
                 }
               : undefined,
-          cardClassName: undefined,
+          cardClassName: SIGNUP_WIZARD_CARD_CLASS,
         };
       case "ai":
         return {
           title: t("signup_path_ai_title"),
           subtitle: t("signup_subtitle_ai_short"),
+          compactTitle: true,
           bottom: wizardNav
             ? {
                 label: wizardNav.primaryLabel,
@@ -110,7 +116,7 @@ export function SignupPageClient() {
               }
             : null,
           skip: undefined,
-          cardClassName: undefined,
+          cardClassName: SIGNUP_WIZARD_CARD_CLASS,
         };
     }
   }, [phase, t, wizardNav]);
@@ -134,10 +140,12 @@ export function SignupPageClient() {
       bottomAction={shellMeta.bottom}
       skipAction={shellMeta.skip}
       cardClassName={shellMeta.cardClassName}
+      compactTitle={shellMeta.compactTitle}
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={phase}
+          className="min-w-0 w-full"
           layout
           initial={reduced ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98 }}
           animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}

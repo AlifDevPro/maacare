@@ -18,18 +18,17 @@ import {
   Code2,
 } from "lucide-react";
 import { GlobalLanguageSwitcher } from "@/components/app/global-language-switcher";
+import {
+  ProfileMenuIconSegment,
+  ProfileMenuSegment,
+  ProfileMenuSegmentGroup,
+} from "@/components/app/profile-menu-segments";
+import { useProfileMenuOpen } from "@/components/app/profile-menu-state";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { signOut, updateUserLanguage, useSession } from "@/lib/auth-client";
 import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
@@ -53,11 +52,185 @@ const ProfileMenuAvatar = memo(function ProfileMenuAvatar({ initials, avatarUrl,
   );
 });
 
+function ProfileMenuLinks({
+  user,
+  onNavigate,
+  t,
+}: {
+  user: NonNullable<ReturnType<typeof useSession>["user"]>;
+  onNavigate?: () => void;
+  t: (key: string) => string;
+}) {
+  const linkClass = "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-base font-medium transition-colors hover:bg-muted/80 active:bg-muted";
+
+  return (
+    <>
+      <Link href="/profile" prefetch className={linkClass} onClick={onNavigate}>
+        <User className="h-4 w-4 shrink-0" /> {t("view_profile")}
+      </Link>
+      {user.isTeamDeveloper ? (
+        <Link href="/developer" prefetch className={linkClass} onClick={onNavigate}>
+          <Code2 className="h-4 w-4 shrink-0" /> {t("developer")}
+        </Link>
+      ) : null}
+      {user.role === "admin" ? (
+        <Link href="/admin" prefetch className={linkClass} onClick={onNavigate}>
+          <ShieldCheck className="h-4 w-4 shrink-0" /> {t("admin_panel")}
+        </Link>
+      ) : null}
+      <Link href="/settings" prefetch className={linkClass} onClick={onNavigate}>
+        <Settings className="h-4 w-4 shrink-0" /> {t("settings")}
+      </Link>
+      <Link href="/help" prefetch className={linkClass} onClick={onNavigate}>
+        <HelpCircle className="h-4 w-4 shrink-0" /> {t("help_support")}
+      </Link>
+      <Link href="/docs" prefetch className={linkClass} onClick={onNavigate}>
+        <BookOpen className="h-4 w-4 shrink-0" /> {t("documentation")}
+      </Link>
+    </>
+  );
+}
+
+function ProfileMenuPreferences({
+  user,
+  t,
+}: {
+  user: NonNullable<ReturnType<typeof useSession>["user"]>;
+  t: (key: string) => string;
+}) {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <div className="space-y-3 px-1">
+      <div>
+        <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {t("language_section")}
+        </p>
+        <ProfileMenuSegmentGroup aria-label={t("language_section")}>
+          <ProfileMenuSegment
+            active={user.language === "en"}
+            onClick={() => void updateUserLanguage("en").then((ok) => !ok && toast.error(t("toast_language_error")))}
+            aria-label={t("language_english")}
+          >
+            EN
+          </ProfileMenuSegment>
+          <ProfileMenuSegment
+            active={user.language === "bn"}
+            onClick={() => void updateUserLanguage("bn").then((ok) => !ok && toast.error(t("toast_language_error")))}
+            aria-label={t("language_bangla")}
+          >
+            বাং
+          </ProfileMenuSegment>
+        </ProfileMenuSegmentGroup>
+      </div>
+      <div>
+        <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {t("theme_section")}
+        </p>
+        <ProfileMenuSegmentGroup aria-label={t("theme_section")}>
+          <ProfileMenuIconSegment
+            active={theme === "light"}
+            onClick={() => setTheme("light")}
+            icon={Sun}
+            label={t("theme_light")}
+          />
+          <ProfileMenuIconSegment
+            active={theme === "dark"}
+            onClick={() => setTheme("dark")}
+            icon={Moon}
+            label={t("theme_dark")}
+          />
+          <ProfileMenuIconSegment
+            active={theme === "system"}
+            onClick={() => setTheme("system")}
+            icon={Monitor}
+            label={t("theme_system")}
+          />
+        </ProfileMenuSegmentGroup>
+      </div>
+    </div>
+  );
+}
+
+function ProfileMenuPanel({
+  user,
+  initials,
+  onClose,
+}: {
+  user: NonNullable<ReturnType<typeof useSession>["user"]>;
+  initials: string;
+  onClose?: () => void;
+}) {
+  const { t } = useTranslation("shell");
+  const router = useRouter();
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-3 border-b border-border/60 px-4 py-4">
+        <ProfileMenuAvatar initials={initials} avatarUrl={user.avatarUrl} sizeClass="h-12 w-12" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base font-semibold">{user.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+        <div className="space-y-1">
+          <ProfileMenuLinks user={user} onNavigate={onClose} t={t} />
+        </div>
+        <div className="my-3 border-t border-border/60" />
+        <ProfileMenuPreferences user={user} t={t} />
+      </div>
+
+      <div className="shrink-0 border-t border-border/60 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <button
+          type="button"
+          className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-3 text-base font-medium text-destructive transition-colors hover:bg-destructive/10 active:bg-destructive/15"
+          onClick={async () => {
+            onClose?.();
+            await signOut();
+            router.push("/");
+          }}
+        >
+          <LogOut className="h-4 w-4" /> {t("sign_out")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProfileMenuTriggerButton({
+  initials,
+  avatarUrl,
+  open,
+  label,
+}: {
+  initials: string;
+  avatarUrl?: string | null;
+  open: boolean;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "rounded-full outline-none ring-offset-background transition-[box-shadow,transform] duration-150",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        open && "ring-2 ring-primary ring-offset-2",
+      )}
+      aria-label={label}
+      aria-expanded={open}
+    >
+      <ProfileMenuAvatar initials={initials} avatarUrl={avatarUrl} sizeClass="h-9 w-9" />
+    </button>
+  );
+}
+
 export function ProfileMenu() {
   const { t } = useTranslation("shell");
   const { user, loading } = useSession();
-  const router = useRouter();
-  const { theme, setTheme } = useTheme();
+  const isMobile = useIsMobile();
+  const { open, setOpen } = useProfileMenuOpen();
 
   const initials = useMemo(() => {
     if (!user) return "";
@@ -89,118 +262,37 @@ export function ProfileMenu() {
     );
   }
 
+  const trigger = (
+    <ProfileMenuTriggerButton
+      initials={initials}
+      avatarUrl={user.avatarUrl}
+      open={open}
+      label={t("account_menu_aria")}
+    />
+  );
+
+  if (isMobile) {
+    return (
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetTrigger asChild className="shrink-0">
+          {trigger}
+        </SheetTrigger>
+        <SheetContent
+          side="right"
+          className="flex h-[100dvh] w-full max-w-full flex-col gap-0 border-l-0 p-0 sm:max-w-full [&>button]:right-4 [&>button]:top-4"
+        >
+          <SheetTitle className="sr-only">{t("account_menu_aria")}</SheetTitle>
+          <ProfileMenuPanel user={user} initials={initials} onClose={() => setOpen(false)} />
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          aria-label={t("account_menu_aria")}
-        >
-          <ProfileMenuAvatar initials={initials} avatarUrl={user.avatarUrl} sizeClass="h-9 w-9" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="max-h-[min(70vh,calc(100dvh-6rem))] min-w-[min(100vw-1.25rem,22rem)] max-w-[calc(100vw-1rem)] w-[calc(100vw-1rem)] overflow-y-auto sm:min-w-72 sm:w-auto sm:max-w-none"
-      >
-        <DropdownMenuLabel className="flex items-center gap-3 px-3 py-3 text-base">
-          <ProfileMenuAvatar initials={initials} avatarUrl={user.avatarUrl} sizeClass="h-10 w-10" />
-          <div className="min-w-0 flex-1">
-        <p className="truncate text-base font-semibold">{user.name}</p>
-            <p className="truncate text-xs font-normal text-muted-foreground">{user.email}</p>
-          </div>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-          <Link href="/profile" prefetch className="cursor-pointer">
-            <User className="mr-2 h-4 w-4" /> {t("view_profile")}
-          </Link>
-        </DropdownMenuItem>
-        {user.isTeamDeveloper ? (
-          <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-            <Link href="/developer" prefetch className="cursor-pointer">
-              <Code2 className="mr-2 h-4 w-4" /> {t("developer")}
-            </Link>
-          </DropdownMenuItem>
-        ) : null}
-
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {t("language_section")}
-        </DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={user.language}
-          onValueChange={async (v) => {
-            const lang = v as "en" | "bn";
-            const ok = await updateUserLanguage(lang);
-            if (!ok) toast.error(t("toast_language_error"));
-          }}
-        >
-          <DropdownMenuRadioItem value="en" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-            {t("language_english")}
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="bn" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-            {t("language_bangla")}
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {t("theme_section")}
-        </DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as "light" | "dark" | "system")}>
-          <DropdownMenuRadioItem value="light" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-            <Sun className="mr-2 h-4 w-4" />
-            {t("theme_light")}
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="dark" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-            <Moon className="mr-2 h-4 w-4" />
-            {t("theme_dark")}
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="system" className="cursor-pointer py-2.5 pl-8 pr-3 text-base">
-            <Monitor className="mr-2 h-4 w-4" />
-            {t("theme_system")}
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-
-        <DropdownMenuSeparator />
-        {user.role === "admin" && (
-          <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-            <Link href="/admin" prefetch className="cursor-pointer">
-              <ShieldCheck className="mr-2 h-4 w-4" /> {t("admin_panel")}
-            </Link>
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-          <Link href="/settings" prefetch className="cursor-pointer">
-            <Settings className="mr-2 h-4 w-4" /> {t("settings")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-          <Link href="/help" prefetch className="cursor-pointer">
-            <HelpCircle className="mr-2 h-4 w-4" /> {t("help_support")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="cursor-pointer py-3 text-base">
-          <Link href="/docs" prefetch className="cursor-pointer">
-            <BookOpen className="mr-2 h-4 w-4" /> {t("documentation")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className={cn(
-            "cursor-pointer py-3 text-base text-destructive",
-            "focus:bg-destructive/10 focus:text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive",
-            "[&_svg]:text-current",
-          )}
-          onClick={async () => {
-            await signOut();
-            router.push("/");
-          }}
-        >
-          <LogOut className="mr-2 h-4 w-4" /> {t("sign_out")}
-        </DropdownMenuItem>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="hidden w-72 min-w-72 max-w-none p-0 lg:block">
+        <ProfileMenuPanel user={user} initials={initials} onClose={() => setOpen(false)} />
       </DropdownMenuContent>
     </DropdownMenu>
   );

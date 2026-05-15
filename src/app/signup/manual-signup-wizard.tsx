@@ -6,11 +6,8 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 import { Mail, Lock, User } from "lucide-react";
-import {
-  JourneyStatusPicker,
-  ProfessionPicker,
-  type ProfessionValue,
-} from "@/components/profile/journey-profession-pickers";
+import { JourneyStatusPicker, type ProfessionValue } from "@/components/profile/journey-profession-pickers";
+import { SignupProfessionPicker } from "@/components/signup/signup-profession-picker";
 import { StepProgressRail } from "@/components/onboarding/step-progress-rail";
 import { SignupMorphContent } from "@/components/signup/signup-morph-content";
 import type { SignupWizardNav } from "@/components/signup/signup-wizard-nav";
@@ -18,14 +15,13 @@ import { Input } from "@/components/ui/input";
 import { PopoverDateInput } from "@/components/ui/popover-date-input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { BloodTypeCardPicker } from "@/components/profile/blood-type-card-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { checkEmailRegistered, registerAccount } from "@/lib/auth-client";
 import { buildSignupProfilePayload } from "@/lib/signup/build-profile-payload";
 import type { SignupProfileDraft } from "@/lib/signup/signup-draft";
 import { resolveProfileFieldVisibility } from "@/lib/profile/journey-fields";
 import type { PrimaryUseCaseValue } from "@/lib/profile/primary-use-case";
-import { PRIMARY_USE_CASE_VALUES, PRIMARY_USE_LABEL } from "@/lib/profile/primary-use-case";
 import {
   validateAccountCredentials,
   validateProfession,
@@ -37,6 +33,7 @@ import {
   AuthMailSuccessState,
   AuthSubmittingState,
 } from "@/components/auth/auth-inline-feedback";
+import { FORM_FOCUS_SAFE } from "@/lib/form-control-focus";
 import { cn } from "@/lib/utils";
 
 import { SexIconCards } from "@/components/profile/sex-icon-cards";
@@ -44,7 +41,6 @@ import { SexIconCards } from "@/components/profile/sex-icon-cards";
 type StepId =
   | "persona"
   | "account"
-  | "parent_intent"
   | "clinician_profile"
   | "student_profile"
   | "journey"
@@ -57,7 +53,6 @@ type StepDef = { id: StepId; titleKey: string; optional?: boolean };
 const STEP_FALLBACK_ORDER: StepId[] = [
   "persona",
   "account",
-  "parent_intent",
   "clinician_profile",
   "student_profile",
   "journey",
@@ -77,7 +72,6 @@ function buildStepDefs(
   if (!profession) return out;
 
   if (profession === "parent_caregiver") {
-    out.push({ id: "parent_intent", titleKey: "signup_wizard_step_about_you" });
     if (primaryUseCase !== "partner_support") {
       out.push({ id: "journey", titleKey: "signup_wizard_step_journey" });
       out.push({ id: "pregnancy", titleKey: "signup_wizard_step_pregnancy", optional: true });
@@ -408,19 +402,16 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
     <form
       id={MANUAL_SIGNUP_FORM_ID}
       onSubmit={submit}
-      className="min-w-0 space-y-4 overflow-x-hidden"
+      className={cn("min-w-0 space-y-4", FORM_FOCUS_SAFE)}
     >
       {formError ? <AuthInlineAlert message={formError} /> : null}
       <StepProgressRail label={stepTitle} percent={progress} />
 
       <SignupMorphContent contentKey={current.id}>
       {current.id === "persona" && (
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">{t("signup_wizard_persona_heading")}</p>
-            <p className="text-xs text-muted-foreground">{t("signup_wizard_persona_hint")}</p>
-          </div>
-          <ProfessionPicker
+        <div className="space-y-3">
+          <p className="text-xs leading-relaxed text-muted-foreground">{t("signup_wizard_persona_hint")}</p>
+          <SignupProfessionPicker
             value={profession}
             onChange={(p) => {
               setProfession(p);
@@ -433,7 +424,6 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
                 setPrimaryUseCase("self_maternal");
               }
             }}
-            size="prominent"
           />
         </div>
       )}
@@ -507,41 +497,6 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
                 }}
               />
             </div>
-          </div>
-        </div>
-      )}
-
-      {current.id === "parent_intent" && (
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <Label className="text-base font-semibold">{t("signup_wizard_sex_optional")}</Label>
-            <SexIconCards
-              value={sex}
-              onChange={(v) => setSex(v as SignupProfileDraft["sex"])}
-              className="mt-1.5"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-base font-semibold">{t("signup_wizard_primary_focus")}</Label>
-            <Select
-              value={primaryUseCase || "self_maternal"}
-              onValueChange={(v) => {
-                const pv = v as PrimaryUseCaseValue;
-                setPrimaryUseCase(pv);
-                if (pv === "partner_support") setPregnancyStatus("not_applicable");
-              }}
-            >
-              <SelectTrigger className={cn("mt-1.5", fieldBase)}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PRIMARY_USE_CASE_VALUES.map((k) => (
-                  <SelectItem key={k} value={k}>
-                    {PRIMARY_USE_LABEL[k]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
         </div>
       )}
@@ -717,22 +672,11 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
 
       {current.id === "health" && (
         <div className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="min-w-0">
-              <Label>{t("signup_wizard_blood_type")}</Label>
-              <Select value={bloodType} onValueChange={setBloodType}>
-                <SelectTrigger className={cn("mt-1.5", fieldBase)}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"].map((b) => (
-                    <SelectItem key={b} value={b}>
-                      {b}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <div>
+            <Label>{t("signup_wizard_blood_type")}</Label>
+            <BloodTypeCardPicker value={bloodType} onChange={setBloodType} className="mt-2" />
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="min-w-0">
               <Label htmlFor="h">{t("signup_wizard_height")}</Label>
               <Input

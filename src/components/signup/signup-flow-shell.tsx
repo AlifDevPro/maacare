@@ -28,6 +28,7 @@ type Props = {
   skipAction?: { label: string; onClick: () => void; disabled?: boolean };
   className?: string;
   cardClassName?: string;
+  compactTitle?: boolean;
 };
 
 export function SignupFlowShell({
@@ -41,6 +42,7 @@ export function SignupFlowShell({
   skipAction,
   className,
   cardClassName,
+  compactTitle,
 }: Props) {
   const leadingAction = onBack ? (
     <button
@@ -60,6 +62,7 @@ export function SignupFlowShell({
       footer={footer}
       leadingAction={leadingAction}
       cardClassName={cardClassName}
+      compactTitle={compactTitle}
     >
       <div className={cn("flex min-w-0 flex-col", className)}>
         <div className="min-w-0 flex-1">{children}</div>

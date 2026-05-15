@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
+import { useProfileMenuOpen } from "@/components/app/profile-menu-state";
 import { APP_PRIMARY_NAV_ITEMS, isAppPrimaryNavActive } from "@/lib/app-nav-items";
 import { APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
 import { cn } from "@/lib/utils";
@@ -11,6 +12,7 @@ import { cn } from "@/lib/utils";
 export function BottomNav({ className }: { className?: string }) {
   const { t } = useTranslation("nav");
   const pathname = usePathname();
+  const { open: profileMenuOpen } = useProfileMenuOpen();
 
   return (
     <nav
@@ -23,7 +25,8 @@ export function BottomNav({ className }: { className?: string }) {
     >
       <ul className={cn("flex items-stretch justify-between py-1.5", APP_SHELL_CONTENT_WIDTH)}>
         {APP_PRIMARY_NAV_ITEMS.map(({ to, labelKey, icon: Icon }) => {
-          const active = isAppPrimaryNavActive(pathname, to);
+          const active =
+            isAppPrimaryNavActive(pathname, to) || (to === "/profile" && profileMenuOpen);
 
           return (
             <li key={to} className="flex-1">

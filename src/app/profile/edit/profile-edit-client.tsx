@@ -8,12 +8,9 @@ import { ChevronLeft, ChevronRight, Camera, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
-import { BLOOD_TYPES } from "@/app/profile/profile-field-options";
-import {
-  JourneyStatusPicker,
-  ProfessionPicker,
-  type ProfessionValue,
-} from "@/components/profile/journey-profession-pickers";
+import { BloodTypeCardPicker } from "@/components/profile/blood-type-card-picker";
+import { FORM_FOCUS_SAFE } from "@/lib/form-control-focus";
+import { JourneyStatusPicker, ProfessionPicker } from "@/components/profile/journey-profession-pickers";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { ProfileAvatarUploadDialog } from "@/components/profile/profile-avatar-upload-dialog";
@@ -23,29 +20,27 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { AppSelect } from "@/components/ui/app-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { PublicUser } from "@/lib/auth/types";
 import { refreshSession, useSession } from "@/lib/auth-client";
 import { resolveProfileFieldVisibility } from "@/lib/profile/journey-fields";
 import {
+  defaultPrimaryUseForProfession,
   normalizePrimaryUseCase,
-  PRIMARY_USE_CASE_VALUES,
-  PRIMARY_USE_LABEL,
+  primaryUseOptionsForProfession,
 } from "@/lib/profile/primary-use-case";
-import { normalizeProfessionValue } from "@/lib/profile/profession-values";
+import {
+  canEditPregnancyProfile,
+  normalizeProfessionValue,
+  type ProfessionValue,
+} from "@/lib/profile/profession-values";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 
 const tabListClass =
-  "mt-1 flex h-auto w-full gap-0 overflow-x-auto rounded-none border-0 border-t border-border/40 bg-transparent p-0 pt-2";
+  "flex h-auto w-full gap-0 overflow-x-auto rounded-none border-0 bg-transparent p-0";
 
 const tabTriggerClass =
   "min-h-10 flex-1 shrink-0 rounded-none border-b-2 border-transparent bg-transparent px-1.5 py-2 text-xs font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-2 sm:text-sm";
@@ -63,25 +58,6 @@ function FieldLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?
 
 const SECTION_ORDER = ["personal", "pregnancy", "health", "care"] as const;
 type SectionKey = (typeof SECTION_ORDER)[number];
-
-const SECTION_META: Record<SectionKey, { title: string; subtitle: string }> = {
-  personal: {
-    title: "Personal",
-    subtitle: "Identity and contact basics",
-  },
-  pregnancy: {
-    title: "Pregnancy",
-    subtitle: "Journey status and due-date context",
-  },
-  health: {
-    title: "Health",
-    subtitle: "Medical snapshot and notes",
-  },
-  care: {
-    title: "Care & safety",
-    subtitle: "Emergency + care team details",
-  },
-};
 
 /** Map legacy or free-text profession values to the picker + preserve text in notes. */
 function migrateUnknownProfession(
@@ -209,16 +185,42 @@ export function ProfileEditClient({
     setStudentFieldOfStudy(typeof sc?.fieldOfStudy === "string" ? sc.fieldOfStudy : "");
   }, [bundle, user, session.name]);
 
-  const activeIdx = SECTION_ORDER.indexOf(activeSection);
-  const progress = ((activeIdx + 1) / SECTION_ORDER.length) * 100;
+  const canEditPregnancy = canEditPregnancyProfile(profession);
+
+  const visibleSections = useMemo((): readonly SectionKey[] => {
+    if (canEditPregnancy) return SECTION_ORDER;
+    return SECTION_ORDER.filter((s) => s !== "pregnancy") as readonly SectionKey[];
+  }, [canEditPregnancy]);
+
+  const primaryUseOptions = useMemo(
+    () => primaryUseOptionsForProfession(profession),
+    [profession],
+  );
+
+  useEffect(() => {
+    if (!visibleSections.includes(activeSection)) {
+      setActiveSection(visibleSections[0] ?? "personal");
+    }
+  }, [visibleSections, activeSection]);
+
+  useEffect(() => {
+    if (!profession) return;
+    const allowed = new Set(primaryUseOptionsForProfession(profession).map((o) => o.value));
+    const current = normalizePrimaryUseCase(primaryUseCase);
+    if (!allowed.has(current)) {
+      setPrimaryUseCase(defaultPrimaryUseForProfession(profession));
+    }
+  }, [profession, primaryUseCase]);
+
+  const activeIdx = Math.max(0, visibleSections.indexOf(activeSection));
   const pregDetailVis = useMemo(
     () => resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase),
     [pregnancyStatus, primaryUseCase],
   );
 
   function goSection(step: number) {
-    const idx = Math.max(0, Math.min(SECTION_ORDER.length - 1, step));
-    setActiveSection(SECTION_ORDER[idx]!);
+    const idx = Math.max(0, Math.min(visibleSections.length - 1, step));
+    setActiveSection(visibleSections[idx]!);
   }
 
   async function removeAvatar() {
@@ -298,27 +300,34 @@ export function ProfileEditClient({
         timezone: timezone.trim() || null,
         profession: profession || null,
         primaryUseCase: normalizePrimaryUseCase(primaryUseCase),
-        pregnancyStatus,
-        lmpDate: vis.showLmpEdd ? lmpDate || null : null,
-        eddDate: vis.showLmpEdd ? eddDate || null : null,
-        gravida: vis.showGravidaPara ? gv : null,
-        para: vis.showGravidaPara ? pv : null,
         allergies,
         conditions,
       };
 
-      if (vis.showGestationalWeek) {
-        if (gestationalAgeWeeks !== "") {
-          const g = Number.parseInt(gestationalAgeWeeks, 10);
-          if (!Number.isNaN(g)) payload.gestationalAgeWeeks = g;
+      if (canEditPregnancyProfile(profession)) {
+        payload.pregnancyStatus = pregnancyStatus;
+        payload.lmpDate = vis.showLmpEdd ? lmpDate || null : null;
+        payload.eddDate = vis.showLmpEdd ? eddDate || null : null;
+        payload.gravida = vis.showGravidaPara ? gv : null;
+        payload.para = vis.showGravidaPara ? pv : null;
+
+        if (vis.showGestationalWeek) {
+          if (gestationalAgeWeeks !== "") {
+            const g = Number.parseInt(gestationalAgeWeeks, 10);
+            if (!Number.isNaN(g)) payload.gestationalAgeWeeks = g;
+          } else {
+            payload.gestationalAgeWeeks = null;
+          }
         } else {
           payload.gestationalAgeWeeks = null;
         }
-      } else {
-        payload.gestationalAgeWeeks = null;
-      }
 
-      payload.babyBirthDate = vis.showBabyBirth ? (babyBirthDate.trim() ? babyBirthDate.trim() : null) : null;
+        payload.babyBirthDate = vis.showBabyBirth
+          ? babyBirthDate.trim()
+            ? babyBirthDate.trim()
+            : null
+          : null;
+      }
 
       if (bloodType === "" || !bloodType) {
         payload.bloodType = null;
@@ -463,75 +472,23 @@ export function ProfileEditClient({
 
   const profileEmail = bundle.profile?.email ?? session.email;
 
-  const { journeySummaryLabel, roleSummaryLabel } = useMemo(() => {
-    const j =
-      pregnancyStatus === "planning"
-        ? "Planning"
-        : pregnancyStatus === "pregnant"
-          ? "Pregnant"
-          : pregnancyStatus === "postpartum"
-            ? "Postpartum"
-            : pregnancyStatus === "not_applicable"
-              ? "Not applicable"
-              : pregnancyStatus;
-    const r =
-      profession === "parent_caregiver"
-        ? "Parent or caregiver"
-        : profession === "clinician"
-          ? "Clinician"
-          : profession === "student_researcher"
-            ? "Student / researcher"
-            : "Not set";
-    return { journeySummaryLabel: j, roleSummaryLabel: r };
-  }, [pregnancyStatus, profession]);
-
   return (
     <AppShell hideNav>
       <AppHeader title={t("profile_edit_title")} showBack backHref="/profile" />
 
-      <div className="min-w-0 space-y-4 overflow-x-hidden px-4 pt-4 pb-28">
-        <p className="text-sm text-muted-foreground">
-          Keep your details up to date so reminders, guidance, and emergency information stay
-          accurate. Nothing here replaces medical advice from your clinician.
-        </p>
-
-        <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5 text-xs">
-          <p className="font-medium text-foreground">
-            {displayName.trim() || "Name not set"}
-          </p>
-          <p className="mt-1 text-muted-foreground">
-            <span>Journey:</span>{" "}
-            <span className="text-foreground">{journeySummaryLabel}</span>
-            <span className="mx-1.5 text-border">·</span>
-            <span>Role:</span>{" "}
-            <span className="text-foreground">{roleSummaryLabel}</span>
-          </p>
-        </div>
-
+      <div className={cn("min-w-0 space-y-4 px-4 pt-4 pb-28", FORM_FOCUS_SAFE)}>
         <Tabs value={activeSection} onValueChange={(v) => setActiveSection(v as SectionKey)} className="w-full min-w-0">
           <Card className="rounded-sm border-border/80 shadow-none">
-            <CardContent className="space-y-3 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Guided setup • Step {activeIdx + 1} of {SECTION_ORDER.length}
-                </p>
-                <p className="text-xs font-semibold text-foreground">
-                  {SECTION_META[activeSection].title}
-                </p>
-              </div>
-              <div className="h-1.5 w-full rounded-full bg-muted">
-                <div
-                  className="h-1.5 rounded-full bg-primary transition-all"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
+            <CardContent className="p-3">
               <TabsList className={tabListClass}>
                 <TabsTrigger value="personal" className={tabTriggerClass}>
                   Personal
                 </TabsTrigger>
-                <TabsTrigger value="pregnancy" className={tabTriggerClass}>
-                  Pregnancy
-                </TabsTrigger>
+                {canEditPregnancy ? (
+                  <TabsTrigger value="pregnancy" className={tabTriggerClass}>
+                    Pregnancy
+                  </TabsTrigger>
+                ) : null}
                 <TabsTrigger value="health" className={tabTriggerClass}>
                   Health
                 </TabsTrigger>
@@ -543,60 +500,58 @@ export function ProfileEditClient({
           </Card>
 
             <TabsContent value="personal" className="mt-4 space-y-4 focus-visible:outline-none">
-              <Card className="overflow-hidden rounded-sm border-border/80 shadow-none">
+              <Card className="overflow-visible rounded-sm border-border/80 shadow-none">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">About you</CardTitle>
                   <CardDescription>Basic identity used across MaaCare.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4">
-                  <div className="flex flex-col gap-3 rounded-md border border-border/60 bg-muted/15 p-4 sm:flex-row sm:items-center">
-                    <Avatar className="h-16 w-16 shrink-0 rounded-2xl border border-border/50">
-                      {bundle.profile?.avatar_url ? (
-                        <AvatarImage src={bundle.profile.avatar_url} alt="" className="rounded-2xl object-cover" />
-                      ) : null}
-                      <AvatarFallback className="rounded-2xl text-lg font-semibold">
-                        {(displayName.trim().slice(0, 1) || user?.name?.slice(0, 1) || "?").toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <p className="text-sm font-medium text-foreground">Profile photo</p>
-                      <p className="text-xs text-muted-foreground">
-                        Shown on your profile and in the community when you post or comment. Upload opens a crop and zoom
-                        editor so you can frame your face clearly.
-                      </p>
-                      <div className="flex flex-wrap gap-2 pt-1">
+                  <div className="mb-2 border-b border-border/50 pb-6">
+                    <p className="text-base font-medium text-foreground">Profile picture</p>
+                    <div className="mt-3 flex items-center gap-5">
+                      <Avatar className="h-24 w-24 shrink-0 rounded-full ring-2 ring-border/40 ring-offset-2 ring-offset-background">
+                        {bundle.profile?.avatar_url ? (
+                          <AvatarImage
+                            src={bundle.profile.avatar_url}
+                            alt=""
+                            className="rounded-full object-cover"
+                          />
+                        ) : null}
+                        <AvatarFallback className="rounded-full text-2xl font-semibold">
+                          {(displayName.trim().slice(0, 1) || user?.name?.slice(0, 1) || "?").toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 sm:max-w-[10rem]">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="min-h-9 rounded-md"
+                          className="min-h-10 w-full min-w-[8.5rem] justify-center rounded-md"
                           disabled={avatarUploading}
                           onClick={() => setAvatarDialogOpen(true)}
                         >
                           {avatarUploading ? (
                             <>
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Working…
+                              Uploading…
                             </>
                           ) : (
                             <>
                               <Camera className="mr-2 h-4 w-4" />
-                              Choose and crop photo
+                              Upload
                             </>
                           )}
                         </Button>
-                        {bundle.profile?.avatar_url ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="min-h-9 rounded-md text-muted-foreground"
-                            disabled={avatarUploading}
-                            onClick={() => void removeAvatar()}
-                          >
-                            Remove photo
-                          </Button>
-                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="min-h-10 w-full min-w-[8.5rem] justify-center rounded-md text-muted-foreground"
+                          disabled={avatarUploading || !bundle.profile?.avatar_url}
+                          onClick={() => void removeAvatar()}
+                        >
+                          Remove photo
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -658,27 +613,37 @@ export function ProfileEditClient({
                   <div className="grid gap-2">
                     <FieldLabel>Primary focus</FieldLabel>
                     <p className="text-xs text-muted-foreground">
-                      Controls pregnancy questions and home layout — see docs for partner linking.
+                      {canEditPregnancy
+                        ? "Controls pregnancy questions and home layout — see docs for partner linking."
+                        : "Tailors the app for your role. Pregnancy journey editing is available when your role is Parent or caregiver."}
                     </p>
-                    <Select value={primaryUseCase} onValueChange={(v) => setPrimaryUseCase(v)}>
-                      <SelectTrigger className={fieldClass}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PRIMARY_USE_CASE_VALUES.map((k) => (
-                          <SelectItem key={k} value={k}>
-                            {PRIMARY_USE_LABEL[k]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <AppSelect
+                      value={primaryUseCase}
+                      onValueChange={(v) => setPrimaryUseCase(v)}
+                      options={primaryUseOptions}
+                      disabled={!profession}
+                      triggerClassName={fieldClass}
+                    />
+                    {!profession ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        Choose your role to see relevant focus options.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="grid gap-2">
                     <FieldLabel>Your role</FieldLabel>
                     <p className="text-xs text-muted-foreground">
                       Helps tailor the app and identify clinicians for future features — not account permissions.
                     </p>
-                    <ProfessionPicker value={profession} onChange={(v) => setProfession(v)} />
+                    <ProfessionPicker
+                      value={profession}
+                      onChange={(v) => {
+                        setProfession(v);
+                        if (v && v !== "parent_caregiver") {
+                          setPrimaryUseCase(defaultPrimaryUseForProfession(v));
+                        }
+                      }}
+                    />
                   </div>
 
                   {profession === "clinician" ? (
@@ -740,8 +705,9 @@ export function ProfileEditClient({
               </Card>
             </TabsContent>
 
+            {canEditPregnancy ? (
             <TabsContent value="pregnancy" className="mt-4 space-y-4 focus-visible:outline-none">
-              <Card className="overflow-hidden rounded-sm border-border/80 shadow-none">
+              <Card className="overflow-visible rounded-sm border-border/80 shadow-none">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">Pregnancy journey</CardTitle>
                   <CardDescription>
@@ -904,9 +870,10 @@ export function ProfileEditClient({
                 </CardContent>
               </Card>
             </TabsContent>
+            ) : null}
 
             <TabsContent value="health" className="mt-4 space-y-4 focus-visible:outline-none">
-              <Card className="overflow-hidden rounded-sm border-border/80 shadow-none">
+              <Card className="overflow-visible rounded-sm border-border/80 shadow-none">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">Health snapshot</CardTitle>
                   <CardDescription>
@@ -917,19 +884,12 @@ export function ProfileEditClient({
                 <CardContent className="grid gap-4">
                   <div className="grid gap-2">
                     <FieldLabel>Blood group</FieldLabel>
-                    <Select value={bloodType || "__"} onValueChange={(v) => setBloodType(v === "__" ? "" : v)}>
-                      <SelectTrigger className={fieldClass}>
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__">Not specified</SelectItem>
-                        {BLOOD_TYPES.map((b) => (
-                          <SelectItem key={b} value={b}>
-                            {b === "unknown" ? "Unknown" : b}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <BloodTypeCardPicker
+                      value={bloodType}
+                      onChange={setBloodType}
+                      allowUnset
+                      className="mt-1"
+                    />
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="grid gap-2">
@@ -991,7 +951,7 @@ export function ProfileEditClient({
             </TabsContent>
 
             <TabsContent value="care" className="mt-4 space-y-4 focus-visible:outline-none">
-              <Card className="overflow-hidden rounded-sm border-border/80 shadow-none">
+              <Card className="overflow-visible rounded-sm border-border/80 shadow-none">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">Emergency & care team</CardTitle>
                   <CardDescription>
@@ -1081,7 +1041,7 @@ export function ProfileEditClient({
             variant="outline"
             className="min-h-11 rounded-md px-3"
             onClick={() => goSection(activeIdx + 1)}
-            disabled={activeIdx === SECTION_ORDER.length - 1}
+            disabled={activeIdx === visibleSections.length - 1}
           >
             <ChevronRight className="h-4 w-4" />
           </Button>

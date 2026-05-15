@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { requireDbAdmin } from "@/lib/auth/require-db-admin";
 import { escapeIlike } from "@/lib/community/aggregate-counts";
+import { tryCreateSupabaseServiceClient } from "@/lib/supabase/service";
 
 export async function GET(req: NextRequest) {
   try {
@@ -39,7 +40,27 @@ export async function GET(req: NextRequest) {
       return failJson(500, "Could not load users.");
     }
 
-    return Response.json({ users: data ?? [], total: count ?? 0 });
+    const profiles = data ?? [];
+    const svc = tryCreateSupabaseServiceClient();
+
+    let users: Array<(typeof profiles)[number] & { email_confirmed_at: string | null }>;
+    if (!svc) {
+      users = profiles.map((p) => ({ ...p, email_confirmed_at: null }));
+    } else {
+      const authResults = await Promise.all(
+        profiles.map((p) => svc.auth.admin.getUserById(p.id)),
+      );
+      users = profiles.map((p, i) => ({
+        ...p,
+        email_confirmed_at: authResults[i]?.data?.user?.email_confirmed_at ?? null,
+      }));
+    }
+
+    return Response.json({
+      users,
+      total: count ?? 0,
+      authEnrichmentAvailable: !!svc,
+    });
   } catch (e) {
     return serverErrorJson("admin/users GET", e);
   }
