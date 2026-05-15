@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 
 import { Loader2, Mail, Lock, Send } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { toast } from "sonner";
-
+import {
+  AuthInlineAlert,
+  AuthMailSuccessState,
+  AuthSubmittingState,
+} from "@/components/auth/auth-inline-feedback";
+import type { SignupWizardNav } from "@/components/signup/signup-wizard-nav";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -40,7 +45,15 @@ const SEED: Msg[] = [
 
 const fieldBase = "rounded-sm shadow-none focus-visible:ring-1 h-10 w-full min-w-0";
 
-export function AiSignupChat() {
+export const AI_SIGNUP_FORM_ID = "ai-signup-form";
+
+type AiSignupChatProps = {
+  onNavChange: (nav: SignupWizardNav | null) => void;
+  onCompleteChange?: (complete: boolean) => void;
+};
+
+export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProps) {
+  const { t } = useTranslation("auth");
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<Msg[]>(SEED);
@@ -54,6 +67,8 @@ export function AiSignupChat() {
   const [terms, setTerms] = useState(false);
   const [emailRegistered, setEmailRegistered] = useState<boolean | null>(null);
   const [emailLookupPending, setEmailLookupPending] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [emailConfirmSent, setEmailConfirmSent] = useState(false);
 
   const ready = signupDraftReadyForCredentials(draft);
 
@@ -117,7 +132,7 @@ export function AiSignupChat() {
             : res.status === 503
               ? "AI is temporarily unavailable. Try manual signup or retry shortly."
               : "Could not reach the assistant. Try again.";
-        toast.error(j.message ?? fallback);
+        setFormError(j.message ?? fallback);
         setMessages((prev) => [
           ...prev,
           {
@@ -132,7 +147,7 @@ export function AiSignupChat() {
       if (j.draft) setDraft(j.draft);
       setMessages((prev) => [...prev, { role: "assistant", content: reply || "Thanks — tell me a bit more when you’re ready." }]);
     } catch {
-      toast.error("Network error. Try again.");
+      setFormError("Network error. Try again.");
     } finally {
       setSending(false);
     }
@@ -142,17 +157,24 @@ export function AiSignupChat() {
     e.preventDefault();
     const name = draft.displayName.trim();
     const accErr = validateAccountCredentials({ name, email, password });
-    if (accErr) return toast.error(accErr);
+    setFormError(null);
+    if (accErr) {
+      setFormError(accErr);
+      return;
+    }
     const termsErr = validateTermsAccepted(terms);
-    if (termsErr) return toast.error(termsErr);
+    if (termsErr) {
+      setFormError(termsErr);
+      return;
+    }
 
     const dupCheck = await checkEmailRegistered(email.trim());
     if (!dupCheck.ok) {
-      toast.error(dupCheck.error);
+      setFormError(dupCheck.error);
       return;
     }
     if (!("unavailable" in dupCheck) && dupCheck.registered) {
-      toast.error("This email is already registered. Try signing in instead.");
+      setFormError("This email is already registered. Try signing in instead.");
       setEmailRegistered(true);
       return;
     }
@@ -161,7 +183,7 @@ export function AiSignupChat() {
     try {
       const result = await registerAccount(name, email, password);
       if (!result.ok) {
-        toast.error(result.error);
+        setFormError(result.error);
         return;
       }
 
@@ -174,8 +196,7 @@ export function AiSignupChat() {
       const profilePayload = buildSignupProfilePayload(profileDraft);
 
       if ("needsEmailConfirmation" in result && result.needsEmailConfirmation) {
-        toast.info(result.message);
-        router.push("/login");
+        setEmailConfirmSent(true);
         return;
       }
 
@@ -188,13 +209,14 @@ export function AiSignupChat() {
         });
         if (!patchRes.ok) {
           const j = (await patchRes.json().catch(() => ({}))) as { message?: string };
-          toast.error(j.message ?? "Account created but profile details could not be saved. Update them in Profile.");
+          setFormError(
+            j.message ?? "Account created but profile details could not be saved. Update them in Profile.",
+          );
         }
       } catch {
-        toast.error("Account created but profile sync failed. You can update details in Profile.");
+        setFormError("Account created but profile sync failed. You can update details in Profile.");
       }
 
-      toast.success("Welcome to MaaCare");
       await router.refresh();
       router.push("/app");
     } finally {
@@ -202,8 +224,54 @@ export function AiSignupChat() {
     }
   }
 
+  const credentialsReady =
+    ready &&
+    isValidEmailFormat(email.trim()) &&
+    emailRegistered !== true &&
+    password.length >= 8 &&
+    terms;
+
+  useEffect(() => {
+    onCompleteChange?.(emailConfirmSent);
+  }, [emailConfirmSent, onCompleteChange]);
+
+  useEffect(() => {
+    if (emailConfirmSent || saving) {
+      onNavChange(null);
+      return;
+    }
+    if (!ready) {
+      onNavChange(null);
+      return;
+    }
+    onNavChange({
+      isFirstStep: false,
+      onBackStep: () => {},
+      primaryLabel: t("signup_wizard_create"),
+      onPrimary: () => {},
+      primaryDisabled: !credentialsReady,
+      isSubmit: true,
+      formId: AI_SIGNUP_FORM_ID,
+    });
+  }, [credentialsReady, emailConfirmSent, onNavChange, ready, saving]);
+
+  if (emailConfirmSent) {
+    return (
+      <AuthMailSuccessState
+        title={t("signup_email_confirm_title")}
+        body={t("signup_email_confirm_body")}
+        email={email.trim()}
+      />
+    );
+  }
+
+  if (saving) {
+    return <AuthSubmittingState label="Creating account…" />;
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {formError ? <AuthInlineAlert message={formError} /> : null}
       <div
         ref={scrollRef}
         className="flex max-h-[min(52vh,420px)] min-h-[200px] flex-col gap-3 overflow-y-auto rounded-lg bg-muted/15 px-2 py-3 sm:px-3"
@@ -260,9 +328,13 @@ export function AiSignupChat() {
       </div>
 
       {ready ? (
-        <form onSubmit={(ev) => void createAccount(ev)} className="space-y-3 border-t border-border/60 pt-4">
+        <form
+          id={AI_SIGNUP_FORM_ID}
+          onSubmit={(ev) => void createAccount(ev)}
+          className="space-y-3 border-t border-border/60 pt-4"
+        >
           <p className="text-xs font-medium text-muted-foreground">
-            Secure step — email and password stay on your device until you create the account.
+            Secure step — email and password on device only.
           </p>
           <div>
             <Label htmlFor="ai-email">Email</Label>
@@ -274,7 +346,10 @@ export function AiSignupChat() {
                 autoComplete="email"
                 className={cn(fieldBase, "pl-9")}
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setFormError(null);
+                }}
               />
             </div>
             {emailLookupPending && isValidEmailFormat(email.trim()) ? (
@@ -299,30 +374,27 @@ export function AiSignupChat() {
                 autoComplete="new-password"
                 className={cn(fieldBase, "pl-9")}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setFormError(null);
+                }}
                 placeholder="At least 8 characters"
               />
             </div>
           </div>
           <label className="flex items-start gap-2.5 text-sm">
-            <Checkbox checked={terms} onCheckedChange={(v) => setTerms(!!v)} className="mt-0.5 rounded-sm" />
+            <Checkbox
+              checked={terms}
+              onCheckedChange={(v) => {
+                setTerms(!!v);
+                setFormError(null);
+              }}
+              className="mt-0.5 rounded-sm"
+            />
             <span className="text-muted-foreground">
               I agree to the Terms and Privacy Policy.
             </span>
           </label>
-          <Button
-            type="submit"
-            className="w-full rounded-sm"
-            disabled={
-              saving ||
-              !isValidEmailFormat(email.trim()) ||
-              emailRegistered === true ||
-              password.length < 8 ||
-              !terms
-            }
-          >
-            {saving ? "Creating account…" : "Create account"}
-          </Button>
         </form>
       ) : (
         <p className="text-center text-xs text-muted-foreground">

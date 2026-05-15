@@ -841,7 +841,6 @@ export default function CommunityPageClient({
                           authorProfession={p.authorProfession}
                           authorVerifiedProfessional={p.authorVerifiedProfessional}
                           timeLabel={formatDistanceToNow(new Date(p.createdAt), { addSuffix: true })}
-                          variant="prominent"
                         />
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           {kindLabel(p.postKind)}
@@ -875,11 +874,10 @@ export default function CommunityPageClient({
                         className={cn(
                           "h-5 w-5",
                           COMMUNITY_ACTION_ICON,
-                          p.likedByMe && "fill-current",
-                          pendingLikeIds.has(p.id) && "scale-110 animate-pulse",
+                          p.likedByMe && "fill-current text-primary",
                         )}
                       />
-                      <span>{p.likeCount}</span>
+                      {p.likeCount > 0 ? <span>{p.likeCount}</span> : null}
                     </button>
                     <Link
                       href={`/community/${p.id}`}

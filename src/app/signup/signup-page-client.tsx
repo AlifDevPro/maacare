@@ -1,47 +1,176 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-
-import { AuthShell } from "@/components/app/AuthShell";
-import { AiSignupChat } from "@/components/signup/ai-signup-chat";
-import { SignupModeToggle, type SignupMode } from "@/components/signup/signup-mode-toggle";
-
-import { ManualSignupWizard } from "./manual-signup-wizard";
+import { useRouter, useSearchParams } from "next/navigation";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useTranslation } from "react-i18next";
+
+import { AiSignupChat } from "@/components/signup/ai-signup-chat";
+import { SignupFlowShell } from "@/components/signup/signup-flow-shell";
+import { SignupMorphContent } from "@/components/signup/signup-morph-content";
+import { SignupPathPicker } from "@/components/signup/signup-path-picker";
+import type { SignupMode } from "@/components/signup/signup-mode-toggle";
+import type { SignupWizardNav } from "@/components/signup/signup-wizard-nav";
+
+import { ManualSignupWizard, MANUAL_SIGNUP_FORM_ID } from "./manual-signup-wizard";
+
+type SignupPhase = "choose" | SignupMode;
 
 export function SignupPageClient() {
   const { t } = useTranslation("auth");
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const [mode, setMode] = useState<SignupMode>("manual");
+  const reduced = useReducedMotion();
+  const [phase, setPhase] = useState<SignupPhase>("choose");
+  const [wizardNav, setWizardNav] = useState<SignupWizardNav | null>(null);
+  const [registrationComplete, setRegistrationComplete] = useState(false);
 
   useEffect(() => {
     const q = searchParams.get("mode");
-    if (q === "ai") {
-      queueMicrotask(() => setMode("ai"));
+    if (q === "ai" || q === "manual") {
+      queueMicrotask(() => setPhase(q));
     }
   }, [searchParams]);
 
-  const isAi = mode === "ai";
+  const footer = registrationComplete ? (
+    <Link href="/login" className="font-medium text-primary">
+      {t("signup_footer_login")} →
+    </Link>
+  ) : (
+    <>
+      {t("signup_footer_have")}{" "}
+      <Link href="/login" className="font-medium text-primary">
+        {t("signup_footer_login")}
+      </Link>
+    </>
+  );
+
+  const goToChooser = useCallback(() => {
+    setPhase("choose");
+    setWizardNav(null);
+    setRegistrationComplete(false);
+  }, []);
+
+  const handleBack = useCallback(() => {
+    if (phase === "choose") {
+      router.push("/login");
+      return;
+    }
+    if (wizardNav && !wizardNav.isFirstStep) {
+      wizardNav.onBackStep();
+      return;
+    }
+    goToChooser();
+  }, [goToChooser, phase, router, wizardNav]);
+
+  const shellMeta = useMemo(() => {
+    switch (phase) {
+      case "choose":
+        return {
+          title: t("signup_title"),
+          subtitle: t("signup_choose_subtitle"),
+          bottom: null,
+          skip: undefined,
+          cardClassName: "sm:max-w-xl",
+        };
+      case "manual":
+        return {
+          title: t("signup_title"),
+          subtitle: t("signup_subtitle_manual_short"),
+          bottom: wizardNav
+            ? {
+                label: wizardNav.primaryLabel,
+                onClick: wizardNav.onPrimary,
+                disabled: wizardNav.primaryDisabled,
+                isSubmit: wizardNav.isSubmit,
+                formId: wizardNav.formId ?? MANUAL_SIGNUP_FORM_ID,
+              }
+            : null,
+          skip:
+            wizardNav?.showSkip && wizardNav.onSkip
+              ? {
+                  label: t("signup_wizard_skip"),
+                  onClick: wizardNav.onSkip,
+                  disabled: wizardNav.primaryDisabled,
+                }
+              : undefined,
+          cardClassName: undefined,
+        };
+      case "ai":
+        return {
+          title: t("signup_path_ai_title"),
+          subtitle: t("signup_subtitle_ai_short"),
+          bottom: wizardNav
+            ? {
+                label: wizardNav.primaryLabel,
+                disabled: wizardNav.primaryDisabled,
+                isSubmit: wizardNav.isSubmit,
+                formId: wizardNav.formId,
+              }
+            : null,
+          skip: undefined,
+          cardClassName: undefined,
+        };
+    }
+  }, [phase, t, wizardNav]);
+
+  const morphKey =
+    phase === "choose"
+      ? "choose"
+      : phase === "manual"
+        ? `manual-${wizardNav?.stepId ?? "loading"}`
+        : wizardNav
+          ? "ai-account"
+          : "ai-chat";
 
   return (
-    <AuthShell
-      title={t("signup_title")}
-      subtitle={
-        isAi ? t("signup_subtitle_ai") : t("signup_subtitle_manual")
-      }
-      footer={
-        <>
-          {t("signup_footer_have")}{" "}
-          <Link href="/login" className="font-medium text-primary">
-            {t("signup_footer_login")}
-          </Link>
-        </>
-      }
+    <SignupFlowShell
+      title={shellMeta.title}
+      subtitle={shellMeta.subtitle}
+      footer={footer}
+      onBack={handleBack}
+      backLabel={t("auth_back")}
+      bottomAction={shellMeta.bottom}
+      skipAction={shellMeta.skip}
+      cardClassName={shellMeta.cardClassName}
     >
-      <SignupModeToggle mode={mode} onChange={setMode} />
-      {isAi ? <AiSignupChat /> : <ManualSignupWizard />}
-    </AuthShell>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={phase}
+          layout
+          initial={reduced ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98 }}
+          animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+          exit={reduced ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }}
+          transition={{ duration: 0.36, ease: [0.32, 0.72, 0, 1] }}
+        >
+          {phase === "choose" ? (
+            <SignupPathPicker
+              onPick={(mode) => {
+                setRegistrationComplete(false);
+                setPhase(mode);
+              }}
+              manualTitle={t("signup_path_manual_title")}
+              manualDesc={t("signup_path_manual_desc")}
+              aiTitle={t("signup_path_ai_title")}
+              aiDesc={t("signup_path_ai_desc")}
+              aiBadge={t("signup_path_ai_badge")}
+            />
+          ) : phase === "manual" ? (
+            <ManualSignupWizard
+              onNavChange={setWizardNav}
+              onCompleteChange={setRegistrationComplete}
+            />
+          ) : (
+            <SignupMorphContent contentKey={morphKey}>
+              <AiSignupChat
+                onNavChange={setWizardNav}
+                onCompleteChange={setRegistrationComplete}
+              />
+            </SignupMorphContent>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </SignupFlowShell>
   );
 }

@@ -5,14 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
-import { Mail, Lock, User, ChevronRight } from "lucide-react";
+import { Mail, Lock, User } from "lucide-react";
 import {
   JourneyStatusPicker,
   ProfessionPicker,
   type ProfessionValue,
 } from "@/components/profile/journey-profession-pickers";
 import { StepProgressRail } from "@/components/onboarding/step-progress-rail";
-import { Button } from "@/components/ui/button";
+import { SignupMorphContent } from "@/components/signup/signup-morph-content";
+import type { SignupWizardNav } from "@/components/signup/signup-wizard-nav";
 import { Input } from "@/components/ui/input";
 import { PopoverDateInput } from "@/components/ui/popover-date-input";
 import { Label } from "@/components/ui/label";
@@ -31,7 +32,11 @@ import {
   validateTermsAccepted,
 } from "@/lib/signup/validators";
 import { isValidEmailFormat } from "@/lib/validation/email";
-import { toast } from "sonner";
+import {
+  AuthInlineAlert,
+  AuthMailSuccessState,
+  AuthSubmittingState,
+} from "@/components/auth/auth-inline-feedback";
 import { cn } from "@/lib/utils";
 
 import { SexIconCards } from "@/components/profile/sex-icon-cards";
@@ -45,8 +50,7 @@ type StepId =
   | "journey"
   | "pregnancy"
   | "health"
-  | "preferences"
-  | "consent";
+  | "preferences";
 
 type StepDef = { id: StepId; titleKey: string; optional?: boolean };
 
@@ -60,7 +64,6 @@ const STEP_FALLBACK_ORDER: StepId[] = [
   "pregnancy",
   "health",
   "preferences",
-  "consent",
 ];
 
 function buildStepDefs(
@@ -87,8 +90,7 @@ function buildStepDefs(
 
   out.push(
     { id: "health", titleKey: "signup_wizard_step_health", optional: true },
-    { id: "preferences", titleKey: "signup_wizard_step_preferences", optional: true },
-    { id: "consent", titleKey: "signup_wizard_step_finish" },
+    { id: "preferences", titleKey: "signup_wizard_step_finish" },
   );
   return out;
 }
@@ -96,7 +98,14 @@ function buildStepDefs(
 const fieldBase =
   "rounded-md border border-input bg-background shadow-none focus-visible:ring-1 h-11 w-full min-w-0 px-3";
 
-export function ManualSignupWizard() {
+export const MANUAL_SIGNUP_FORM_ID = "manual-signup-form";
+
+type ManualSignupWizardProps = {
+  onNavChange: (nav: SignupWizardNav | null) => void;
+  onCompleteChange?: (complete: boolean) => void;
+};
+
+export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSignupWizardProps) {
   const { t } = useTranslation("auth");
   const router = useRouter();
   const [stepId, setStepId] = useState<StepId>("persona");
@@ -139,6 +148,8 @@ export function ManualSignupWizard() {
 
   const [terms, setTerms] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [emailConfirmSent, setEmailConfirmSent] = useState(false);
 
   const steps = useMemo(
     () => buildStepDefs(profession, (primaryUseCase || "self_maternal") as PrimaryUseCaseValue),
@@ -160,7 +171,10 @@ export function ManualSignupWizard() {
   const current = steps[stepIndex] ?? steps[0]!;
   const isLast = stepIndex === steps.length - 1;
 
-  const progress = useMemo(() => ((stepIndex + 1) / steps.length) * 100, [stepIndex, steps.length]);
+  const progress = useMemo(() => {
+    if (steps.length <= 1) return 0;
+    return (stepIndex / (steps.length - 1)) * 100;
+  }, [stepIndex, steps.length]);
   const pregVis = useMemo(
     () => resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase || "self_maternal"),
     [pregnancyStatus, primaryUseCase],
@@ -209,26 +223,27 @@ export function ManualSignupWizard() {
   }
 
   async function nextStep() {
+    setFormError(null);
     if (current.id === "persona") {
       const perr = validateProfession(profession);
       if (perr) {
-        toast.error(perr);
+        setFormError(perr);
         return;
       }
     }
     if (current.id === "account") {
       const err = validateAccountCredentials({ name, email, password });
       if (err) {
-        toast.error(err);
+        setFormError(err);
         return;
       }
       const dupCheck = await checkEmailRegistered(email.trim());
       if (!dupCheck.ok) {
-        toast.error(dupCheck.error);
+        setFormError(dupCheck.error);
         return;
       }
       if (!("unavailable" in dupCheck) && dupCheck.registered) {
-        toast.error("This email is already registered. Try signing in instead.");
+        setFormError(t("signup_wizard_email_taken"));
         setEmailRegistered(true);
         return;
       }
@@ -243,19 +258,29 @@ export function ManualSignupWizard() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const accErr = validateAccountCredentials({ name, email, password });
-    if (accErr) return toast.error(accErr);
+    setFormError(null);
+    if (accErr) {
+      setFormError(accErr);
+      return;
+    }
     const termsErr = validateTermsAccepted(terms);
-    if (termsErr) return toast.error(termsErr);
+    if (termsErr) {
+      setFormError(termsErr);
+      return;
+    }
     const perr = validateProfession(profession);
-    if (perr) return toast.error(perr);
+    if (perr) {
+      setFormError(perr);
+      return;
+    }
 
     const dupCheck = await checkEmailRegistered(email.trim());
     if (!dupCheck.ok) {
-      toast.error(dupCheck.error);
+      setFormError(dupCheck.error);
       return;
     }
     if (!("unavailable" in dupCheck) && dupCheck.registered) {
-      toast.error("This email is already registered. Try signing in instead.");
+      setFormError(t("signup_wizard_email_taken"));
       setEmailRegistered(true);
       return;
     }
@@ -263,7 +288,7 @@ export function ManualSignupWizard() {
     setSaving(true);
     const result = await registerAccount(name, email, password);
     if (!result.ok) {
-      toast.error(result.error);
+      setFormError(result.error);
       setSaving(false);
       return;
     }
@@ -297,8 +322,7 @@ export function ManualSignupWizard() {
     const profilePayload = buildSignupProfilePayload(draft);
 
     if ("needsEmailConfirmation" in result && result.needsEmailConfirmation) {
-      toast.info(result.message);
-      router.push("/login");
+      setEmailConfirmSent(true);
       setSaving(false);
       return;
     }
@@ -317,23 +341,79 @@ export function ManualSignupWizard() {
       }
     }
 
-    toast.success("Welcome to MaaCare");
     router.push("/app");
   }
 
   const stepTitle = `${t(current.titleKey)}${current.optional ? ` (${t("signup_wizard_optional_suffix")})` : ""}`;
 
-  function professionSummaryLabel(): string {
-    if (profession === "clinician") return t("signup_wizard_role_clinician");
-    if (profession === "parent_caregiver") return t("signup_wizard_role_parent");
-    if (profession === "student_researcher") return t("signup_wizard_role_student");
-    return "—";
+  useEffect(() => {
+    onCompleteChange?.(emailConfirmSent);
+  }, [emailConfirmSent, onCompleteChange]);
+
+  useEffect(() => {
+    setFormError(null);
+  }, [stepId]);
+
+  useEffect(() => {
+    if (emailConfirmSent || saving) {
+      onNavChange(null);
+      return;
+    }
+
+    const accountStepInvalid =
+      current.id === "account" &&
+      (!isValidEmailFormat(email.trim()) || emailRegistered === true);
+    const finishStepInvalid = isLast && !terms;
+
+    onNavChange({
+      isFirstStep: stepIndex === 0,
+      onBackStep: goPrevStepId,
+      primaryLabel: isLast ? t("signup_wizard_create") : t("signup_wizard_continue"),
+      onPrimary: () => void nextStep(),
+      primaryDisabled: saving || (!isLast && accountStepInvalid) || finishStepInvalid,
+      showSkip: Boolean(current.optional && !isLast),
+      onSkip: skipStep,
+      isSubmit: isLast,
+      formId: MANUAL_SIGNUP_FORM_ID,
+      stepId: current.id,
+    });
+  }, [
+    current,
+    email,
+    emailConfirmSent,
+    emailRegistered,
+    isLast,
+    onNavChange,
+    saving,
+    stepIndex,
+    t,
+    terms,
+  ]);
+
+  if (emailConfirmSent) {
+    return (
+      <AuthMailSuccessState
+        title={t("signup_email_confirm_title")}
+        body={t("signup_email_confirm_body")}
+        email={email.trim()}
+      />
+    );
+  }
+
+  if (saving) {
+    return <AuthSubmittingState label={t("signup_wizard_creating")} />;
   }
 
   return (
-    <form onSubmit={submit} className="min-w-0 space-y-4 overflow-x-hidden">
+    <form
+      id={MANUAL_SIGNUP_FORM_ID}
+      onSubmit={submit}
+      className="min-w-0 space-y-4 overflow-x-hidden"
+    >
+      {formError ? <AuthInlineAlert message={formError} /> : null}
       <StepProgressRail label={stepTitle} percent={progress} />
 
+      <SignupMorphContent contentKey={current.id}>
       {current.id === "persona" && (
         <div className="space-y-4">
           <div className="space-y-1">
@@ -369,7 +449,10 @@ export function ManualSignupWizard() {
                 placeholder="Aisha Rahman"
                 className={`${fieldBase} pl-9`}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setFormError(null);
+                }}
                 autoComplete="name"
               />
             </div>
@@ -386,7 +469,10 @@ export function ManualSignupWizard() {
                 placeholder="you@example.com"
                 className={`${fieldBase} pl-9`}
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setFormError(null);
+                }}
               />
             </div>
             {emailLookupPending && isValidEmailFormat(email.trim()) ? (
@@ -415,7 +501,10 @@ export function ManualSignupWizard() {
                 placeholder={t("signup_wizard_password_hint")}
                 className={`${fieldBase} pl-9`}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setFormError(null);
+                }}
               />
             </div>
           </div>
@@ -711,93 +800,22 @@ export function ManualSignupWizard() {
               onChange={(e) => setTimezone(e.target.value)}
             />
           </div>
-          <label className="flex items-start gap-2.5 text-sm">
+          <label className="flex items-start gap-2.5 border-t border-border/60 pt-4 text-sm">
             <Checkbox
-              checked={notifyCommunityActivity}
-              onCheckedChange={(v) => setNotifyCommunityActivity(!!v)}
+              checked={terms}
+              onCheckedChange={(v) => {
+                setTerms(!!v);
+                setFormError(null);
+              }}
               className="mt-0.5 rounded-sm"
             />
-            <span className="text-muted-foreground">{t("signup_wizard_notify_community")}</span>
-          </label>
-          <label className="flex items-start gap-2.5 text-sm">
-            <Checkbox
-              checked={notifyDailyReminders}
-              onCheckedChange={(v) => setNotifyDailyReminders(!!v)}
-              className="mt-0.5 rounded-sm"
-            />
-            <span className="text-muted-foreground">{t("signup_wizard_notify_reminders")}</span>
-          </label>
-        </div>
-      )}
-
-      {current.id === "consent" && (
-        <div className="space-y-3">
-          <div className="break-words rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-            <p>
-              <span className="font-medium text-foreground">{t("signup_wizard_summary_account")}</span>{" "}
-              <span className="font-medium text-foreground">{name || "—"}</span> · {email || "—"}
-            </p>
-            <p className="mt-1">
-              <span className="font-medium text-foreground">{t("signup_wizard_summary_focus")}</span>{" "}
-              <span className="font-medium text-foreground">
-                {PRIMARY_USE_LABEL[(primaryUseCase || "self_maternal") as PrimaryUseCaseValue]}
-              </span>
-            </p>
-            <p className="mt-1">
-              <span className="font-medium text-foreground">{t("signup_wizard_summary_journey")}</span>{" "}
-              <span className="font-medium text-foreground">{pregnancyStatus.replace("_", " ")}</span>
-            </p>
-            <p className="mt-1">
-              <span className="font-medium text-foreground">{t("signup_wizard_summary_role")}</span>{" "}
-              <span className="font-medium text-foreground">{professionSummaryLabel()}</span>
-            </p>
-            <p className="mt-2 text-xs">{t("signup_wizard_summary_footer")}</p>
-          </div>
-          <label className="flex items-start gap-2.5 text-sm">
-            <Checkbox checked={terms} onCheckedChange={(v) => setTerms(!!v)} className="mt-0.5 rounded-sm" />
             <span className="text-muted-foreground">{t("signup_wizard_terms_ack")}</span>
           </label>
         </div>
       )}
 
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 pt-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="rounded-md"
-          onClick={goPrevStepId}
-          disabled={stepIndex === 0 || saving}
-        >
-          {t("signup_wizard_back")}
-        </Button>
+      </SignupMorphContent>
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {current.optional && !isLast ? (
-            <Button type="button" variant="ghost" className="rounded-md" onClick={skipStep} disabled={saving}>
-              {t("signup_wizard_skip")}
-            </Button>
-          ) : null}
-
-          {!isLast ? (
-            <Button
-              type="button"
-              className="rounded-md"
-              onClick={() => void nextStep()}
-              disabled={
-                saving ||
-                (current.id === "account" &&
-                  (!isValidEmailFormat(email.trim()) || emailRegistered === true))
-              }
-            >
-              {t("signup_wizard_continue")} <ChevronRight className="ml-1 h-4 w-4" />
-            </Button>
-          ) : (
-            <Button type="submit" className="rounded-md" disabled={saving}>
-              {saving ? t("signup_wizard_creating") : t("signup_wizard_create")}
-            </Button>
-          )}
-        </div>
-      </div>
     </form>
   );
 }

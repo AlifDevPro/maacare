@@ -3,30 +3,29 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 
 import { AuthShell } from "@/components/app/AuthShell";
+import {
+  AUTH_CARD_PANEL_MIN_H,
+  AuthCardBackButton,
+  AuthInlineAlert,
+  AuthMailSendingState,
+} from "@/components/auth/auth-inline-feedback";
+import {
+  AuthOtpFields,
+  isValidEmailOtpToken,
+  normalizeEmailOtp,
+} from "@/components/auth/auth-otp-fields";
 import { Button } from "@/components/ui/button";
-import { REGEXP_ONLY_DIGITS } from "input-otp";
-
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { safeInternalPath } from "@/lib/auth/safe-internal-path";
 import { requestPasswordReset, sendLoginEmailOtp, verifyLoginEmailOtp } from "@/lib/auth-client";
-import { toast } from "sonner";
 
 const RESEND_SECONDS = 60;
-/** Supabase email OTPs are numeric; hosted projects may use 6 or 8 digits. */
-const OTP_MAX_LEN = 8;
-
-function isValidEmailOtpToken(raw: string): boolean {
-  const digits = raw.replace(/\D/g, "");
-  return /^\d{6}$/.test(digits) || /^\d{8}$/.test(digits);
-}
-
-function normalizeEmailOtp(raw: string): string {
-  return raw.replace(/\D/g, "");
-}
 
 function VerifyOtpInner() {
+  const { t } = useTranslation("auth");
   const router = useRouter();
   const searchParams = useSearchParams();
   const emailParam = searchParams.get("email")?.trim() ?? "";
@@ -37,40 +36,41 @@ function VerifyOtpInner() {
   const [seconds, setSeconds] = useState(RESEND_SECONDS);
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (seconds <= 0) return;
-    const t = setTimeout(() => setSeconds((s) => s - 1), 1000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setSeconds((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
   }, [seconds]);
 
   const submit = async () => {
     if (!emailParam) {
-      toast.error(
+      setFormError(
         isReset
           ? "Missing email. Go back to forgot password and request a code again."
           : "Missing email. Go back to log in and request a code again.",
       );
       return;
     }
-    const token = normalizeEmailOtp(code);
     if (!isValidEmailOtpToken(code)) {
-      return toast.error("Enter the full code from your email (6 or 8 digits, numbers only).");
+      setFormError("Enter the full 8-digit code from your email.");
+      return;
     }
+
+    setFormError(null);
     setVerifying(true);
     try {
-      const result = await verifyLoginEmailOtp(emailParam, token, {
+      const result = await verifyLoginEmailOtp(emailParam, normalizeEmailOtp(code), {
         flow: isReset ? "password-reset" : "sign-in",
       });
       if (!result.ok) {
-        toast.error(result.error);
+        setFormError(result.error);
         return;
       }
       if (isReset) {
-        toast.success("Code verified — choose a new password.");
         router.replace(next);
       } else {
-        toast.success("Signed in");
         router.push(next);
       }
     } finally {
@@ -80,14 +80,16 @@ function VerifyOtpInner() {
 
   const resend = async () => {
     if (!emailParam) return;
+    setFormError(null);
     setResending(true);
     try {
-      const result = isReset ? await requestPasswordReset(emailParam) : await sendLoginEmailOtp(emailParam);
+      const result = isReset
+        ? await requestPasswordReset(emailParam)
+        : await sendLoginEmailOtp(emailParam);
       if (!result.ok) {
-        toast.error(result.error);
+        setFormError(result.error);
         return;
       }
-      toast.success(result.message);
       setSeconds(RESEND_SECONDS);
     } finally {
       setResending(false);
@@ -120,13 +122,13 @@ function VerifyOtpInner() {
       subtitle={
         isReset ? (
           <>
-            We sent a code to <span className="font-medium text-foreground">{emailParam}</span>. Enter every digit
-            below (Supabase may send 6 or 8), then set a new password (or use the link in the same email).
+            We sent a code to <span className="font-medium text-foreground">{emailParam}</span>.
+            Enter every digit below, then set a new password.
           </>
         ) : (
           <>
-            We sent a sign-in code to <span className="font-medium text-foreground">{emailParam}</span>. Enter every
-            digit below — 6 or 8 digits, depending on your project — or use the link in the same email.
+            We sent a sign-in code to <span className="font-medium text-foreground">{emailParam}</span>.
+            Enter the 8-digit code below.
           </>
         )
       }
@@ -136,50 +138,62 @@ function VerifyOtpInner() {
         </Link>
       }
     >
-      <div className="space-y-5">
-        <div className="flex flex-col items-center gap-2">
-          <InputOTP
-            maxLength={OTP_MAX_LEN}
-            pattern={REGEXP_ONLY_DIGITS}
-            pasteTransformer={(pasted) => pasted.replace(/\D/g, "").slice(0, OTP_MAX_LEN)}
-            value={code}
-            onChange={setCode}
-          >
-            <InputOTPGroup>
-              {Array.from({ length: OTP_MAX_LEN }).map((_, i) => (
-                <InputOTPSlot key={i} index={i} />
-              ))}
-            </InputOTPGroup>
-          </InputOTP>
-          <p className="text-center text-xs text-muted-foreground">6 or 8 digits — use the full code from the email.</p>
-        </div>
-        <Button
-          onClick={() => void submit()}
-          className="w-full rounded-full"
-          disabled={verifying || !isValidEmailOtpToken(code)}
-        >
-          {verifying ? "Verifying…" : isReset ? "Verify & set new password" : "Verify & continue"}
-        </Button>
-        <p className="text-center text-xs text-muted-foreground">
-          {seconds > 0 ? (
-            <>
-              Resend code in{" "}
-              <span className="font-medium text-foreground">
-                {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
-              </span>
-            </>
-          ) : (
-            <button
-              type="button"
-              disabled={resending}
-              onClick={() => void resend()}
-              className="font-medium text-primary disabled:opacity-50"
+      <motion.div layout className={AUTH_CARD_PANEL_MIN_H}>
+        {resending ? (
+          <AuthMailSendingState
+            label={t("auth_mail_sending")}
+            onBack={() => setResending(false)}
+            backLabel={t("auth_back")}
+          />
+        ) : (
+          <div className="space-y-5">
+            <AuthCardBackButton
+              onClick={() => router.push(isReset ? "/forgot-password" : "/login")}
+              label={t("auth_back")}
+              className="mb-0"
+            />
+            {formError ? <AuthInlineAlert message={formError} /> : null}
+            <AuthOtpFields
+              code={code}
+              onCodeChange={(value) => {
+                setCode(value);
+                setFormError(null);
+              }}
+              onVerify={() => void submit()}
+              verifying={verifying}
+              verifyLabel={isReset ? t("auth_verify_reset") : t("auth_verify_continue")}
+              hint={t("auth_otp_hint")}
+              disabled={verifying}
+            />
+            <Button
+              onClick={() => void submit()}
+              className="w-full rounded-full"
+              disabled={verifying || !isValidEmailOtpToken(code)}
             >
-              {resending ? "Sending…" : "Resend code"}
-            </button>
-          )}
-        </p>
-      </div>
+              {verifying ? t("auth_verifying") : isReset ? t("auth_verify_reset") : t("auth_verify_continue")}
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              {seconds > 0 ? (
+                <>
+                  Resend code in{" "}
+                  <span className="font-medium text-foreground">
+                    {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+                  </span>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={resending}
+                  onClick={() => void resend()}
+                  className="font-medium text-primary disabled:opacity-50"
+                >
+                  Resend code
+                </button>
+              )}
+            </p>
+          </div>
+        )}
+      </motion.div>
     </AuthShell>
   );
 }
@@ -188,7 +202,9 @@ export default function VerifyOtpPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">Loading…</div>
+        <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
+          Loading…
+        </div>
       }
     >
       <VerifyOtpInner />

@@ -287,7 +287,7 @@ export async function requestPasswordReset(
     return {
       ok: true,
       message:
-        "If an account exists for that email, check your inbox for a password reset message. Use the one-time code if your email shows it (often 6 or 8 digits), or the reset link.",
+        "If an account exists for that email, check your inbox for a password reset message. Use the 8-digit one-time code, or the reset link in the same email.",
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not send reset email.";
@@ -304,7 +304,7 @@ export async function sendLoginEmailOtp(
   }
   return {
     ok: true,
-    message: "Check your email — use the one-time code if shown (often 6 or 8 digits), or the sign-in link in the same message.",
+    message: "Check your email — enter the 8-digit code, or use the sign-in link in the same message.",
   };
 }
 

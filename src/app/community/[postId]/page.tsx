@@ -708,7 +708,6 @@ export default function PostDetailPage() {
                 authorProfession={post.authorProfession}
                 authorVerifiedProfessional={post.authorVerifiedProfessional}
                 timeLabel={formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
-                variant="prominent"
               />
               <p className="mt-0.5 text-xs text-muted-foreground">{meta}</p>
             </div>
@@ -729,10 +728,10 @@ export default function PostDetailPage() {
                 className={cn(
                   "h-5 w-5",
                   COMMUNITY_ACTION_ICON,
-                  post.likedByMe && "fill-current",
+                  post.likedByMe && "fill-current text-primary",
                 )}
               />
-              <span>{post.likeCount}</span>
+              {post.likeCount > 0 ? <span>{post.likeCount}</span> : null}
             </button>
             <a
               href="#community-reply-composer"

@@ -1,141 +1,268 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-
+import { motion, useReducedMotion } from "framer-motion";
 import { Mail, Lock, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
+
 import { AuthShell } from "@/components/app/AuthShell";
+import {
+  AUTH_CARD_PANEL_MIN_H,
+  AuthInlineAlert,
+  AuthMailSendingState,
+  AuthMailSuccessState,
+} from "@/components/auth/auth-inline-feedback";
+import {
+  AuthOtpFields,
+  isValidEmailOtpToken,
+  normalizeEmailOtp,
+} from "@/components/auth/auth-otp-fields";
+import {
+  LoginAuthLockOverlay,
+  loginUnlockRedirectMs,
+  type LoginAuthLockPhase,
+} from "@/components/auth/login-auth-lock-overlay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuthUrlError } from "@/lib/auth/use-auth-url-error";
 import { safeInternalPath } from "@/lib/auth/safe-internal-path";
-import { loginWithPassword, sendLoginEmailOtp } from "@/lib/auth-client";
-import { toast } from "sonner";
-import { useTranslation } from "react-i18next";
+import {
+  loginWithPassword,
+  sendLoginEmailOtp,
+  verifyLoginEmailOtp,
+} from "@/lib/auth-client";
+
+type AuthUiPhase = "idle" | LoginAuthLockPhase;
+type OtpUiPhase = "hidden" | "sending" | "sent";
 
 function LoginFormInner() {
   const { t } = useTranslation("auth");
   const router = useRouter();
   const searchParams = useSearchParams();
+  const reducedMotion = useReducedMotion();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [otpSending, setOtpSending] = useState(false);
+  const [authPhase, setAuthPhase] = useState<AuthUiPhase>("idle");
+  const [otpPhase, setOtpPhase] = useState<OtpUiPhase>("hidden");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [otpError, setOtpError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const err = searchParams.get("error");
-    if (err === "auth_callback") {
-      toast.error(t("toast_auth_link_invalid"));
-    } else if (err === "missing_code") {
-      toast.error(t("toast_missing_code"));
-    }
-  }, [searchParams]);
+  const busy = authPhase !== "idle";
+  const otpBusy = otpPhase === "sending" || otpVerifying;
+
+  const clearFormError = useCallback(() => setFormError(null), []);
+
+  useAuthUrlError(
+    searchParams,
+    "/login",
+    {
+      auth_callback: t("toast_auth_link_invalid"),
+      missing_code: t("toast_missing_code"),
+    },
+    setFormError,
+  );
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) return toast.error(t("toast_enter_both"));
-    setLoading(true);
+    if (busy || otpBusy) return;
+    setFormError(null);
+    if (!email || !password) {
+      setFormError(t("auth_error_enter_both"));
+      return;
+    }
+
+    setAuthPhase("authenticating");
+    const next = safeInternalPath(searchParams.get("next"), "/app");
+
     try {
       const result = await loginWithPassword(email, password);
       if (!result.ok) {
-        toast.error(result.error);
+        setFormError(result.error);
+        setAuthPhase("idle");
         return;
       }
-      toast.success(t("toast_welcome_back"));
-      const next = safeInternalPath(searchParams.get("next"), "/app");
+      setFormError(null);
+      setAuthPhase("success");
+      await new Promise((resolve) =>
+        setTimeout(resolve, loginUnlockRedirectMs(reducedMotion)),
+      );
       router.push(next);
-    } finally {
-      setLoading(false);
+    } catch {
+      setFormError(t("auth_error_enter_both"));
+      setAuthPhase("idle");
     }
   };
 
   const sendOtp = async () => {
-    if (!email.trim()) return toast.error(t("toast_enter_email"));
-    setOtpSending(true);
+    if (busy || otpBusy) return;
+    setFormError(null);
+    setOtpError(null);
+    if (!email.trim()) {
+      setFormError(t("auth_error_enter_email"));
+      return;
+    }
+
+    setOtpPhase("sending");
     try {
       const result = await sendLoginEmailOtp(email.trim());
       if (!result.ok) {
-        toast.error(result.error);
+        setFormError(result.error);
+        setOtpPhase("hidden");
         return;
       }
-      toast.success(result.message);
-      router.push(`/verify-otp?email=${encodeURIComponent(email.trim())}`);
-    } finally {
-      setOtpSending(false);
+      setOtpPhase("sent");
+    } catch {
+      setFormError(t("auth_error_enter_email"));
+      setOtpPhase("hidden");
     }
+  };
+
+  const verifyOtp = async () => {
+    if (!isValidEmailOtpToken(otpCode)) return;
+    setOtpError(null);
+    setOtpVerifying(true);
+    const next = safeInternalPath(searchParams.get("next"), "/app");
+    try {
+      const result = await verifyLoginEmailOtp(email.trim(), normalizeEmailOtp(otpCode), {
+        flow: "sign-in",
+      });
+      if (!result.ok) {
+        setOtpError(result.error);
+        return;
+      }
+      router.push(next);
+    } catch {
+      setOtpError(t("auth_error_enter_email"));
+    } finally {
+      setOtpVerifying(false);
+    }
+  };
+
+  const resetOtpFlow = () => {
+    setOtpPhase("hidden");
+    setOtpCode("");
+    setOtpError(null);
+    setFormError(null);
   };
 
   return (
     <AuthShell
       title={t("login_title")}
-      subtitle={t("login_subtitle")}
+      subtitle={busy || otpPhase === "sent" ? undefined : t("login_subtitle")}
       footer={
-        <>
-          {t("login_footer_new")}{" "}
-          <Link href="/signup" className="font-medium text-primary">
-            {t("login_footer_create")}
-          </Link>
-        </>
+        busy || otpPhase === "sending" || otpPhase === "sent" ? null : (
+          <>
+            {t("login_footer_new")}{" "}
+            <Link href="/signup" className="font-medium text-primary">
+              {t("login_footer_create")}
+            </Link>
+          </>
+        )
       }
     >
-      <form onSubmit={submit} className="space-y-4">
-        <div>
-          <Label htmlFor="email">{t("email")}</Label>
-          <div className="relative mt-1.5">
-            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              placeholder="you@example.com"
-              className="min-w-0 pl-9"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+      <motion.div layout className={AUTH_CARD_PANEL_MIN_H}>
+        {busy ? (
+          <LoginAuthLockOverlay
+            phase={authPhase}
+            authenticatingLabel={t("login_authenticating")}
+            successLabel={t("login_unlocked")}
+          />
+        ) : otpPhase === "sending" ? (
+          <AuthMailSendingState
+            label={t("auth_mail_sending")}
+            onBack={resetOtpFlow}
+            backLabel={t("auth_back")}
+          />
+        ) : otpPhase === "sent" ? (
+          <AuthMailSuccessState
+            title={t("auth_mail_success_title")}
+            body={t("auth_mail_success_body")}
+            email={email.trim()}
+            onBack={resetOtpFlow}
+            backLabel={t("auth_back")}
+          >
+            {otpError ? <AuthInlineAlert message={otpError} className="mb-2" /> : null}
+            <AuthOtpFields
+              code={otpCode}
+              onCodeChange={(value) => {
+                setOtpCode(value);
+                setOtpError(null);
+              }}
+              onVerify={() => void verifyOtp()}
+              verifying={otpVerifying}
+              verifyLabel={t("auth_verify_continue")}
+              hint={t("auth_otp_hint")}
+              disabled={otpVerifying}
             />
-          </div>
-        </div>
-        <div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="password">{t("password")}</Label>
-            <Link href="/forgot-password" className="text-xs font-medium text-primary">
-              {t("forgot")}
-            </Link>
-          </div>
-          <div className="relative mt-1.5">
-            <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              className="min-w-0 pl-9"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-        </div>
-        <Button type="submit" disabled={loading} className="w-full rounded-full">
-          {loading ? t("signing_in") : (
-            <>
+          </AuthMailSuccessState>
+        ) : (
+          <form onSubmit={submit} className="space-y-4">
+            {formError ? <AuthInlineAlert message={formError} /> : null}
+            <motion.div>
+              <Label htmlFor="email">{t("email")}</Label>
+              <div className="relative mt-1.5">
+                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  className="min-w-0 pl-9"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    clearFormError();
+                  }}
+                />
+              </div>
+            </motion.div>
+            <div>
+              <motion.div className="flex items-center justify-between">
+                <Label htmlFor="password">{t("password")}</Label>
+                <Link href="/forgot-password" className="text-xs font-medium text-primary">
+                  {t("forgot")}
+                </Link>
+              </motion.div>
+              <div className="relative mt-1.5">
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  className="min-w-0 pl-9"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    clearFormError();
+                  }}
+                />
+              </div>
+            </div>
+            <Button type="submit" disabled={busy} className="w-full rounded-full">
               {t("log_in_button")} <ChevronRight className="ml-1 h-4 w-4" />
-            </>
-          )}
-        </Button>
-        <div className="relative my-2 text-center text-xs text-muted-foreground">
-          <span className="relative z-10 bg-card px-2">{t("or_divider")}</span>
-          <span className="absolute left-0 right-0 top-1/2 -z-0 h-px bg-border" />
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full rounded-full"
-          disabled={otpSending}
-          onClick={() => void sendOtp()}
-        >
-          {otpSending ? t("sending_code") : t("send_otp")}
-        </Button>
-      </form>
+            </Button>
+            <div className="relative my-2 text-center text-xs text-muted-foreground">
+              <span className="relative z-10 bg-card px-2">{t("or_divider")}</span>
+              <span className="absolute left-0 right-0 top-1/2 -z-0 h-px bg-border" />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full rounded-full"
+              disabled={otpBusy}
+              onClick={() => void sendOtp()}
+            >
+              {t("send_otp")}
+            </Button>
+          </form>
+        )}
+      </motion.div>
     </AuthShell>
   );
 }
@@ -143,9 +270,9 @@ function LoginFormInner() {
 function LoginFormLoadingFallback() {
   const { t } = useTranslation("auth");
   return (
-    <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
+    <motion.div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
       {t("loading")}
-    </div>
+    </motion.div>
   );
 }
 
