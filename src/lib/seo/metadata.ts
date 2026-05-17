@@ -88,13 +88,16 @@ export function createRootMetadata(): Metadata {
       },
     },
     manifest: "/manifest.json",
+    // File-based icons in src/app/ (icon.png, favicon.ico, apple-icon.png) are primary.
+    // These entries back older browsers and explicit /favicon.ico requests.
     icons: {
       icon: [
-        { url: BRAND_ASSETS.logo, sizes: "any", type: "image/png" },
+        { url: "/favicon.ico", sizes: "48x48", type: "image/x-icon" },
+        { url: "/icons/maacare-192.png", sizes: "192x192", type: "image/png" },
         { url: BRAND_ASSETS.logoMark512, sizes: "512x512", type: "image/png" },
       ],
-      apple: [{ url: BRAND_ASSETS.appleTouch, sizes: "180x180", type: "image/png" }],
-      shortcut: BRAND_ASSETS.logo,
+      apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
+      shortcut: "/favicon.ico",
     },
     appleWebApp: {
       capable: true,

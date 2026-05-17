@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import toIco from "to-ico";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -72,8 +73,23 @@ async function ogImage(source, outPath) {
   console.log(`  ✓ ${path.relative(root, outPath)} (1200×630 OG)`);
 }
 
+async function writeFaviconIco(source, outPath) {
+  const sizes = [16, 32, 48];
+  const buffers = await Promise.all(
+    sizes.map((size) =>
+      sharp(source)
+        .resize(size, size, { fit: "contain", background: TRANSPARENT })
+        .png()
+        .toBuffer(),
+    ),
+  );
+  fs.writeFileSync(outPath, await toIco(buffers));
+  console.log(`  ✓ ${path.relative(root, outPath)} (favicon.ico)`);
+}
+
 async function main() {
   fs.mkdirSync(iconsDir, { recursive: true });
+  const appDir = path.join(root, "src", "app");
   const source = resolveSource();
   console.log(`Source: ${path.relative(root, source)} (transparent, no padding)`);
 
@@ -85,7 +101,13 @@ async function main() {
   await fitIcon(source, 72, path.join(iconsDir, "notification-badge-72.png"));
   await ogImage(source, path.join(iconsDir, "og-image.png"));
 
-  console.log("\nDone. UI uses public/icons/logo.png directly.");
+  // Next.js App Router file metadata (browser tab / PWA home screen)
+  await fitIcon(source, 32, path.join(appDir, "icon.png"));
+  await fitIcon(source, 180, path.join(appDir, "apple-icon.png"));
+  await writeFaviconIco(source, path.join(appDir, "favicon.ico"));
+  await writeFaviconIco(source, path.join(root, "public", "favicon.ico"));
+
+  console.log("\nDone. Tab icon: src/app/icon.png + favicon.ico");
 }
 
 main().catch((err) => {
