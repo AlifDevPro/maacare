@@ -9,3 +9,7 @@ export const APP_SHELL_CONTENT_PADDING = "px-2 sm:px-4 lg:px-6";
 
 /** Max-width column + horizontal padding (main, fixed strips, etc.). */
 export const APP_SHELL_CONTENT_WIDTH = `${APP_SHELL_COLUMN_MAX} ${APP_SHELL_CONTENT_PADDING}`;
+
+/** Fixed composer / chat input — always above bottom nav (do not use lg:bottom-* overrides). */
+export const APP_SHELL_COMPOSER_BOTTOM =
+  "bottom-[calc(env(safe-area-inset-bottom)+5.5rem)]";

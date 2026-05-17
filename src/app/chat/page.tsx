@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
+import { APP_SHELL_COMPOSER_BOTTOM, APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -560,7 +560,8 @@ function ChatPageContent() {
       {!voiceMode ? (
         <div
           className={cn(
-            "fixed inset-x-0 z-30 border-t border-border/60 bg-background/95 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl bottom-[calc(env(safe-area-inset-bottom)+5rem)] lg:bottom-6",
+            "fixed inset-x-0 z-30 border-t border-border/60 bg-background/95 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl",
+            APP_SHELL_COMPOSER_BOTTOM,
             APP_SHELL_CONTENT_WIDTH,
           )}
         >

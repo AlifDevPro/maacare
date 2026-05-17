@@ -16,7 +16,7 @@ import { CommunityAvatar } from "@/components/community/community-avatar";
 import { dispatchDmUnreadUpdated } from "@/lib/dm/events";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useSession } from "@/lib/auth-client";
-import { APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
+import { APP_SHELL_COMPOSER_BOTTOM, APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 
@@ -221,8 +221,14 @@ export default function DmThreadClient() {
             </div>
           </div>
 
-          <div className="fixed inset-x-0 bottom-24 z-30 border-t border-border/80 bg-background/95 pt-2 pb-2 backdrop-blur-md supports-[backdrop-filter]:bg-background/85 lg:bottom-6">
-            <div className={cn("flex min-w-0 gap-2", APP_SHELL_CONTENT_WIDTH)}>
+          <div
+            className={cn(
+              "fixed inset-x-0 z-30 border-t border-border/80 bg-background/95 pt-2 pb-2 backdrop-blur-md supports-[backdrop-filter]:bg-background/85",
+              APP_SHELL_COMPOSER_BOTTOM,
+              APP_SHELL_CONTENT_WIDTH,
+            )}
+          >
+            <div className="flex min-w-0 gap-2">
               <Textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
