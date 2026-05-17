@@ -4,7 +4,7 @@ import { z } from "zod";
 import { validationJsonResponse, failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { unwrapProfileEmbed } from "@/lib/community/profile-embed";
-import { dispatchPushSoon } from "@/lib/push/dispatch-now";
+import { dispatchPushNow } from "@/lib/push/dispatch-now";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
@@ -140,7 +140,7 @@ export async function POST(
       return failJson(500, hint);
     }
 
-    dispatchPushSoon();
+    await dispatchPushNow();
 
     return Response.json({ ok: true });
   } catch (e) {

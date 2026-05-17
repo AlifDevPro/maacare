@@ -4,18 +4,16 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { formatDistanceToNow } from "date-fns";
-import { Bell, CheckCheck, Loader2 } from "lucide-react";
+import { CheckCheck, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { NotificationDTO } from "@/lib/notifications/types";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { NotificationRow } from "@/components/notifications/notification-row";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import type { NotificationsPayload } from "@/lib/app/user-lists-data";
 import { NOTIFICATIONS_UPDATED_EVENT } from "@/lib/notifications/events";
-import { cn } from "@/lib/utils";
 
 export function NotificationsPageClient({ initial }: { initial: NotificationsPayload }) {
   const router = useRouter();
@@ -82,14 +80,14 @@ export function NotificationsPageClient({ initial }: { initial: NotificationsPay
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 text-xs"
+              className="h-9 text-sm"
               disabled={marking}
               onClick={() => void markAllRead()}
             >
               {marking ? (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               ) : (
-                <CheckCheck className="mr-1 h-3.5 w-3.5" />
+                <CheckCheck className="mr-1.5 h-4 w-4" />
               )}
               Mark all read
             </Button>
@@ -97,50 +95,34 @@ export function NotificationsPageClient({ initial }: { initial: NotificationsPay
         }
       />
 
-      <div className="space-y-3 px-4 pt-4 pb-24">
-        <p className="text-sm text-muted-foreground">
-          Replies on your community posts and updates from MaaCare appear here.
-        </p>
-
+      <div className="space-y-3 px-4 pt-2 pb-24">
         {isPending ? (
-          <div className="flex justify-center py-12">
+          <div className="flex justify-center py-16">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : items.length === 0 ? (
-          <Card className="flex flex-col items-center gap-3 p-10 text-center shadow-soft">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-              <Bell className="h-6 w-6 text-muted-foreground" />
+          <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border bg-muted/30 px-6 py-16 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+              <CheckCheck className="h-7 w-7 text-muted-foreground" />
             </span>
-            <p className="text-sm font-medium">Nothing here yet</p>
-            <p className="text-xs text-muted-foreground">
-              When someone replies to your post, you&apos;ll see it here.
-            </p>
-            <Button variant="outline" size="sm" className="rounded-xl" asChild>
-              <Link href="/community">Go to community</Link>
+            <div className="space-y-1">
+              <p className="text-lg font-semibold text-foreground">All caught up</p>
+              <p className="text-sm text-muted-foreground">
+                Likes and comments on your posts will show up here.
+              </p>
+            </div>
+            <Button variant="outline" className="rounded-xl" asChild>
+              <Link href="/community">Browse community</Link>
             </Button>
-          </Card>
+          </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {items.map((n) => (
-              <button
+              <NotificationRow
                 key={n.id}
-                type="button"
-                className={cn(
-                  "w-full rounded-2xl border border-border bg-card p-4 text-left shadow-soft transition-colors hover:bg-muted/40",
-                  !n.readAt && "border-primary/25 bg-primary-soft/25",
-                )}
+                notification={n}
                 onClick={() => void openOne(n)}
-              >
-                <p className="font-display text-sm font-semibold">{n.title}</p>
-                {n.actorDisplayName && (
-                  <p className="mt-0.5 text-xs text-muted-foreground">From {n.actorDisplayName}</p>
-                )}
-                {n.body && <p className="mt-1 line-clamp-3 text-sm text-foreground/85">{n.body}</p>}
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
-                  {n.linkPath ? " · Tap to open" : ""}
-                </p>
-              </button>
+              />
             ))}
           </div>
         )}

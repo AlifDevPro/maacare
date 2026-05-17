@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
-import { dispatchPushSoon } from "@/lib/push/dispatch-now";
+import { dispatchPushNow } from "@/lib/push/dispatch-now";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
@@ -71,7 +71,7 @@ export async function POST(
       .eq("post_id", postId);
 
     if (!existing) {
-      dispatchPushSoon();
+      await dispatchPushNow();
     }
 
     return Response.json({

@@ -1,56 +1,27 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-
+import { useAuthSession } from "@/components/providers/auth-session-provider";
+import {
+  AUTH_EVENT,
+  authSessionQueryKey,
+  refreshSession,
+} from "@/lib/auth/session-query";
+import type { AuthUser } from "@/lib/auth/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { writeGuestLanguage } from "@/lib/i18n/guest-language";
 
-export type Role = "user" | "moderator" | "admin";
+export type Role = AuthUser["role"];
 
-export type AuthUser = {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  language: "en" | "bn";
-  avatarUrl?: string | null;
-  /** Present when this account has a developer_team_profiles row. */
-  isTeamDeveloper?: boolean;
-};
-
-/** Dispatched on login/logout/profile auth updates; RootProviders invalidates session query. */
-export const AUTH_EVENT = "maacare:auth";
-
-export const authSessionQueryKey = ["auth", "session"] as const;
-
-export async function refreshSession(): Promise<AuthUser | null> {
-  const res = await fetch("/api/auth/session", { credentials: "include" });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { user: AuthUser | null };
-  return data.user ?? null;
-}
-
-function authSessionQueryOptions() {
-  return {
-    queryKey: authSessionQueryKey,
-    queryFn: refreshSession,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-  };
-}
+export type { AuthUser };
+export { AUTH_EVENT, authSessionQueryKey, refreshSession };
 
 export function useUser(): AuthUser | null {
-  const { data } = useQuery(authSessionQueryOptions());
-  return data ?? null;
+  return useAuthSession().user;
 }
 
 /** Loading + user for gates (e.g. admin layout). Shared cache across navigations. */
 export function useSession() {
-  const query = useQuery(authSessionQueryOptions());
-  return {
-    user: query.data ?? null,
-    loading: query.isPending,
-  };
+  return useAuthSession();
 }
 
 function notifyAuth() {

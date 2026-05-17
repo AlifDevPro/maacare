@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { PushPermissionPrompt } from "@/components/app/push-permission-prompt";
 import { useSession } from "@/lib/auth-client";
 import {
   fetchPushConfig,
@@ -20,7 +21,7 @@ export function WebPushManager() {
   const syncPush = useCallback(async () => {
     if (!user || !(await isPushSupported())) return;
     const config = await fetchPushConfig();
-    if (!config.configured) return;
+    if (!config.clientReady) return;
 
     const existing = await getStoredFcmToken();
     if (existing) return;
@@ -53,13 +54,16 @@ export function WebPushManager() {
     });
   }, [user]);
 
-  return null;
+  if (loading || !user) return null;
+
+  return <PushPermissionPrompt />;
 }
 
 export function useWebPushControls() {
   const [supported, setSupported] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
-  const [configured, setConfigured] = useState(false);
+  const [clientReady, setClientReady] = useState(false);
+  const [serverReady, setServerReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("default");
 
@@ -72,7 +76,8 @@ export function useWebPushControls() {
     }
     setPermission(Notification.permission);
     const config = await fetchPushConfig();
-    setConfigured(config.configured);
+    setClientReady(config.clientReady);
+    setServerReady(config.configured);
     const token = await getStoredFcmToken();
     setSubscribed(Boolean(token));
   }, []);
@@ -84,9 +89,10 @@ export function useWebPushControls() {
   const enable = useCallback(async () => {
     setBusy(true);
     try {
-      const token = await subscribeToPush();
-      setSubscribed(Boolean(token));
+      const result = await subscribeToPush();
+      setSubscribed(result.ok);
       setPermission(Notification.permission);
+      return result;
     } finally {
       setBusy(false);
     }
@@ -104,7 +110,10 @@ export function useWebPushControls() {
 
   return {
     supported,
-    configured,
+    clientReady,
+    serverReady,
+    /** @deprecated use clientReady */
+    configured: clientReady,
     subscribed,
     busy,
     permission,

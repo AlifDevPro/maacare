@@ -56,10 +56,11 @@ export function WebPushPreferences({
     );
   }
 
-  if (!push.configured) {
+  if (!push.clientReady) {
     return (
       <p className="px-4 py-2 text-xs text-muted-foreground">
-        Firebase Cloud Messaging is not configured on this server yet.
+        Push notifications are not configured yet. Add Firebase web keys (API key, project ID, VAPID) to
+        the server environment, then reload.
       </p>
     );
   }
@@ -68,6 +69,12 @@ export function WebPushPreferences({
 
   return (
     <>
+      {!push.serverReady ? (
+        <p className="border-b border-border/60 px-4 py-2 text-xs text-amber-700 dark:text-amber-400">
+          Device can be registered, but the server cannot send pushes until{" "}
+          <code className="text-[0.7rem]">FIREBASE_SERVICE_ACCOUNT_JSON</code> is set.
+        </p>
+      ) : null}
       <div className="flex items-start gap-3 border-b border-border/60 px-4 py-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
           {push.busy ? (
@@ -91,10 +98,16 @@ export function WebPushPreferences({
           disabled={push.busy || push.permission === "denied"}
           onCheckedChange={async (on) => {
             if (on) {
-              await push.enable();
-              if (Notification.permission === "granted") {
+              const result = await push.enable();
+              if (result?.ok) {
                 await onPushEnabledChange(true);
                 toast.success("Notifications enabled");
+              } else if (result && !result.ok) {
+                toast.error(
+                  result.reason === "denied"
+                    ? "Allow notifications in your browser to continue"
+                    : "Could not enable notifications on this device",
+                );
               } else {
                 toast.error("Allow notifications in your browser to continue");
               }

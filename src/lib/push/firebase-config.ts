@@ -1,3 +1,5 @@
+import { hasFirebaseServiceAccountEnv } from "@/lib/push/firebase-service-account";
+
 /** Public Firebase config (safe for client + service worker). */
 
 export type FirebasePublicConfig = {
@@ -38,6 +40,12 @@ export function getFirebaseWebVapidKey(): string | null {
   return process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY?.trim() ?? null;
 }
 
+/** Browser can register for FCM (public keys + VAPID). */
+export function isFcmClientConfigured(): boolean {
+  return Boolean(getFirebasePublicConfig() && getFirebaseWebVapidKey());
+}
+
+/** Server can send pushes (service account). */
 export function isFcmConfigured(): boolean {
-  return Boolean(getFirebasePublicConfig() && process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim());
+  return Boolean(isFcmClientConfigured() && hasFirebaseServiceAccountEnv());
 }

@@ -1,39 +1,18 @@
 "use client";
 
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
-import { AUTH_EVENT, authSessionQueryKey } from "@/lib/auth-client";
+import { getQueryClient } from "@/lib/get-query-client";
 import { applyTheme, getTheme } from "@/lib/theme";
 
+import { AuthSessionProvider } from "./auth-session-provider";
 import { I18nProvider } from "./i18n-provider";
 
-function AuthSessionInvalidator() {
-  const queryClient = useQueryClient();
-  useEffect(() => {
-    const onAuth = () => {
-      void queryClient.invalidateQueries({ queryKey: authSessionQueryKey });
-    };
-    window.addEventListener(AUTH_EVENT, onAuth);
-    return () => window.removeEventListener(AUTH_EVENT, onAuth);
-  }, [queryClient]);
-  return null;
-}
-
-/** Matches TanStack root: react-query plus initial theme hydration from localStorage. */
+/** Root providers: React Query + session + i18n + theme. */
 export function RootProviders({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 60_000,
-            refetchOnWindowFocus: false,
-          },
-        },
-      }),
-  );
+  const queryClient = getQueryClient();
 
   useEffect(() => {
     applyTheme(getTheme());
@@ -41,9 +20,10 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthSessionInvalidator />
-      <I18nProvider>{children}</I18nProvider>
-      <Toaster position="top-center" />
+      <AuthSessionProvider>
+        <I18nProvider>{children}</I18nProvider>
+        <Toaster position="top-center" />
+      </AuthSessionProvider>
     </QueryClientProvider>
   );
 }

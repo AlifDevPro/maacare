@@ -6,6 +6,7 @@ import { AppShellColumn, AppShellColumnProvider } from "./app-shell-column";
 import { BottomNav } from "./BottomNav";
 import { ProfileMenuProvider } from "./profile-menu-state";
 import { ShellPrefetch } from "./shell-prefetch";
+import { PwaManager } from "./pwa-manager";
 import { WebPushManager } from "./web-push-manager";
 import { APP_SHELL_CONTENT_PADDING } from "@/lib/app-shell-layout";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ export function AppShell({ children, hideNav, className }: AppShellProps) {
         <div className="relative z-10 min-h-screen bg-background">
           <AppShellColumn>
             <WebPushManager />
+            <PwaManager />
             <main
               className={cn(
                 APP_SHELL_CONTENT_PADDING,

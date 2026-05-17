@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { removeFcmSubscription } from "@/lib/push/save-subscription";
 
 const bodySchema = z.object({
   token: z.string().min(1).max(4096),
@@ -23,15 +23,10 @@ export async function POST(req: Request) {
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) return validationJsonResponse(parsed.error);
 
-    const supabase = await createSupabaseServerClient();
-    const { error } = await supabase
-      .from("push_subscriptions")
-      .delete()
-      .eq("user_id", session.id)
-      .eq("fcm_token", parsed.data.token);
+    const result = await removeFcmSubscription(session.id, parsed.data.token);
 
-    if (error) {
-      console.error("[push/unsubscribe]", error);
+    if (!result.ok) {
+      console.error("[push/unsubscribe]", result.code, result.message);
       return failJson(500, "Could not remove device token.");
     }
 

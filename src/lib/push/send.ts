@@ -1,5 +1,11 @@
 import { getFcmMessaging } from "@/lib/push/firebase-admin";
 import { isFcmConfigured } from "@/lib/push/firebase-config";
+import {
+  absoluteAssetUrl,
+  getPushNotificationBadgeUrl,
+  getPushNotificationIconUrl,
+  getPushNotificationImageUrl,
+} from "@/lib/push/notification-assets";
 import { tryCreateSupabaseServiceClient } from "@/lib/supabase/service";
 
 import type { PushChannel, WebPushPayload } from "./types";
@@ -39,9 +45,7 @@ function channelAllowed(prefs: ProfilePushPrefs, channel: PushChannel): boolean 
 function absoluteUrl(path: string | null | undefined): string | null {
   if (!path) return null;
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  const base = process.env.NEXT_PUBLIC_SITE_URL?.trim()?.replace(/\/$/, "");
-  if (!base) return path;
-  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  return absoluteAssetUrl(path);
 }
 
 const STALE_FCM_CODES = new Set([
@@ -86,49 +90,70 @@ export async function sendPushToUser(
   }
 
   const url = absoluteUrl(payload.url);
+  const icon = getPushNotificationIconUrl();
+  const badge = getPushNotificationBadgeUrl();
+  const image = getPushNotificationImageUrl();
   const messaging = getFcmMessaging();
 
   let sent = 0;
   let failed = 0;
   const staleIds: string[] = [];
 
+  const bodyText = payload.body ?? "";
+
   const response = await messaging.sendEachForMulticast({
     tokens,
     notification: {
       title: payload.title,
-      body: payload.body ?? undefined,
+      body: bodyText || undefined,
     },
     data: {
       channel,
       url: url ?? "",
       tag: payload.tag ?? "",
       title: payload.title,
-      body: payload.body ?? "",
+      body: bodyText,
+      icon,
     },
-    webpush: url
-      ? {
-          fcmOptions: { link: url },
-          notification: {
-            icon: "/window.svg",
-            tag: payload.tag ?? undefined,
+    webpush: {
+      headers: {
+        Urgency: "high",
+        TTL: "86400",
+      },
+      notification: {
+        title: payload.title,
+        body: bodyText,
+        icon,
+        badge,
+      },
+      fcmOptions: {
+        link: url ?? absoluteAssetUrl("/app"),
+      },
+    },
+    apns: {
+      headers: {
+        "apns-priority": "10",
+        "apns-push-type": "alert",
+      },
+      payload: {
+        aps: {
+          alert: {
+            title: payload.title,
+            body: bodyText,
           },
-        }
-      : undefined,
+          sound: "default",
+          badge: 1,
+          "mutable-content": 1,
+        },
+      },
+    },
     android: {
       priority: "high",
       notification: {
         channelId: channel === "dm" ? "messages" : "updates",
         tag: payload.tag ?? undefined,
         clickAction: url ?? undefined,
-      },
-    },
-    apns: {
-      payload: {
-        aps: {
-          sound: "default",
-          badge: 1,
-          threadId: payload.tag ?? undefined,
-        },
+        imageUrl: image,
       },
     },
   });

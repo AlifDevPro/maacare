@@ -2,8 +2,8 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
-import { isFcmConfigured } from "@/lib/push/firebase-config";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isFcmClientConfigured } from "@/lib/push/firebase-config";
+import { saveFcmSubscription } from "@/lib/push/save-subscription";
 
 const bodySchema = z.object({
   token: z.string().min(1).max(4096),
@@ -12,8 +12,11 @@ const bodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    if (!isFcmConfigured()) {
-      return failJson(503, "Push notifications are not configured on this server.");
+    if (!isFcmClientConfigured()) {
+      return failJson(
+        503,
+        "Push notifications are not configured. Add Firebase keys to the server environment.",
+      );
     }
 
     const session = await getSessionFromCookies();
@@ -29,23 +32,22 @@ export async function POST(req: Request) {
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) return validationJsonResponse(parsed.error);
 
-    const supabase = await createSupabaseServerClient();
     const ua = req.headers.get("user-agent")?.slice(0, 512) ?? null;
 
-    const { error } = await supabase.from("push_subscriptions").upsert(
-      {
-        user_id: session.id,
-        fcm_token: parsed.data.token,
-        platform: parsed.data.platform,
-        user_agent: ua,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "fcm_token" },
-    );
+    const result = await saveFcmSubscription({
+      userId: session.id,
+      token: parsed.data.token,
+      platform: parsed.data.platform,
+      userAgent: ua,
+    });
 
-    if (error) {
-      console.error("[push/subscribe]", error);
-      return failJson(500, "Could not save device token.");
+    if (!result.ok) {
+      console.error("[push/subscribe]", result.code, result.message, result.hint);
+      const dev = process.env.NODE_ENV === "development";
+      const message = dev
+        ? [result.message, result.hint].filter(Boolean).join(" — ")
+        : "Could not save device token.";
+      return failJson(500, message, dev ? { code: result.code } : undefined);
     }
 
     return Response.json({ ok: true });

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
+  ArrowLeft,
   User,
   Settings,
   HelpCircle,
@@ -172,11 +173,26 @@ function ProfileMenuPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b border-border/60 px-4 py-4">
-        <ProfileMenuAvatar initials={initials} avatarUrl={user.avatarUrl} sizeClass="h-12 w-12" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-base font-semibold">{user.name}</p>
-          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+      <div className="border-b border-border/60 px-3 pb-3 pt-3">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="group h-9 w-9 shrink-0"
+            aria-label={t("back_aria")}
+            onClick={onClose}
+          >
+            <ArrowLeft className="h-5 w-5 transition-transform duration-150 ease-out group-active:scale-110 motion-reduce:group-active:scale-100" />
+          </Button>
+          <p className="font-display text-xl font-semibold tracking-tight">{t("account_menu_aria")}</p>
+        </div>
+        <div className="flex items-center gap-3 px-1">
+          <ProfileMenuAvatar initials={initials} avatarUrl={user.avatarUrl} sizeClass="h-12 w-12" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-semibold">{user.name}</p>
+            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+          </div>
         </div>
       </div>
 
@@ -292,10 +308,8 @@ export function ProfileMenu() {
       />
       <Sheet open={open} onOpenChange={setOpen}>
         <AppShellInsetSheetContent
-          className={cn(
-            "z-[60] h-full w-full max-w-full p-0",
-            "[&>button]:right-4 [&>button]:top-4",
-          )}
+          showCloseButton={false}
+          className="z-[60] flex h-full w-full max-w-full flex-col gap-0 p-0"
         >
           <SheetTitle className="sr-only">{t("account_menu_aria")}</SheetTitle>
           <ProfileMenuPanel user={user} initials={initials} onClose={() => setOpen(false)} />

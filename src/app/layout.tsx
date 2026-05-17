@@ -17,6 +17,10 @@ export const metadata: Metadata = {
     "Personalized pregnancy guidance, symptom checks, and 24/7 AI support for expecting and new mothers.",
   authors: [{ name: "MaaCare" }],
   manifest: "/manifest.json",
+  icons: {
+    icon: [{ url: "/icons/maacare-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

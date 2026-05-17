@@ -7,7 +7,10 @@ import { X } from "lucide-react";
 import { useAppShellColumnRect } from "@/components/app/app-shell-column";
 import { cn } from "@/lib/utils";
 
-type AppShellInsetSheetContentProps = React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>;
+type AppShellInsetSheetContentProps = React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> & {
+  /** Default true — set false when the sheet provides its own back control. */
+  showCloseButton?: boolean;
+};
 
 /** Clip overlay/panel to the column band visible in the viewport. */
 function columnBoundsStyle(rect: DOMRect): React.CSSProperties {
@@ -24,7 +27,7 @@ function columnBoundsStyle(rect: DOMRect): React.CSSProperties {
 export const AppShellInsetSheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   AppShellInsetSheetContentProps
->(({ className, children, ...props }, ref) => {
+>(({ className, children, showCloseButton = true, ...props }, ref) => {
   const columnRect = useAppShellColumnRect();
   const inset = columnRect != null;
 
@@ -44,10 +47,12 @@ export const AppShellInsetSheetContent = React.forwardRef<
           )}
           {...props}
         >
-          <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </SheetPrimitive.Close>
+          {showCloseButton ? (
+            <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </SheetPrimitive.Close>
+          ) : null}
           {children}
         </SheetPrimitive.Content>
       </div>

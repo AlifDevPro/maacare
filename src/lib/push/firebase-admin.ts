@@ -1,19 +1,9 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getMessaging, type Messaging } from "firebase-admin/messaging";
 
-let adminApp: App | null = null;
+import { loadFirebaseServiceAccount } from "@/lib/push/firebase-service-account";
 
-function parseServiceAccount(): Record<string, string> {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
-  if (!raw) {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not set");
-  }
-  try {
-    return JSON.parse(raw) as Record<string, string>;
-  } catch {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is invalid JSON");
-  }
-}
+let adminApp: App | null = null;
 
 export function getFirebaseAdminApp(): App {
   if (adminApp) return adminApp;
@@ -22,9 +12,18 @@ export function getFirebaseAdminApp(): App {
     adminApp = existing[0]!;
     return adminApp;
   }
-  adminApp = initializeApp({
-    credential: cert(parseServiceAccount()),
-  });
+
+  try {
+    adminApp = initializeApp({
+      credential: cert(loadFirebaseServiceAccount()),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `Firebase Admin init failed: ${msg}. Tip: save the downloaded JSON as firebase-service-account.json and set FIREBASE_SERVICE_ACCOUNT_PATH=firebase-service-account.json (add that file to .gitignore).`,
+    );
+  }
+
   return adminApp;
 }
 

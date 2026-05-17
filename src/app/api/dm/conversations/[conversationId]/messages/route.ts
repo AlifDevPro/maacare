@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
-import { dispatchPushSoon } from "@/lib/push/dispatch-now";
+import { dispatchPushNow } from "@/lib/push/dispatch-now";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
@@ -101,7 +101,7 @@ export async function POST(
       return failJson(500, "Could not send message.");
     }
 
-    dispatchPushSoon();
+    await dispatchPushNow();
 
     return Response.json({ posted: inserted });
   } catch (e) {

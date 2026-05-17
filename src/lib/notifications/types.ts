@@ -8,4 +8,5 @@ export type NotificationDTO = {
   createdAt: string;
   actorId: string | null;
   actorDisplayName: string | null;
+  actorAvatarUrl: string | null;
 };

@@ -1,3 +1,15 @@
+/** Session / client auth user (same shape as API `/api/auth/session`). */
+export type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: "user" | "moderator" | "admin";
+  language: "en" | "bn";
+  avatarUrl?: string | null;
+  isTeamDeveloper?: boolean;
+};
+
+/** @deprecated Use AuthUser */
 export type PublicUser = {
   id: string;
   name: string;

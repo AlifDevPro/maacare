@@ -145,11 +145,17 @@ export async function loadNotificationsPayload(
   const actorIds = [...new Set(list.map((r) => r.actor_id).filter(Boolean))] as string[];
 
   const actorNames: Record<string, string> = {};
+  const actorAvatars: Record<string, string | null> = {};
   if (actorIds.length > 0) {
-    const { data: profs } = await supabase.from("profiles").select("id, display_name").in("id", actorIds);
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("id, display_name, avatar_url")
+      .in("id", actorIds);
 
     for (const p of profs ?? []) {
-      actorNames[p.id as string] = p.display_name as string;
+      const id = p.id as string;
+      actorNames[id] = p.display_name as string;
+      actorAvatars[id] = (p.avatar_url as string | null) ?? null;
     }
   }
 
@@ -163,6 +169,7 @@ export async function loadNotificationsPayload(
     createdAt: r.created_at as string,
     actorId: (r.actor_id as string | null) ?? null,
     actorDisplayName: r.actor_id ? actorNames[r.actor_id as string] ?? null : null,
+    actorAvatarUrl: r.actor_id ? actorAvatars[r.actor_id as string] ?? null : null,
   }));
 
   return {
