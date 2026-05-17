@@ -13,8 +13,8 @@
   "categories": ["health", "medical", "lifestyle"],
   "icons": [
     {
-      "src": "/icons/maacare-192.png",
-      "sizes": "192x192",
+      "src": "/icons/logo.png",
+      "sizes": "261x266",
       "type": "image/png",
       "purpose": "any"
     },

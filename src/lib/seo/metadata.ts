@@ -90,11 +90,11 @@ export function createRootMetadata(): Metadata {
     manifest: "/manifest.json",
     icons: {
       icon: [
-        { url: BRAND_ASSETS.logoMark, sizes: "192x192", type: "image/png" },
+        { url: BRAND_ASSETS.logo, sizes: "any", type: "image/png" },
         { url: BRAND_ASSETS.logoMark512, sizes: "512x512", type: "image/png" },
       ],
       apple: [{ url: BRAND_ASSETS.appleTouch, sizes: "180x180", type: "image/png" }],
-      shortcut: BRAND_ASSETS.logoMark,
+      shortcut: BRAND_ASSETS.logo,
     },
     appleWebApp: {
       capable: true,

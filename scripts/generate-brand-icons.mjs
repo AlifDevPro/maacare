@@ -1,6 +1,6 @@
 /**
- * Generates square PWA, OG, and push notification icons from the source mark.
- * Run: node scripts/generate-brand-icons.mjs
+ * Generates PWA, OG, and push assets from public/icons/logo.png — no background or padding.
+ * Run: npm run generate-brand-icons
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -12,53 +12,36 @@ const root = path.join(__dirname, "..");
 const iconsDir = path.join(root, "public", "icons");
 
 const SOURCE_CANDIDATES = [
+  path.join(iconsDir, "logo.png"),
+  path.join(root, "public", "logo.png"),
   path.join(iconsDir, "maacare-source.png"),
-  path.join(iconsDir, "maacare-192.png"),
   path.join(root, "public", "maacare-logo.png"),
 ];
 
-const BG = { r: 253, g: 246, b: 243, alpha: 1 };
-const BRAND = "#c45c6a";
+const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
 
 function resolveSource() {
   for (const p of SOURCE_CANDIDATES) {
     if (fs.existsSync(p)) return p;
   }
-  throw new Error(`No source logo found. Add maacare-source.png or maacare-192.png under public/icons/`);
+  throw new Error(`No source logo found. Add public/icons/logo.png (or public/logo.png).`);
 }
 
-async function squareIcon(source, size, outPath, { padding = 0.14, background = BG } = {}) {
-  const inner = Math.round(size * (1 - padding * 2));
-  const mark = await sharp(source).resize(inner, inner, { fit: "contain", background }).png().toBuffer();
-
-  await sharp({
-    create: { width: size, height: size, channels: 4, background },
-  })
-    .composite([{ input: mark, gravity: "center" }])
+/** Fit logo inside size×size canvas — transparent, no extra padding or fill color. */
+async function fitIcon(source, size, outPath) {
+  await sharp(source)
+    .resize(size, size, { fit: "contain", background: TRANSPARENT })
     .png({ compressionLevel: 9, adaptiveFiltering: true })
     .toFile(outPath);
-
   console.log(`  ✓ ${path.relative(root, outPath)} (${size}×${size})`);
-}
-
-async function maskableIcon(source, size, outPath) {
-  await squareIcon(source, size, outPath, { padding: 0.22 });
-}
-
-async function notificationBadge(notificationIconPath, size, outPath) {
-  await sharp(notificationIconPath)
-    .resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .png()
-    .toFile(outPath);
-  console.log(`  ✓ ${path.relative(root, outPath)} (badge ${size}×${size})`);
 }
 
 async function ogImage(source, outPath) {
   const w = 1200;
   const h = 630;
-  const markSize = 220;
+  const markSize = 280;
   const mark = await sharp(source)
-    .resize(markSize, markSize, { fit: "contain", background: BG })
+    .resize(markSize, markSize, { fit: "contain", background: TRANSPARENT })
     .png()
     .toBuffer();
 
@@ -72,20 +55,16 @@ async function ogImage(source, outPath) {
       <text x="0" y="42" font-family="system-ui,Segoe UI,sans-serif" font-size="32" fill="#6b5d62">AI Maternal Health Companion</text>
     </svg>`);
 
+  const markLeft = 80;
+  const markTop = Math.round((h - markSize) / 2) - 20;
+
   await sharp({
-    create: { width: w, height: h, channels: 4, background: BG },
+    create: { width: w, height: h, channels: 4, background: TRANSPARENT },
   })
     .composite([
-      { input: mark, top: Math.round((h - markSize) / 2) - 20, left: 80 },
-      { input: titleSvg, top: Math.round((h - markSize) / 2) - 10, left: 80 + markSize + 40 },
-      { input: subtitleSvg, top: Math.round((h - markSize) / 2) + 70, left: 80 + markSize + 40 },
-      {
-        input: Buffer.from(
-          `<svg width="${w}" height="8" xmlns="http://www.w3.org/2000/svg"><rect width="${w}" height="8" fill="${BRAND}"/></svg>`,
-        ),
-        top: h - 8,
-        left: 0,
-      },
+      { input: mark, top: markTop, left: markLeft },
+      { input: titleSvg, top: markTop + 10, left: markLeft + markSize + 40 },
+      { input: subtitleSvg, top: markTop + 90, left: markLeft + markSize + 40 },
     ])
     .png()
     .toFile(outPath);
@@ -96,18 +75,17 @@ async function ogImage(source, outPath) {
 async function main() {
   fs.mkdirSync(iconsDir, { recursive: true });
   const source = resolveSource();
-  console.log(`Source: ${path.relative(root, source)}`);
+  console.log(`Source: ${path.relative(root, source)} (transparent, no padding)`);
 
-  await squareIcon(source, 192, path.join(iconsDir, "maacare-192.png"));
-  await squareIcon(source, 512, path.join(iconsDir, "maacare-512.png"));
-  await squareIcon(source, 180, path.join(iconsDir, "apple-touch-icon.png"));
-  await maskableIcon(source, 512, path.join(iconsDir, "maacare-maskable-512.png"));
-  const notificationIcon = path.join(iconsDir, "notification-icon-192.png");
-  await squareIcon(source, 192, notificationIcon, { padding: 0.18 });
-  await notificationBadge(notificationIcon, 72, path.join(iconsDir, "notification-badge-72.png"));
+  await fitIcon(source, 192, path.join(iconsDir, "maacare-192.png"));
+  await fitIcon(source, 512, path.join(iconsDir, "maacare-512.png"));
+  await fitIcon(source, 180, path.join(iconsDir, "apple-touch-icon.png"));
+  await fitIcon(source, 512, path.join(iconsDir, "maacare-maskable-512.png"));
+  await fitIcon(source, 192, path.join(iconsDir, "notification-icon-192.png"));
+  await fitIcon(source, 72, path.join(iconsDir, "notification-badge-72.png"));
   await ogImage(source, path.join(iconsDir, "og-image.png"));
 
-  console.log("\nDone. Commit public/icons/*.png");
+  console.log("\nDone. UI uses public/icons/logo.png directly.");
 }
 
 main().catch((err) => {

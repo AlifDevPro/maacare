@@ -30,6 +30,6 @@ export function getPushNotificationImageUrl(): string {
 export const PUSH_ICON_PATHS = {
   notificationIcon: BRAND_ASSETS.notificationIcon,
   notificationBadge: BRAND_ASSETS.notificationBadge,
-  icon192: BRAND_ASSETS.logoMark,
+  icon192: BRAND_ASSETS.logo,
   icon512: BRAND_ASSETS.logoMark512,
 } as const;

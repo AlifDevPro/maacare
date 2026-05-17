@@ -20,13 +20,16 @@ export const SITE_KEYWORDS = [
 
 export const TWITTER_HANDLE = "@MaaCare";
 
-/** Brand assets under /public/icons (see scripts/generate-brand-icons.mjs). */
+/** Primary logo — your PNG at public/icons/logo.png (no generated background). */
+export const BRAND_LOGO_PATH = "/icons/logo.png";
+
 export const BRAND_ASSETS = {
-  logoMark: "/icons/maacare-192.png",
+  logo: BRAND_LOGO_PATH,
+  logoMark: BRAND_LOGO_PATH,
   logoMark512: "/icons/maacare-512.png",
   appleTouch: "/icons/apple-touch-icon.png",
-  notificationIcon: "/icons/notification-icon-192.png",
-  notificationBadge: "/icons/notification-badge-72.png",
+  notificationIcon: BRAND_LOGO_PATH,
+  notificationBadge: BRAND_LOGO_PATH,
   ogImage: "/icons/og-image.png",
 } as const;
 

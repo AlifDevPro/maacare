@@ -35,12 +35,12 @@ export function MaaCareLogo({
   const content = (
     <span className={cn("inline-flex min-w-0 items-center gap-2.5", className)}>
       <Image
-        src={BRAND_ASSETS.logoMark}
+        src={BRAND_ASSETS.logo}
         alt=""
         width={preset.px}
         height={preset.px}
         priority={priority}
-        className={cn("shrink-0 rounded-2xl object-contain shadow-soft", preset.mark)}
+        className={cn("shrink-0 object-contain", preset.mark)}
       />
       {showWordmark ? (
         <span
@@ -77,4 +77,23 @@ export function MaaCareLogo({
   }
 
   return content;
+}
+
+/** Logo mark only — for avatars, chat bubbles, compact UI. */
+export function MaaCareLogoMark({
+  size = 32,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
+  return (
+    <Image
+      src={BRAND_ASSETS.logo}
+      alt=""
+      width={size}
+      height={size}
+      className={cn("shrink-0 object-contain", className)}
+    />
+  );
 }

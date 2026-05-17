@@ -7,6 +7,7 @@ import { Suspense } from "react";
 import { motion } from "framer-motion";
 import { Bot, Loader2, MapPinned, Send, Sparkles, Shield, PhoneCall } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { MaaCareLogoMark } from "@/components/brand/maacare-logo";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
@@ -469,9 +470,7 @@ function ChatPageContent() {
             )}
           >
             {m.role === "assistant" ? (
-              <span className="mt-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-rose text-sm shadow-soft">
-                🤍
-              </span>
+              <MaaCareLogoMark size={32} className="mt-1.5 h-8 w-8" />
             ) : null}
             <div
               className={cn(
@@ -494,9 +493,7 @@ function ChatPageContent() {
             animate={{ opacity: 1, y: 0 }}
             className="flex w-full min-w-0 items-start justify-start gap-2.5"
           >
-            <span className="mt-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-rose text-sm shadow-soft">
-              🤍
-            </span>
+            <MaaCareLogoMark size={32} className="mt-1.5 h-8 w-8" />
             <div className="min-w-0 flex-1 rounded-2xl rounded-bl-md rounded-tr-xl border border-border/60 bg-card px-4 py-3.5 text-sm shadow-card">
               <span className="inline-flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
