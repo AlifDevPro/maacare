@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
-
 import type { ReactNode } from "react";
 
+import { MaaCareLogo } from "@/components/brand/maacare-logo";
 import { GlobalLanguageSwitcher } from "@/components/app/global-language-switcher";
 import { Card } from "@/components/ui/card";
 import { FORM_FOCUS_SAFE } from "@/lib/form-control-focus";
@@ -30,12 +29,7 @@ export function AuthShell({
   return (
     <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden bg-gradient-hero">
       <header className="flex min-w-0 items-center justify-between gap-2 px-4 py-5">
-        <Link href="/" className="inline-flex min-w-0 items-center gap-2">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-gradient-rose shadow-soft">
-            🤍
-          </span>
-          <span className="font-display text-lg font-semibold tracking-tight">MaaCare</span>
-        </Link>
+        <MaaCareLogo href="/" size="lg" className="min-w-0" />
         <GlobalLanguageSwitcher align="end" />
       </header>
       <main className="flex w-full min-w-0 max-w-full flex-1 items-center justify-center px-3 py-6 sm:px-4 sm:py-8">

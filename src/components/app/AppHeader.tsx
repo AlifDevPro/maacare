@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { ArrowLeft, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MaaCareLogo } from "@/components/brand/maacare-logo";
 import { MessageBell } from "./MessageBell";
 import { NotificationBell } from "./NotificationBell";
 import { ProfileMenu } from "./ProfileMenu";
@@ -72,12 +73,7 @@ export function AppHeader({
           </Button>
         )}
         {brand ? (
-          <Link href="/app" className="flex items-center gap-2 px-1">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-rose text-base shadow-soft">
-              🤍
-            </span>
-            <span className="font-display text-lg font-semibold tracking-tight">MaaCare</span>
-          </Link>
+          <MaaCareLogo href="/app" size="md" className="px-1" />
         ) : (
           <h1 className="truncate font-display text-base font-semibold">{title}</h1>
         )}

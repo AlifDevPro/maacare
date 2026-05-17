@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 
 import Link from "next/link";
+import { MaaCareLogo } from "@/components/brand/maacare-logo";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import {
@@ -58,7 +59,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <div className="mx-auto flex min-h-screen max-w-[1400px]">
         <aside className="hidden w-64 shrink-0 flex-col border-r border-border/60 bg-sidebar p-4 md:flex">
           <Link href="/" className="mb-6 flex items-center gap-2 px-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-rose">🤍</span>
+            <MaaCareLogo size="md" showWordmark={false} />
             <div>
               <p className="font-display text-base font-semibold leading-none">MaaCare</p>
               <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Admin</p>
@@ -106,9 +107,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <div className="flex-1 overflow-x-hidden">
           <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border/60 bg-background/85 px-5 backdrop-blur-xl md:hidden">
             <Link href="/admin" className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-rose text-sm">
-                🤍
-              </span>
+              <MaaCareLogo size="md" showWordmark={false} />
               <span className="font-display font-semibold">Admin</span>
             </Link>
             <Sheet>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { MaaCareLogo } from "@/components/brand/maacare-logo";
 import { DocsMobileNav, DocsSidebar } from "@/components/docs/docs-nav";
 
 export function DocsChrome({ children }: { children: React.ReactNode }) {
@@ -14,8 +15,11 @@ export function DocsChrome({ children }: { children: React.ReactNode }) {
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 items-center gap-3">
             <DocsMobileNav pathname={pathname} />
-            <Link href="/docs" className="truncate font-display text-lg font-semibold tracking-tight text-foreground">
-              MaaCare <span className="text-muted-foreground">Docs</span>
+            <Link href="/docs" className="flex min-w-0 items-center gap-2 truncate">
+              <MaaCareLogo size="md" showWordmark={false} />
+              <span className="truncate font-display text-lg font-semibold tracking-tight text-foreground">
+                MaaCare <span className="text-muted-foreground">Docs</span>
+              </span>
             </Link>
           </div>
           <div className="flex shrink-0 items-center gap-2">

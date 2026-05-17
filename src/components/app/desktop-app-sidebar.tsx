@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
+import { MaaCareLogo } from "@/components/brand/maacare-logo";
 import { APP_PRIMARY_NAV_ITEMS, isAppPrimaryNavActive } from "@/lib/app-nav-items";
 import { cn } from "@/lib/utils";
 
@@ -16,15 +17,11 @@ export function DesktopAppSidebar() {
       aria-label={t("primary_nav")}
       className="sticky top-0 hidden h-[100dvh] w-56 shrink-0 flex-col border-r border-border/60 bg-background/95 px-3 py-6 backdrop-blur-xl lg:flex xl:w-64"
     >
-      <Link
+      <MaaCareLogo
         href="/app"
-        className="mb-8 flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm font-semibold tracking-tight text-foreground transition-colors hover:bg-muted/80"
-      >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-rose text-base shadow-soft">
-          🤍
-        </span>
-        <span className="font-display">MaaCare</span>
-      </Link>
+        size="lg"
+        className="mb-8 rounded-xl px-2 py-1.5 transition-colors hover:bg-muted/80"
+      />
       <nav className="flex flex-1 flex-col gap-1">
         {APP_PRIMARY_NAV_ITEMS.map(({ to, labelKey, icon: Icon }) => {
           const active = isAppPrimaryNavActive(pathname, to);

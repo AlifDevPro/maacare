@@ -2,6 +2,7 @@ import { getFirebasePublicConfig } from "@/lib/push/firebase-config";
 import {
   absoluteAssetUrl,
   getPushNotificationIconUrl,
+  PUSH_ICON_PATHS,
 } from "@/lib/push/notification-assets";
 
 const PWA_LIFECYCLE = `
@@ -19,7 +20,7 @@ self.addEventListener("activate", function (event) {
 export async function GET() {
   const config = getFirebasePublicConfig();
   const iconUrl = getPushNotificationIconUrl();
-  const badgeUrl = absoluteAssetUrl("/icons/maacare-192.png");
+  const badgeUrl = absoluteAssetUrl(PUSH_ICON_PATHS.notificationBadge);
   const defaultUrl = absoluteAssetUrl("/app");
 
   if (!config) {

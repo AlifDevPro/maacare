@@ -2,7 +2,7 @@
   "id": "/",
   "name": "MaaCare",
   "short_name": "MaaCare",
-  "description": "AI maternal health companion",
+  "description": "AI maternal health companion — pregnancy guidance, symptom checks, and community support.",
   "start_url": "/app",
   "scope": "/",
   "display": "standalone",
@@ -25,7 +25,7 @@
       "purpose": "any"
     },
     {
-      "src": "/icons/maacare-512.png",
+      "src": "/icons/maacare-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

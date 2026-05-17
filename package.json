@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "import-bd-facilities": "node scripts/import-bd-facilities.mjs"
+    "import-bd-facilities": "node scripts/import-bd-facilities.mjs",
+    "generate-brand-icons": "node scripts/generate-brand-icons.mjs"
   },
   "dependencies": {
     "@fontsource/figtree": "^5.2.10",
@@ -97,6 +98,7 @@
     "@types/sanitize-html": "^2.16.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

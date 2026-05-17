@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 import { RootProviders } from "@/components/providers/root-providers";
+import { createRootMetadata } from "@/lib/seo/metadata";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -11,22 +12,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export const metadata: Metadata = {
-  title: "MaaCare — AI Maternal Health Companion",
-  description:
-    "Personalized pregnancy guidance, symptom checks, and 24/7 AI support for expecting and new mothers.",
-  authors: [{ name: "MaaCare" }],
-  manifest: "/manifest.json",
-  icons: {
-    icon: [{ url: "/icons/maacare-192.png", sizes: "192x192", type: "image/png" }],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
-  },
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "MaaCare",
-  },
-};
+export const metadata: Metadata = createRootMetadata();
 
 export default function RootLayout({
   children,

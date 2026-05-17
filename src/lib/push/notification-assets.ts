@@ -1,32 +1,35 @@
-/** Push notification icons — must be absolute HTTPS URLs for iOS and FCM. */
+/** Push notification icons — square assets with safe padding; absolute HTTPS for iOS/FCM. */
 
-const ICON_192 = "/icons/maacare-192.png";
-const ICON_512 = "/icons/maacare-512.png";
+import { BRAND_ASSETS, absoluteUrl, getSiteUrl } from "@/lib/seo/site-config";
 
 export function getSiteOrigin(): string | null {
-  const base = process.env.NEXT_PUBLIC_SITE_URL?.trim()?.replace(/\/$/, "");
-  return base && (base.startsWith("http://") || base.startsWith("https://")) ? base : null;
+  try {
+    return getSiteUrl();
+  } catch {
+    return null;
+  }
 }
 
-export function absoluteAssetUrl(path: string): string {
-  const origin = getSiteOrigin();
-  if (!origin) return path;
-  return `${origin}${path.startsWith("/") ? path : `/${path}`}`;
-}
+export { absoluteUrl as absoluteAssetUrl };
 
+/** Large icon in notification tray (square, centered mark). */
 export function getPushNotificationIconUrl(): string {
-  return absoluteAssetUrl(ICON_192);
+  return absoluteUrl(BRAND_ASSETS.notificationIcon);
 }
 
+/** Small monochrome badge (Android status bar / some browsers). */
 export function getPushNotificationBadgeUrl(): string {
-  return absoluteAssetUrl(ICON_192);
+  return absoluteUrl(BRAND_ASSETS.notificationBadge);
 }
 
+/** Optional rich notification image. */
 export function getPushNotificationImageUrl(): string {
-  return absoluteAssetUrl(ICON_512);
+  return absoluteUrl(BRAND_ASSETS.logoMark512);
 }
 
 export const PUSH_ICON_PATHS = {
-  icon192: ICON_192,
-  icon512: ICON_512,
+  notificationIcon: BRAND_ASSETS.notificationIcon,
+  notificationBadge: BRAND_ASSETS.notificationBadge,
+  icon192: BRAND_ASSETS.logoMark,
+  icon512: BRAND_ASSETS.logoMark512,
 } as const;
