@@ -11,7 +11,7 @@ function authorize(req: NextRequest): boolean {
   return req.nextUrl.searchParams.get("secret") === secret;
 }
 
-/** Process push_queue — Vercel Cron every minute. */
+/** Process push_queue — Vercel Cron (daily on Hobby; set `* * * * *` in vercel.json on Pro). */
 export async function GET(req: NextRequest) {
   if (!authorize(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
