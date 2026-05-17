@@ -29,6 +29,7 @@ import {
   useProfileBundle,
 } from "@/lib/app/profile-bundle-query";
 import { SmartHealthNudge } from "@/components/app/smart-health-nudge";
+import { WebPushPreferences } from "@/components/app/web-push-preferences";
 import { ProfileAvatarUploadDialog } from "@/components/profile/profile-avatar-upload-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -253,6 +254,30 @@ export function ProfilePageClient({
         </Section>
 
         <Section title="Preferences">
+          <WebPushPreferences
+            pushEnabled={bundle?.profile?.notify_push_enabled ?? true}
+            dmEnabled={bundle?.profile?.notify_dm_messages ?? true}
+            onPushEnabledChange={async (v) => {
+              const res = await fetch("/api/profile", {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ notifyPushEnabled: v }),
+              });
+              if (!res.ok) toast.error("Could not save push preference");
+              else refreshFromServer();
+            }}
+            onDmEnabledChange={async (v) => {
+              const res = await fetch("/api/profile", {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ notifyDmMessages: v }),
+              });
+              if (!res.ok) toast.error("Could not save message notification preference");
+              else refreshFromServer();
+            }}
+          />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button type="button" className="flex w-full items-center gap-3 px-4 py-3 text-left">

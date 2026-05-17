@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { dispatchPushSoon } from "@/lib/push/dispatch-now";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
@@ -58,7 +59,9 @@ export async function POST(
 
       if (insErr) {
         console.error("like insert", insErr);
-        return failJson(500, "Could not update like.");
+        const hint =
+          process.env.NODE_ENV === "development" ? insErr.message : "Could not update like.";
+        return failJson(500, hint);
       }
     }
 
@@ -66,6 +69,10 @@ export async function POST(
       .from("community_post_likes")
       .select("*", { count: "exact", head: true })
       .eq("post_id", postId);
+
+    if (!existing) {
+      dispatchPushSoon();
+    }
 
     return Response.json({
       liked: !existing,

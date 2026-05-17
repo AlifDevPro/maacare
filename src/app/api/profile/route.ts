@@ -52,6 +52,8 @@ const patchSchema = z
     conditions: z.array(z.string().max(200)).max(50).optional(),
     notifyCommunityActivity: z.boolean().optional(),
     notifyDailyReminders: z.boolean().optional(),
+    notifyPushEnabled: z.boolean().optional(),
+    notifyDmMessages: z.boolean().optional(),
     profession: z
       .union([professionEnum, z.literal("other")])
       .nullable()
@@ -114,6 +116,12 @@ export async function PATCH(req: Request) {
     }
     if (body.notifyDailyReminders !== undefined) {
       profileUpdates.notify_daily_reminders = body.notifyDailyReminders;
+    }
+    if (body.notifyPushEnabled !== undefined) {
+      profileUpdates.notify_push_enabled = body.notifyPushEnabled;
+    }
+    if (body.notifyDmMessages !== undefined) {
+      profileUpdates.notify_dm_messages = body.notifyDmMessages;
     }
     if (body.profession !== undefined) {
       profileUpdates.profession = body.profession?.trim() || null;

@@ -14,6 +14,8 @@ export type ProfileBundle = {
     timezone: string | null;
     notify_community_activity?: boolean | null;
     notify_daily_reminders?: boolean | null;
+    notify_push_enabled?: boolean | null;
+    notify_dm_messages?: boolean | null;
     /** Self-reported: parent_caregiver | clinician | student_researcher — not the auth `role`. */
     profession?: string | null;
     /** Optional persona-specific key/value blob; validated on PATCH by profession. */

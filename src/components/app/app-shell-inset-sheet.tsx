@@ -31,10 +31,7 @@ export const AppShellInsetSheetContent = React.forwardRef<
   return (
     <SheetPrimitive.Portal>
       <div
-        className={cn(
-          "z-50 overflow-hidden",
-          inset ? "fixed" : "fixed inset-0",
-        )}
+        className={cn("z-50 overflow-hidden", inset ? "fixed" : "fixed inset-0")}
         style={inset ? columnBoundsStyle(columnRect) : undefined}
       >
         <SheetPrimitive.Overlay className="app-shell-sheet-overlay absolute inset-0 bg-black/80" />
