@@ -1,3 +1,4 @@
+import { applySexAwareProfileDefaults } from "@/lib/profile/journey-fields";
 import type { SignupProfileDraft } from "@/lib/signup/signup-draft";
 
 /** Strong signals user is currently pregnant / trying — do not force not_applicable. */
@@ -13,6 +14,9 @@ const STUDENT_RESEARCHER_RE =
 const CLINICIAN_RE = /\b(doctor|nurse|midwife|clinician|physician|provider|obgyn|ob\s*-?\s*gyn)\b/i;
 
 const PARENT_RE = /\b(parent|mom|mother|dad|father|caregiver|family)\b/i;
+
+const MALE_SELF_RE = /\b(\bi am\b|\bi'm\b|\bim\b)\s+(a\s+)?(man|male|father|dad|husband)\b/i;
+const FEMALE_SELF_RE = /\b(\bi am\b|\bi'm\b|\bim\b)\s+(a\s+)?(woman|female|mother|mom|wife)\b/i;
 
 function appendHealthNoteLine(notes: string, line: string): string {
   const t = notes.trim();
@@ -70,6 +74,18 @@ export function normalizeSignupDraftFromUserText(
         next = { ...next, displayName: extracted.slice(0, 80) };
       }
     }
+  }
+
+  if (!next.sex && MALE_SELF_RE.test(combined) && !FEMALE_SELF_RE.test(combined)) {
+    next = { ...next, sex: "male" };
+    const d = applySexAwareProfileDefaults({
+      sex: "male",
+      primaryUseCase: next.primaryUseCase,
+      pregnancyStatus: next.pregnancyStatus,
+    });
+    next = { ...next, primaryUseCase: d.primaryUseCase as SignupProfileDraft["primaryUseCase"], pregnancyStatus: d.pregnancyStatus as SignupProfileDraft["pregnancyStatus"] };
+  } else if (!next.sex && FEMALE_SELF_RE.test(combined) && !MALE_SELF_RE.test(combined)) {
+    next = { ...next, sex: "female" };
   }
 
   if (!next.profession) {

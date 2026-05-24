@@ -20,7 +20,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { checkEmailRegistered, registerAccount } from "@/lib/auth-client";
 import { buildSignupProfilePayload } from "@/lib/signup/build-profile-payload";
 import type { SignupProfileDraft } from "@/lib/signup/signup-draft";
-import { resolveProfileFieldVisibility } from "@/lib/profile/journey-fields";
+import {
+  applySexAwareProfileDefaults,
+  resolveProfileFieldVisibility,
+  shouldCollectOwnPregnancyJourney,
+} from "@/lib/profile/journey-fields";
+import { defaultPrimaryUseForProfession } from "@/lib/profile/primary-use-case";
 import type { PrimaryUseCaseValue } from "@/lib/profile/primary-use-case";
 import {
   validateAccountCredentials,
@@ -64,6 +69,7 @@ const STEP_FALLBACK_ORDER: StepId[] = [
 function buildStepDefs(
   profession: ProfessionValue | "",
   primaryUseCase: PrimaryUseCaseValue | "",
+  sex: SignupProfileDraft["sex"],
 ): StepDef[] {
   const out: StepDef[] = [
     { id: "persona", titleKey: "signup_wizard_step_persona" },
@@ -72,7 +78,7 @@ function buildStepDefs(
   if (!profession) return out;
 
   if (profession === "parent_caregiver") {
-    if (primaryUseCase !== "partner_support") {
+    if (shouldCollectOwnPregnancyJourney(profession, primaryUseCase, sex)) {
       out.push({ id: "journey", titleKey: "signup_wizard_step_journey" });
       out.push({ id: "pregnancy", titleKey: "signup_wizard_step_pregnancy", optional: true });
     }
@@ -146,9 +152,25 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
   const [emailConfirmSent, setEmailConfirmSent] = useState(false);
 
   const steps = useMemo(
-    () => buildStepDefs(profession, (primaryUseCase || "self_maternal") as PrimaryUseCaseValue),
-    [profession, primaryUseCase],
+    () =>
+      buildStepDefs(
+        profession,
+        (primaryUseCase || "self_maternal") as PrimaryUseCaseValue,
+        sex,
+      ),
+    [profession, primaryUseCase, sex],
   );
+
+  function applySexDefaults(nextSex: SignupProfileDraft["sex"]) {
+    if (nextSex !== "male") return;
+    const d = applySexAwareProfileDefaults({
+      sex: nextSex,
+      primaryUseCase: primaryUseCase || "self_maternal",
+      pregnancyStatus,
+    });
+    setPrimaryUseCase(d.primaryUseCase as PrimaryUseCaseValue);
+    setPregnancyStatus(d.pregnancyStatus as typeof pregnancyStatus);
+  }
 
   useEffect(() => {
     if (steps.some((s) => s.id === stepId)) return;
@@ -170,8 +192,8 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
     return (stepIndex / (steps.length - 1)) * 100;
   }, [stepIndex, steps.length]);
   const pregVis = useMemo(
-    () => resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase || "self_maternal"),
-    [pregnancyStatus, primaryUseCase],
+    () => resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase || "self_maternal", sex),
+    [pregnancyStatus, primaryUseCase, sex],
   );
 
   useEffect(() => {
@@ -417,11 +439,27 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
                 setPregnancyStatus("not_applicable");
               } else if (p === "clinician") {
                 setPrimaryUseCase("clinician");
-              } else {
-                setPrimaryUseCase("self_maternal");
+                setPregnancyStatus("not_applicable");
+              } else if (p === "parent_caregiver") {
+                setPrimaryUseCase(defaultPrimaryUseForProfession(p, sex || undefined));
+                if (sex === "male") {
+                  setPregnancyStatus("not_applicable");
+                }
               }
             }}
           />
+          <div className="space-y-2 pt-1">
+            <Label className="text-base font-semibold">{t("signup_wizard_sex_optional")}</Label>
+            <p className="text-xs text-muted-foreground">{t("signup_wizard_sex_hint")}</p>
+            <SexIconCards
+              value={sex}
+              onChange={(v) => {
+                setSex(v as SignupProfileDraft["sex"]);
+                applySexDefaults(v as SignupProfileDraft["sex"]);
+              }}
+              className="mt-1.5"
+            />
+          </div>
         </div>
       )}
 
@@ -522,10 +560,6 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
               onChange={(e) => setClinicianInstitution(e.target.value)}
             />
           </div>
-          <div className="space-y-2">
-            <Label className="text-base font-semibold">{t("signup_wizard_sex_optional")}</Label>
-            <SexIconCards value={sex} onChange={(v) => setSex(v as SignupProfileDraft["sex"])} className="mt-1.5" />
-          </div>
         </div>
       )}
 
@@ -550,10 +584,6 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
               value={studentFieldOfStudy}
               onChange={(e) => setStudentFieldOfStudy(e.target.value)}
             />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-base font-semibold">{t("signup_wizard_sex_optional")}</Label>
-            <SexIconCards value={sex} onChange={(v) => setSex(v as SignupProfileDraft["sex"])} className="mt-1.5" />
           </div>
         </div>
       )}

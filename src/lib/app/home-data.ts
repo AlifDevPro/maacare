@@ -102,6 +102,7 @@ export async function getHomeData(
   const postpartumWeek = postpartumWeekFromBirth(babyBirthDate);
 
   const ui = deriveHomeUiVisibility(appCtx, {
+    sex: (prof?.sex as string | null) ?? null,
     hasActiveCareReadPregnancy,
     pregnancyStatus: pregnancy?.pregnancy_status ?? null,
   });

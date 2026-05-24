@@ -1,4 +1,4 @@
-import { resolveProfileFieldVisibility } from "@/lib/profile/journey-fields";
+import { applySexAwareProfileDefaults, resolveProfileFieldVisibility } from "@/lib/profile/journey-fields";
 import { normalizePrimaryUseCase } from "@/lib/profile/primary-use-case";
 
 import type { SignupProfileDraft } from "./signup-draft";
@@ -12,13 +12,19 @@ export function buildSignupProfilePayload(d: SignupProfileDraft): Record<string,
         ? "clinician"
         : normalizePrimaryUseCase(d.primaryUseCase as string | null | undefined);
 
+  const sexAware = applySexAwareProfileDefaults({
+    sex: d.sex,
+    primaryUseCase,
+    pregnancyStatus: d.pregnancyStatus,
+  });
+
   const profilePayload: Record<string, unknown> = {
     displayName: d.displayName.trim(),
     phone: d.phone.trim() || undefined,
     timezone: d.timezone.trim() || undefined,
     profession: d.profession || undefined,
-    primaryUseCase,
-    pregnancyStatus: d.pregnancyStatus,
+    primaryUseCase: sexAware.primaryUseCase,
+    pregnancyStatus: sexAware.pregnancyStatus,
     notifyCommunityActivity: d.notifyCommunityActivity,
     notifyDailyReminders: d.notifyDailyReminders,
   };
@@ -47,7 +53,7 @@ export function buildSignupProfilePayload(d: SignupProfileDraft): Record<string,
 
   if (d.sex) profilePayload.sex = d.sex;
 
-  const vis = resolveProfileFieldVisibility(d.pregnancyStatus, d.primaryUseCase);
+  const vis = resolveProfileFieldVisibility(sexAware.pregnancyStatus, sexAware.primaryUseCase, d.sex);
   if (vis.showLmpEdd) {
     profilePayload.lmpDate = d.lmpDate || undefined;
     profilePayload.eddDate = d.eddDate || undefined;

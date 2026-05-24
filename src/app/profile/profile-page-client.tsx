@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
+import { userCanTrackOwnPregnancy } from "@/lib/profile/journey-fields";
+import { normalizePrimaryUseCase } from "@/lib/profile/primary-use-case";
 import type { PublicUser } from "@/lib/auth/types";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -160,13 +162,28 @@ export function ProfilePageClient({
   const health = bundle?.health;
   const week = bundle?.computed.gestationalWeek;
   const due = bundle?.computed.displayEdd;
+  const userSex = bundle?.profile?.sex;
+  const isPartnerSupport =
+    normalizePrimaryUseCase(bundle?.profile?.primary_use_case) === "partner_support";
+  const showOwnPregnancyOnProfile =
+    userCanTrackOwnPregnancy(userSex) &&
+    !isPartnerSupport &&
+    preg?.pregnancy_status &&
+    preg.pregnancy_status !== "not_applicable";
 
-  const subtitle =
-    preg?.pregnancy_status === "pregnant" && (week != null || due)
-      ? [week != null ? `Week ${week}` : null, due ? `Due ${formatIsoDate(due)}` : null].filter(Boolean).join(" · ")
-      : preg?.pregnancy_status
-        ? preg.pregnancy_status.replace("_", " ")
-        : "Tap edit to add pregnancy details";
+  const subtitle = !userCanTrackOwnPregnancy(userSex)
+    ? isPartnerSupport
+      ? "Supporting a pregnancy journey"
+      : "Your health profile"
+    : isPartnerSupport
+      ? "Supporting a pregnancy journey"
+      : preg?.pregnancy_status === "pregnant" && (week != null || due)
+        ? [week != null ? `Week ${week}` : null, due ? `Due ${formatIsoDate(due)}` : null]
+            .filter(Boolean)
+            .join(" · ")
+        : preg?.pregnancy_status
+          ? preg.pregnancy_status.replace("_", " ")
+          : "Tap edit to add pregnancy details";
 
   return (
     <AppShell>
@@ -219,15 +236,17 @@ export function ProfilePageClient({
           </div>
         </Card>
 
-        <Section title="Pregnancy details">
-          <Row icon={Calendar} label="Due date" value={due ? formatIsoDate(due) : "—"} />
-          <Row
-            icon={Calendar}
-            label="Last period (LMP)"
-            value={preg?.lmp_date ? formatIsoDate(preg.lmp_date) : "—"}
-          />
-          <Row icon={Heart} label="Current week" value={week != null ? `Week ${week}` : "—"} />
-        </Section>
+        {showOwnPregnancyOnProfile ? (
+          <Section title="Pregnancy details">
+            <Row icon={Calendar} label="Due date" value={due ? formatIsoDate(due) : "—"} />
+            <Row
+              icon={Calendar}
+              label="Last period (LMP)"
+              value={preg?.lmp_date ? formatIsoDate(preg.lmp_date) : "—"}
+            />
+            <Row icon={Heart} label="Current week" value={week != null ? `Week ${week}` : "—"} />
+          </Section>
+        ) : null}
 
         <Section title="Health information">
           <Row

@@ -73,7 +73,7 @@ export function AppHeader({
           </Button>
         )}
         {brand ? (
-          <MaaCareLogo href="/app" size="md" className="px-1" />
+          <MaaCareLogo href="/app" size="xs" showWordmark={false} className="px-1" />
         ) : (
           <h1 className="truncate font-display text-base font-semibold">{title}</h1>
         )}

@@ -5,6 +5,7 @@ import { BRAND_ASSETS, SITE_NAME } from "@/lib/seo/site-config";
 import { cn } from "@/lib/utils";
 
 const SIZES = {
+  xs: { px: 28, mark: "h-7 w-7", text: "text-sm" },
   sm: { px: 40, mark: "h-10 w-10", text: "text-base" },
   md: { px: 48, mark: "h-12 w-12", text: "text-lg" },
   lg: { px: 56, mark: "h-14 w-14", text: "text-xl" },

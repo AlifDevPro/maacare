@@ -1,4 +1,5 @@
 import type { ProfessionValue } from "@/lib/profile/profession-values";
+import { userCanTrackOwnPregnancy } from "@/lib/profile/journey-fields";
 
 export const PRIMARY_USE_CASE_VALUES = [
   "self_maternal",
@@ -32,14 +33,26 @@ export const PRIMARY_USE_BY_PROFESSION: Record<ProfessionValue, readonly Primary
   student_researcher: ["student_research"],
 };
 
-export function primaryUseOptionsForProfession(profession: ProfessionValue | "") {
-  const keys =
+export function primaryUseOptionsForProfession(
+  profession: ProfessionValue | "",
+  sex?: string | null | undefined,
+) {
+  let keys =
     profession && profession in PRIMARY_USE_BY_PROFESSION
-      ? PRIMARY_USE_BY_PROFESSION[profession as ProfessionValue]
-      : PRIMARY_USE_CASE_VALUES;
+      ? [...PRIMARY_USE_BY_PROFESSION[profession as ProfessionValue]]
+      : [...PRIMARY_USE_CASE_VALUES];
+  if (profession === "parent_caregiver" && !userCanTrackOwnPregnancy(sex)) {
+    keys = keys.filter((k) => k !== "self_maternal");
+  }
   return keys.map((k) => ({ value: k, label: PRIMARY_USE_LABEL[k] }));
 }
 
-export function defaultPrimaryUseForProfession(profession: ProfessionValue): PrimaryUseCaseValue {
+export function defaultPrimaryUseForProfession(
+  profession: ProfessionValue,
+  sex?: string | null | undefined,
+): PrimaryUseCaseValue {
+  if (profession === "parent_caregiver" && !userCanTrackOwnPregnancy(sex)) {
+    return "partner_support";
+  }
   return PRIMARY_USE_BY_PROFESSION[profession][0]!;
 }

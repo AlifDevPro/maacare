@@ -1,3 +1,4 @@
+import { userCanTrackOwnPregnancy } from "@/lib/profile/journey-fields";
 import type { PrimaryUseCaseValue } from "@/lib/profile/primary-use-case";
 import { normalizePrimaryUseCase } from "@/lib/profile/primary-use-case";
 
@@ -38,15 +39,18 @@ export function buildUserAppContext(input: {
 export function deriveHomeUiVisibility(
   ctx: UserAppContext,
   opts: {
+    sex?: string | null | undefined;
     hasActiveCareReadPregnancy: boolean;
     pregnancyStatus: string | null | undefined;
   },
 ): HomeUiVisibility {
   const st = opts.pregnancyStatus ?? null;
   const stOk = st === "planning" || st === "pregnant" || st === "postpartum";
+  const canTrackOwn = userCanTrackOwnPregnancy(opts.sex);
 
   const showPregnancyJourney =
-    (!ctx.isPartnerSupport && stOk) || (ctx.isPartnerSupport && opts.hasActiveCareReadPregnancy);
+    canTrackOwn &&
+    ((!ctx.isPartnerSupport && stOk) || (ctx.isPartnerSupport && opts.hasActiveCareReadPregnancy));
 
   const showPartnerConnectHint = ctx.isPartnerSupport && !opts.hasActiveCareReadPregnancy;
 

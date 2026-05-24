@@ -31,7 +31,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { PublicUser } from "@/lib/auth/types";
 import { refreshSession, useSession } from "@/lib/auth-client";
-import { resolveProfileFieldVisibility } from "@/lib/profile/journey-fields";
+import {
+  applySexAwareProfileDefaults,
+  resolveProfileFieldVisibility,
+  shouldCollectOwnPregnancyJourney,
+} from "@/lib/profile/journey-fields";
 import {
   defaultPrimaryUseForProfession,
   normalizePrimaryUseCase,
@@ -189,6 +193,7 @@ export function ProfileEditClient({
   }, [bundle, user, session.name]);
 
   const canEditPregnancy = canEditPregnancyProfile(profession);
+  const showOwnPregnancyJourney = shouldCollectOwnPregnancyJourney(profession, primaryUseCase, sex);
 
   const visibleSections = useMemo((): readonly SectionKey[] => {
     if (canEditPregnancy) return SECTION_ORDER;
@@ -196,8 +201,8 @@ export function ProfileEditClient({
   }, [canEditPregnancy]);
 
   const primaryUseOptions = useMemo(
-    () => primaryUseOptionsForProfession(profession),
-    [profession],
+    () => primaryUseOptionsForProfession(profession, sex),
+    [profession, sex],
   );
 
   useEffect(() => {
@@ -211,15 +216,24 @@ export function ProfileEditClient({
     const allowed = new Set(primaryUseOptionsForProfession(profession).map((o) => o.value));
     const current = normalizePrimaryUseCase(primaryUseCase);
     if (!allowed.has(current)) {
-      setPrimaryUseCase(defaultPrimaryUseForProfession(profession));
+      setPrimaryUseCase(defaultPrimaryUseForProfession(profession, sex));
     }
-  }, [profession, primaryUseCase]);
+  }, [profession, primaryUseCase, sex]);
 
   const activeIdx = Math.max(0, visibleSections.indexOf(activeSection));
   const pregDetailVis = useMemo(
-    () => resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase),
-    [pregnancyStatus, primaryUseCase],
+    () => resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase, sex),
+    [pregnancyStatus, primaryUseCase, sex],
   );
+
+  function handleSexChange(nextSex: string) {
+    setSex(nextSex);
+    if (nextSex === "male") {
+      const d = applySexAwareProfileDefaults({ sex: nextSex, primaryUseCase, pregnancyStatus });
+      setPrimaryUseCase(d.primaryUseCase);
+      setPregnancyStatus(d.pregnancyStatus);
+    }
+  }
 
   function goSection(step: number) {
     const idx = Math.max(0, Math.min(visibleSections.length - 1, step));
@@ -273,7 +287,12 @@ export function ProfileEditClient({
         .map((s) => s.trim())
         .filter(Boolean);
 
-      const vis = resolveProfileFieldVisibility(pregnancyStatus, primaryUseCase);
+      const sexAware = applySexAwareProfileDefaults({ sex, primaryUseCase, pregnancyStatus });
+      const vis = resolveProfileFieldVisibility(
+        sexAware.pregnancyStatus,
+        sexAware.primaryUseCase,
+        sex,
+      );
       let gv: number | null = null;
       let pv: number | null = null;
       if (vis.showGravidaPara) {
@@ -304,34 +323,37 @@ export function ProfileEditClient({
         sex: sex || null,
         timezone: timezone.trim() || null,
         profession: profession || null,
-        primaryUseCase: normalizePrimaryUseCase(primaryUseCase),
+        primaryUseCase: normalizePrimaryUseCase(sexAware.primaryUseCase),
         allergies,
         conditions,
       };
 
       if (canEditPregnancyProfile(profession)) {
-        payload.pregnancyStatus = pregnancyStatus;
-        payload.lmpDate = vis.showLmpEdd ? lmpDate || null : null;
-        payload.eddDate = vis.showLmpEdd ? eddDate || null : null;
-        payload.gravida = vis.showGravidaPara ? gv : null;
-        payload.para = vis.showGravidaPara ? pv : null;
-
-        if (vis.showGestationalWeek) {
-          if (gestationalAgeWeeks !== "") {
-            const g = Number.parseInt(gestationalAgeWeeks, 10);
-            if (!Number.isNaN(g)) payload.gestationalAgeWeeks = g;
-          } else {
-            payload.gestationalAgeWeeks = null;
+        payload.pregnancyStatus = sexAware.pregnancyStatus;
+        if (shouldCollectOwnPregnancyJourney(profession, sexAware.primaryUseCase, sex)) {
+          payload.lmpDate = vis.showLmpEdd ? lmpDate || null : null;
+          payload.eddDate = vis.showLmpEdd ? eddDate || null : null;
+          payload.gravida = vis.showGravidaPara ? gv : null;
+          payload.para = vis.showGravidaPara ? pv : null;
+          if (vis.showGestationalWeek) {
+            if (gestationalAgeWeeks !== "") {
+              const g = Number.parseInt(gestationalAgeWeeks, 10);
+              if (!Number.isNaN(g)) payload.gestationalAgeWeeks = g;
+            }
           }
-        } else {
-          payload.gestationalAgeWeeks = null;
-        }
-
-        payload.babyBirthDate = vis.showBabyBirth
-          ? babyBirthDate.trim()
+          payload.babyBirthDate = vis.showBabyBirth
             ? babyBirthDate.trim()
-            : null
-          : null;
+              ? babyBirthDate.trim()
+              : null
+            : null;
+        } else {
+          payload.lmpDate = null;
+          payload.eddDate = null;
+          payload.gravida = null;
+          payload.para = null;
+          payload.gestationalAgeWeeks = null;
+          payload.babyBirthDate = null;
+        }
       }
 
       if (bloodType === "" || !bloodType) {
@@ -615,13 +637,15 @@ export function ProfileEditClient({
                   </div>
                   <div className="grid gap-2">
                     <FieldLabel>Sex</FieldLabel>
-                    <SexIconCards value={sex} onChange={(v) => setSex(v)} />
+                    <SexIconCards value={sex} onChange={(v) => handleSexChange(v)} />
                   </div>
                   <div className="grid gap-2">
                     <FieldLabel>Primary focus</FieldLabel>
                     <p className="text-xs text-muted-foreground">
                       {canEditPregnancy
-                        ? "Controls pregnancy questions and home layout — see docs for partner linking."
+                        ? showOwnPregnancyJourney
+                          ? "Controls pregnancy questions and home layout — see docs for partner linking."
+                          : "Partner support mode — link to the expectant parent under Pregnancy → Shared access."
                         : "Tailors the app for your role. Pregnancy journey editing is available when your role is Parent or caregiver."}
                     </p>
                     <AppSelect
@@ -647,7 +671,9 @@ export function ProfileEditClient({
                       onChange={(v) => {
                         setProfession(v);
                         if (v && v !== "parent_caregiver") {
-                          setPrimaryUseCase(defaultPrimaryUseForProfession(v));
+                          setPrimaryUseCase(defaultPrimaryUseForProfession(v, sex));
+                        } else if (v === "parent_caregiver") {
+                          setPrimaryUseCase(defaultPrimaryUseForProfession(v, sex));
                         }
                       }}
                     />
@@ -714,6 +740,7 @@ export function ProfileEditClient({
 
             {canEditPregnancy ? (
             <TabsContent value="pregnancy" className="mt-4 space-y-4 focus-visible:outline-none">
+              {showOwnPregnancyJourney ? (
               <Card className="overflow-visible rounded-sm border-border/80 shadow-none">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-display text-base">Pregnancy journey</CardTitle>
@@ -820,6 +847,16 @@ export function ProfileEditClient({
                   )}
                 </CardContent>
               </Card>
+              ) : (
+                <Card className="overflow-visible rounded-sm border-border/80 shadow-none">
+                  <CardContent className="py-5">
+                    <p className="text-sm text-muted-foreground">
+                      Your profile is set up for partner support — you do not enter LMP or due dates here.
+                      Connect to the expectant parent below to follow their timeline on Home.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
 
               <Card className="overflow-hidden rounded-3xl border-0 bg-card/80 p-0 shadow-sm">
                 <CardHeader className="pb-2">
