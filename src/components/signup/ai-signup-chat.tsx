@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -71,7 +71,14 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
   const [formError, setFormError] = useState<string | null>(null);
   const [emailConfirmSent, setEmailConfirmSent] = useState(false);
 
-  const ready = signupDraftReadyForCredentials(draft);
+  const effectiveDraft = useMemo(() => {
+    const lastUser = messages.filter((m) => m.role === "user").at(-1)?.content ?? "";
+    return normalizeSignupDraftFromUserText(draft, lastUser, {
+      recentUserTexts: collectRecentUserBodiesBeforeLatest(messages, 4),
+    });
+  }, [draft, messages]);
+
+  const ready = signupDraftReadyForCredentials(effectiveDraft);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -87,7 +94,10 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
       });
       return;
     }
-    queueMicrotask(() => setEmailLookupPending(true));
+    queueMicrotask(() => {
+      setEmailLookupPending(true);
+      setEmailRegistered(null);
+    });
     const id = setTimeout(() => {
       void checkEmailRegistered(trimmed).then((r) => {
         if (cancelled) return;
@@ -145,7 +155,13 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
         return;
       }
       const reply = typeof j.reply === "string" ? j.reply : "";
-      if (j.draft) setDraft(j.draft);
+      if (j.draft) {
+        setDraft(
+          normalizeSignupDraftFromUserText(j.draft, text, {
+            recentUserTexts: collectRecentUserBodiesBeforeLatest(nextMsgs, 4),
+          }),
+        );
+      }
       setMessages((prev) => [...prev, { role: "assistant", content: reply || "Thanks — tell me a bit more when you’re ready." }]);
     } catch {
       setFormError("Network error. Try again.");
@@ -156,7 +172,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
 
   async function createAccount(e: React.FormEvent) {
     e.preventDefault();
-    const name = draft.displayName.trim();
+    const name = effectiveDraft.displayName.trim();
     const accErr = validateAccountCredentials({ name, email, password });
     setFormError(null);
     if (accErr) {
@@ -170,11 +186,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
     }
 
     const dupCheck = await checkEmailRegistered(email.trim());
-    if (!dupCheck.ok) {
-      setFormError(dupCheck.error);
-      return;
-    }
-    if (!("unavailable" in dupCheck) && dupCheck.registered) {
+    if (dupCheck.ok && !("unavailable" in dupCheck) && dupCheck.registered) {
       setFormError("This email is already registered. Try signing in instead.");
       setEmailRegistered(true);
       return;
@@ -191,7 +203,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
       const lastUserLine =
         [...messages].reverse().find((m) => m.role === "user")?.content?.trim() ?? "";
 
-      const profileDraft = normalizeSignupDraftFromUserText(draft, lastUserLine, {
+      const profileDraft = normalizeSignupDraftFromUserText(effectiveDraft, lastUserLine, {
         recentUserTexts: collectRecentUserBodiesBeforeLatest(messages, 4),
       });
       const profilePayload = buildSignupProfilePayload(profileDraft);
@@ -228,7 +240,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
   const credentialsReady =
     ready &&
     isValidEmailFormat(email.trim()) &&
-    emailRegistered !== true &&
+    !(emailRegistered === true && !emailLookupPending) &&
     password.length >= 8 &&
     terms;
 
@@ -350,6 +362,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
                 onChange={(e) => {
                   setEmail(e.target.value);
                   setFormError(null);
+                  setEmailRegistered(null);
                 }}
               />
             </div>

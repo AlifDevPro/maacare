@@ -184,7 +184,10 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
       });
       return;
     }
-    queueMicrotask(() => setEmailLookupPending(true));
+    queueMicrotask(() => {
+      setEmailLookupPending(true);
+      setEmailRegistered(null);
+    });
     const id = setTimeout(() => {
       void checkEmailRegistered(trimmed).then((r) => {
         if (cancelled) return;
@@ -232,11 +235,7 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
         return;
       }
       const dupCheck = await checkEmailRegistered(email.trim());
-      if (!dupCheck.ok) {
-        setFormError(dupCheck.error);
-        return;
-      }
-      if (!("unavailable" in dupCheck) && dupCheck.registered) {
+      if (dupCheck.ok && !("unavailable" in dupCheck) && dupCheck.registered) {
         setFormError(t("signup_wizard_email_taken"));
         setEmailRegistered(true);
         return;
@@ -269,11 +268,7 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
     }
 
     const dupCheck = await checkEmailRegistered(email.trim());
-    if (!dupCheck.ok) {
-      setFormError(dupCheck.error);
-      return;
-    }
-    if (!("unavailable" in dupCheck) && dupCheck.registered) {
+    if (dupCheck.ok && !("unavailable" in dupCheck) && dupCheck.registered) {
       setFormError(t("signup_wizard_email_taken"));
       setEmailRegistered(true);
       return;
@@ -356,7 +351,8 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
 
     const accountStepInvalid =
       current.id === "account" &&
-      (!isValidEmailFormat(email.trim()) || emailRegistered === true);
+      (!isValidEmailFormat(email.trim()) ||
+        (emailRegistered === true && !emailLookupPending));
     const finishStepInvalid = isLast && !terms;
 
     onNavChange({
@@ -375,6 +371,7 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
     current,
     email,
     emailConfirmSent,
+    emailLookupPending,
     emailRegistered,
     isLast,
     onNavChange,
@@ -462,6 +459,7 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
                 onChange={(e) => {
                   setEmail(e.target.value);
                   setFormError(null);
+                  setEmailRegistered(null);
                 }}
               />
             </div>

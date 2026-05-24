@@ -54,6 +54,24 @@ export function normalizeSignupDraftFromUserText(
     next = { ...next, pregnancyStatus: "not_applicable" };
   }
 
+  if (!next.displayName.trim() && latestUserText.trim()) {
+    const raw = latestUserText.trim();
+    const looksLikeName =
+      raw.length >= 2 &&
+      raw.length <= 80 &&
+      !raw.includes("@") &&
+      !/^https?:\/\//i.test(raw) &&
+      raw.split(/\s+/).length <= 6;
+    if (looksLikeName) {
+      const extracted =
+        raw.match(/(?:i['’]?m|i am|my name is|call me|this is)\s+([^\n,.!?]{2,60})/i)?.[1]?.trim() ??
+        raw.split(/\n/)[0]!.trim();
+      if (extracted.length >= 2) {
+        next = { ...next, displayName: extracted.slice(0, 80) };
+      }
+    }
+  }
+
   if (!next.profession) {
     if (CLINICIAN_RE.test(combined)) {
       next = { ...next, profession: "clinician" };

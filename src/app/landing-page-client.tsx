@@ -530,12 +530,20 @@ const TEAM_ROTATE_MS = 6000;
 
 function TeamSection() {
   const [members, setMembers] = useState<LandingTeamMember[] | null>(null);
-  /** Physical slide index in the carousel (covers duplicated slides for seamless loop). */
-  const [activeIndex, setActiveIndex] = useState(0);
+  /** Centered slide index (for card emphasis) and logical member index (for dots). */
+  const [centeredSlideIndex, setCenteredSlideIndex] = useState(0);
+  const [activeMemberIndex, setActiveMemberIndex] = useState(0);
   const prefersReducedMotion = useReducedMotion();
   const swiperRef = useRef<SwiperClass | null>(null);
 
   const carouselSlides = useMemo(() => (members ? buildTeamCarouselSlides(members) : []), [members]);
+
+  useEffect(() => {
+    if (!members || members.length < 2) return;
+    const start = members.length;
+    setCenteredSlideIndex(start);
+    setActiveMemberIndex(0);
+  }, [members]);
 
   useEffect(() => {
     let cancelled = false;
@@ -560,6 +568,9 @@ function TeamSection() {
   if (members.length === 0) return null;
 
   const n = members.length;
+  const loopEnabled = carouselSlides.length >= 2;
+  /** Start on the second copy so loop clones fill the left side immediately. */
+  const initialSlide = loopEnabled && n >= 2 ? n : 0;
 
   const headerBlock = <TeamSectionHeader />;
 
@@ -597,8 +608,9 @@ function TeamSection() {
             grabCursor
             centeredSlides
             slidesPerView="auto"
-            loop={carouselSlides.length >= 2}
-            loopAdditionalSlides={4}
+            loop={loopEnabled}
+            loopAdditionalSlides={Math.max(4, n)}
+            initialSlide={initialSlide}
             /* Prevents lock when all slides fit the row (default watchOverflow would stop autoplay). */
             watchOverflow={false}
             speed={prefersReducedMotion ? 300 : 700}
@@ -622,9 +634,25 @@ function TeamSection() {
             }}
             onSwiper={(sw) => {
               swiperRef.current = sw;
-              setActiveIndex(sw.activeIndex);
+              const sync = () => {
+                if (sw.destroyed) return;
+                if (loopEnabled && "loopFix" in sw && typeof sw.loopFix === "function") {
+                  sw.loopFix();
+                }
+                setCenteredSlideIndex(sw.activeIndex);
+                const logical =
+                  loopEnabled && typeof sw.realIndex === "number" ? sw.realIndex % n : sw.activeIndex % n;
+                setActiveMemberIndex(logical);
+              };
+              sync();
+              requestAnimationFrame(sync);
             }}
-            onSlideChange={(sw) => setActiveIndex(sw.activeIndex)}
+            onSlideChange={(sw) => {
+              setCenteredSlideIndex(sw.activeIndex);
+              const logical =
+                loopEnabled && typeof sw.realIndex === "number" ? sw.realIndex % n : sw.activeIndex % n;
+              setActiveMemberIndex(logical);
+            }}
             className="team-swiper w-full pt-2 pb-2"
           >
             {carouselSlides.map((slide, idx) => (
@@ -633,7 +661,10 @@ function TeamSection() {
                 className="!flex max-w-[min(280px,calc(100vw-2rem))] justify-center !py-6"
                 style={{ width: 280 }}
               >
-                <TeamSpotCard member={slide.member} emphasis={idx === activeIndex ? "primary" : "secondary"} />
+                <TeamSpotCard
+                  member={slide.member}
+                  emphasis={idx === centeredSlideIndex ? "primary" : "secondary"}
+                />
               </SwiperSlide>
             ))}
           </Swiper>
@@ -644,8 +675,7 @@ function TeamSection() {
             aria-label="Team carousel slides"
           >
             {members.map((m, i) => {
-              const centeredId = carouselSlides[activeIndex]?.member.userId;
-              const active = centeredId === m.userId;
+              const active = i === activeMemberIndex;
               return (
                 <button
                   key={m.userId}
