@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
+import { detectIntentForTurn } from "@/lib/ai/intent";
+import { buildLanguagePromptLines, resolveLanguageForTurn } from "@/lib/ai/language";
+import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
+import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
+import { buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
+import { planResponseForIntent } from "@/lib/ai/response-planner";
 import { trimEchoOfPreviousAssistant } from "@/lib/signup/assistant-reply-trim";
 import { mergeSignupProfileDraft, parseDraftPatchLine } from "@/lib/signup/ai-draft-patch";
 import {
@@ -346,6 +352,30 @@ export async function POST(req: Request) {
     const { nextFocus, modelInstruction } = deriveOnboardingFocus(draft);
     const draftSummary = JSON.stringify(draft);
     const prevAssistant = lastAssistantBeforeLastUser(messages);
+    const languagePrep = await resolveLanguageForTurn({
+      latestUserMessage: latestUser,
+      priorAssistantSnippet: prevAssistant ?? null,
+      uiLanguagePrior: null,
+    });
+    const languageBlock = buildLanguagePromptLines({
+      ietfLanguageTag: languagePrep.ietfLanguageTag,
+      languageHintForPrompt: languagePrep.languageHintForPrompt,
+    });
+    const intent = await detectIntentForTurn({
+      latestUserMessage: latestUser,
+      transcriptSnippet: transcript,
+      ietfLanguageTag: languagePrep.ietfLanguageTag,
+    });
+    const responsePlan = planResponseForIntent({
+      intent: {
+        ...intent,
+        family: intent.family === "unknown" ? "onboarding" : intent.family,
+      },
+      ietfLanguageTag: languagePrep.ietfLanguageTag,
+      hasReportContext: false,
+      hasNearbyContext: false,
+      voice: false,
+    });
 
     const userMessage = `Known from draft (trust this; do not re-ask filled items): ${filledSummary}
 
@@ -360,8 +390,16 @@ ${transcript}
 Latest user message (answer this only; do not re-output prior assistant text):
 ${latestUser}`;
 
+    const systemInstruction = composeSystemPrompt(
+      ONBOARDING_SYSTEM,
+      buildSharedIdentityRules(),
+      buildNaturalStyleRules(),
+      responsePlan.systemRules,
+      languageBlock,
+    );
+
     const { text } = await generateTextWithGeminiGroqFailover({
-      systemInstruction: ONBOARDING_SYSTEM,
+      systemInstruction,
       userMessage,
       temperature: 0.38,
     });
@@ -381,6 +419,9 @@ ${latestUser}`;
     } else if (nextFocus !== "ready_for_secure_step" && !hasQuestionMark(assistantVisible)) {
       assistantVisible = `${assistantVisible}\n\n${fallbackQuestion}`;
     }
+    assistantVisible = enforceNaturalResponseQuality(assistantVisible, {
+      fallback: fallbackQuestion,
+    });
 
     return NextResponse.json({
       reply: assistantVisible,

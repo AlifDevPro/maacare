@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import { buildLanguagePromptLines } from "@/lib/ai/language";
+import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
+import { enforceNaturalResponseQuality, sanitizeStructuredTextFields } from "@/lib/ai/quality-guard";
+import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
+import { planResponseForIntent } from "@/lib/ai/response-planner";
 import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
 
@@ -80,10 +85,26 @@ async function generatePostpartumAiJson(input: {
   ragContext: string;
   postpartumWeek: number | null;
   moodKey: string | null;
-  language: "en" | "bn";
+  language: string;
   pregnancyStatus: string | null;
 }): Promise<Omit<PostpartumInsightsPayload, "source">> {
-  const systemInstruction = [
+  const responsePlan = planResponseForIntent({
+    intent: {
+      family: "planning",
+      goal: "Provide postpartum recovery guidance",
+      responseMode: "answer_with_context",
+      confidence: 0.93,
+      needsClarification: false,
+    },
+    ietfLanguageTag: input.language,
+    hasReportContext: false,
+    hasNearbyContext: false,
+  });
+  const systemInstruction = composeSystemPrompt(
+    buildSharedIdentityRules(),
+    buildMedicalSafetyRules(),
+    buildNaturalStyleRules(),
+    responsePlan.systemRules,
     "You are a supportive maternal health educator for postpartum recovery.",
     input.ragContext
       ? "Use the CONTEXT excerpts as grounding when relevant; do not invent citations beyond them."
@@ -91,13 +112,14 @@ async function generatePostpartumAiJson(input: {
     "Return ONLY a single JSON object with keys recovery, feeding, moodSupport, whenToSeekCare.",
     "Each value must be a string of 2-4 sentences in plain language for the user.",
     "No diagnoses or prescriptions. Encourage contacting a clinician for medical concerns.",
+    buildLanguagePromptLines({ ietfLanguageTag: input.language }),
     "",
     "CONTEXT:",
     input.ragContext || "(none)",
-  ].join("\n");
+  );
 
   const userMessage = [
-    `Write in ${input.language === "bn" ? "Bengali (Bangla)" : "English"}.`,
+    "Write naturally in the configured user language.",
     `Pregnancy journey status from profile: ${input.pregnancyStatus ?? "unknown"}.`,
     `Postpartum week after birth (or unknown): ${input.postpartumWeek ?? "unknown"}.`,
     `Latest mood check-in key (or none): ${input.moodKey ?? "none"}.`,
@@ -108,7 +130,19 @@ async function generatePostpartumAiJson(input: {
   if (!block) throw new Error("No JSON object in model output");
   const parsed = insightSchema.safeParse(JSON.parse(block));
   if (!parsed.success) throw new Error("Invalid insight JSON");
-  return parsed.data;
+  const normalized = sanitizeStructuredTextFields(parsed.data, [
+    "recovery",
+    "feeding",
+    "moodSupport",
+    "whenToSeekCare",
+  ]);
+  return {
+    ...normalized,
+    recovery: enforceNaturalResponseQuality(normalized.recovery),
+    feeding: enforceNaturalResponseQuality(normalized.feeding),
+    moodSupport: enforceNaturalResponseQuality(normalized.moodSupport),
+    whenToSeekCare: enforceNaturalResponseQuality(normalized.whenToSeekCare),
+  };
 }
 
 export async function getPostpartumInsightsCached(input: {
@@ -116,7 +150,7 @@ export async function getPostpartumInsightsCached(input: {
   utcDate: string;
   postpartumWeek: number | null;
   moodKey: string | null;
-  language: "en" | "bn";
+  language: string;
   pregnancyStatus: string | null;
 }): Promise<PostpartumInsightsPayload> {
   const key = cacheKey([

@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
+import { buildLanguagePromptLines, normalizeUiLanguagePrior } from "@/lib/ai/language";
+import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
+import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
+import { buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
+import { planResponseForIntent } from "@/lib/ai/response-planner";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
@@ -91,6 +96,28 @@ export async function GET(req: NextRequest) {
 
     const supabase = await createSupabaseServerClient();
     const uid = session.id;
+    const { data: profileRow } = await supabase
+      .from("profiles")
+      .select("language")
+      .eq("id", uid)
+      .maybeSingle();
+    const uiLang = normalizeUiLanguagePrior((profileRow?.language as string | null) ?? null);
+    const languageBlock = buildLanguagePromptLines({
+      ietfLanguageTag: uiLang ?? "en",
+      languageHintForPrompt: uiLang === "bn" ? "Bengali (Bangla)" : "English",
+    });
+    const responsePlan = planResponseForIntent({
+      intent: {
+        family: "planning",
+        goal: "Generate daily pregnancy meal plan",
+        responseMode: "answer_with_context",
+        confidence: 0.96,
+        needsClarification: false,
+      },
+      ietfLanguageTag: uiLang ?? "en",
+      hasReportContext: false,
+      hasNearbyContext: false,
+    });
 
     const since = new Date();
     since.setUTCDate(since.getUTCDate() - 7);
@@ -135,22 +162,30 @@ export async function GET(req: NextRequest) {
       .map((h, i) => `[${i + 1}] ${h.content}`)
       .join("\n\n---\n\n");
 
-    const systemInstruction = [
+    const systemInstruction = composeSystemPrompt(
+      buildSharedIdentityRules(),
+      buildNaturalStyleRules(),
+      responsePlan.systemRules,
       "You are MaaCare nutrition planner.",
       "Using ONLY provided FOOD context, produce exactly 3 items: Breakfast, Lunch, Dinner.",
       "Return ONLY JSON array with objects: label, body, tag.",
       "body: one short meal suggestion; tag: nutrient focus like 'Iron · Protein'.",
+      languageBlock,
       avoidBlock ? `${avoidBlock}\n` : "",
       yesterdayBlock ? `${yesterdayBlock}\n` : "",
       "FOOD CONTEXT:",
       context,
-    ].join("\n");
+    );
 
     const userMessage = `Create daily meal suggestions${week ? ` for pregnancy week ${week}` : ""}.`;
     const text = await generateChatReply({ systemInstruction, userMessage });
     const json = extractJsonBlock(text);
     const parsed = json ? JSON.parse(json) : null;
-    const meals = coerceMeals(parsed);
+    const meals = coerceMeals(parsed).map((m) => ({
+      ...m,
+      body: enforceNaturalResponseQuality(m.body),
+      tag: enforceNaturalResponseQuality(m.tag),
+    }));
     if (meals.length !== 3) {
       await persistMealsForToday(supabase, uid, FALLBACK_MEALS, "fallback");
       return Response.json({ meals: FALLBACK_MEALS, source: "fallback" });

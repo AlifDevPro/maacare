@@ -4,6 +4,11 @@ import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
+import { buildLanguagePromptLines, normalizeUiLanguagePrior } from "@/lib/ai/language";
+import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
+import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
+import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
+import { planResponseForIntent } from "@/lib/ai/response-planner";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 import { generateWithGroq, isRateLimitError } from "@/lib/gemini/text-failover";
@@ -212,8 +217,35 @@ export async function POST(req: Request) {
     if (keys.length === 0 && gKeys.length === 0) {
       return failJson(503, "AI service is not configured.");
     }
+    const supabase = await createSupabaseServerClient();
+    const { data: profileRow } = await supabase
+      .from("profiles")
+      .select("language")
+      .eq("id", session.id)
+      .maybeSingle();
+    const uiLang = normalizeUiLanguagePrior((profileRow?.language as string | null) ?? null);
+    const languageBlock = buildLanguagePromptLines({
+      ietfLanguageTag: uiLang ?? "en",
+      languageHintForPrompt: uiLang === "bn" ? "Bengali (Bangla)" : "English",
+    });
+    const responsePlan = planResponseForIntent({
+      intent: {
+        family: "report_explanation",
+        goal: "Explain uploaded medical report safely",
+        responseMode: "answer_with_context",
+        confidence: 0.97,
+        needsClarification: false,
+      },
+      ietfLanguageTag: uiLang ?? "en",
+      hasReportContext: true,
+      hasNearbyContext: false,
+    });
 
-    const systemInstruction = [
+    const systemInstruction = composeSystemPrompt(
+      buildSharedIdentityRules(),
+      buildMedicalSafetyRules(),
+      buildNaturalStyleRules(),
+      responsePlan.systemRules,
       "You are MaaCare clinical report simplifier for maternity care support.",
       "Extract key lab/vital values and explain in plain patient-friendly language.",
       "Never diagnose. Be conservative and suggest clinician follow-up when uncertain.",
@@ -222,7 +254,8 @@ export async function POST(req: Request) {
       "Return STRICT JSON only (no markdown) with this shape:",
       '{ "summary": string, "plainExplanation": string, "riskLevel": "low"|"medium"|"high", "findings": [{ "name": string, "value": string, "range": string, "status": "normal"|"low"|"high"|"borderline", "note": string }], "recommendations": string[], "extractedVitals": { "systolicBp": number|null, "diastolicBp": number|null, "heartRateBpm": number|null, "weightKg": number|null, "temperatureC": number|null, "glucoseMgDl": number|null, "spo2Pct": number|null }, "extractedProfile": { "conditions": string[], "allergies": string[], "medications": string[], "notes": string } }',
       "If a value is not present, keep it null/empty.",
-    ].join("\n");
+      languageBlock,
+    );
 
     let extractedText = reportTextInput;
     let extractionMode: "provided_text" | "pdf_local" | "ocr_local" | "text_local" | "gemini_file" =
@@ -359,26 +392,42 @@ export async function POST(req: Request) {
     if (!parsed.success) return failJson(500, "AI response format was invalid.");
 
     const analysis = parsed.data;
+    const cleanedAnalysis = {
+      ...analysis,
+      summary: enforceNaturalResponseQuality(analysis.summary),
+      plainExplanation: enforceNaturalResponseQuality(analysis.plainExplanation),
+      recommendations: analysis.recommendations
+        .map((r) => enforceNaturalResponseQuality(r))
+        .filter(Boolean),
+      findings: analysis.findings.map((f) => ({
+        ...f,
+        note: enforceNaturalResponseQuality(f.note ?? ""),
+      })),
+      extractedProfile: {
+        ...analysis.extractedProfile,
+        notes: enforceNaturalResponseQuality(analysis.extractedProfile.notes ?? ""),
+      },
+    };
+
     let savedVitalId: string | null = null;
     let savedConditions = 0;
     let savedAllergies = 0;
     let savedMedications = 0;
     let profileNotesUpdated = false;
-    const supabase = await createSupabaseServerClient();
 
-    if (saveVitals && hasAnyVitals(analysis.extractedVitals)) {
+    if (saveVitals && hasAnyVitals(cleanedAnalysis.extractedVitals)) {
       const { data: inserted, error: vitErr } = await supabase
         .from("vital_signs")
         .insert({
           user_id: session.id,
           recorded_at: new Date().toISOString(),
-          systolic_bp: analysis.extractedVitals.systolicBp ?? null,
-          diastolic_bp: analysis.extractedVitals.diastolicBp ?? null,
-          heart_rate_bpm: analysis.extractedVitals.heartRateBpm ?? null,
-          weight_kg: analysis.extractedVitals.weightKg ?? null,
-          temperature_c: analysis.extractedVitals.temperatureC ?? null,
-          glucose_mg_dl: analysis.extractedVitals.glucoseMgDl ?? null,
-          spo2_pct: analysis.extractedVitals.spo2Pct ?? null,
+          systolic_bp: cleanedAnalysis.extractedVitals.systolicBp ?? null,
+          diastolic_bp: cleanedAnalysis.extractedVitals.diastolicBp ?? null,
+          heart_rate_bpm: cleanedAnalysis.extractedVitals.heartRateBpm ?? null,
+          weight_kg: cleanedAnalysis.extractedVitals.weightKg ?? null,
+          temperature_c: cleanedAnalysis.extractedVitals.temperatureC ?? null,
+          glucose_mg_dl: cleanedAnalysis.extractedVitals.glucoseMgDl ?? null,
+          spo2_pct: cleanedAnalysis.extractedVitals.spo2Pct ?? null,
           notes: `Auto-extracted from report: ${reportTitle || "Untitled report"}`,
           source: "report_ai",
         })
@@ -390,21 +439,21 @@ export async function POST(req: Request) {
     if (saveProfileInsights) {
       const conditions = Array.from(
         new Set(
-          (analysis.extractedProfile.conditions ?? [])
+          (cleanedAnalysis.extractedProfile.conditions ?? [])
             .map((x) => x.trim())
             .filter(Boolean),
         ),
       ).slice(0, 20);
       const allergies = Array.from(
         new Set(
-          (analysis.extractedProfile.allergies ?? [])
+          (cleanedAnalysis.extractedProfile.allergies ?? [])
             .map((x) => x.trim())
             .filter(Boolean),
         ),
       ).slice(0, 20);
       const medications = Array.from(
         new Set(
-          (analysis.extractedProfile.medications ?? [])
+          (cleanedAnalysis.extractedProfile.medications ?? [])
             .map((x) => x.trim())
             .filter(Boolean),
         ),
@@ -446,7 +495,7 @@ export async function POST(req: Request) {
         if (!error) savedMedications = medications.length;
       }
 
-      const notes = analysis.extractedProfile.notes?.trim();
+      const notes = cleanedAnalysis.extractedProfile.notes?.trim();
       if (notes) {
         const { error } = await supabase.from("user_health_profiles").upsert(
           {
@@ -460,7 +509,7 @@ export async function POST(req: Request) {
     }
 
     return Response.json({
-      ...analysis,
+      ...cleanedAnalysis,
       provider,
       extractionMode,
       extractedTextPreview: extractedText ? clipText(extractedText, 800) : "",

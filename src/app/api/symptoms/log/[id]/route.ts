@@ -2,6 +2,11 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
+import { buildLanguagePromptLines, normalizeUiLanguagePrior } from "@/lib/ai/language";
+import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
+import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
+import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
+import { planResponseForIntent } from "@/lib/ai/response-planner";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
@@ -32,8 +37,27 @@ function riskLevelFromSeverity(severity: number | null): "low" | "medium" | "hig
   return "low";
 }
 
-function buildInsight(input: SymptomLogInsightInput): string {
+function buildInsight(input: SymptomLogInsightInput, lang: "en" | "bn"): string {
   const level = riskLevelFromSeverity(input.severity);
+  if (lang === "bn") {
+    const symptomPart =
+      input.symptomCodes.length > 0
+        ? `আপনি ${input.symptomCodes.slice(0, 3).join(", ")}${input.symptomCodes.length > 3 ? " এবং আরও কিছু" : ""} উপসর্গ নথিভুক্ত করেছেন।`
+        : "আপনি একটি উপসর্গ আপডেট নথিভুক্ত করেছেন।";
+    const sevPart =
+      input.severity != null
+        ? `তীব্রতা ${input.severity}/10, যা ${level === "high" ? "উচ্চ" : level === "medium" ? "মাঝারি" : "নিম্ন"} ঝুঁকির ইঙ্গিত দেয়।`
+        : "তীব্রতা উল্লেখ করা হয়নি।";
+    const advice =
+      level === "high"
+        ? "উপসর্গ বাড়লে, স্থায়ী থাকলে, রক্তপাত/তীব্র ব্যথা/শ্বাসকষ্ট হলে জরুরি ভিত্তিতে চিকিৎসকের সাথে যোগাযোগ করুন।"
+        : level === "medium"
+          ? "আগামী ২৪ ঘণ্টা উপসর্গ পর্যবেক্ষণ করুন এবং সমস্যা থাকলে চিকিৎসকের সাথে যোগাযোগ করুন।"
+          : "পানি পান, বিশ্রাম এবং পর্যবেক্ষণ চালিয়ে যান; উপসর্গ বাড়লে আবার লগ করুন।";
+    const desc = truncateForDisplay(input.description, DESC_TRUNC_HEURISTIC);
+    const notePart = desc ? ` আপনি আরও লিখেছেন: ${desc}` : "";
+    return `${symptomPart} ${sevPart} ${advice}${notePart}`;
+  }
   const symptomPart =
     input.symptomCodes.length > 0
       ? `You logged ${input.symptomCodes.slice(0, 3).join(", ")}${input.symptomCodes.length > 3 ? " and others" : ""}.`
@@ -94,9 +118,26 @@ function buildUserMessageForRag(input: SymptomLogInsightInput): string {
 async function buildRagRiskInsightFromContext(
   context: string,
   input: SymptomLogInsightInput,
+  languageTag: string,
 ): Promise<string | null> {
   const hasFreeText = Boolean(input.description?.trim());
-  const systemInstruction = [
+  const responsePlan = planResponseForIntent({
+    intent: {
+      family: "symptom_guidance",
+      goal: "Give symptom triage guidance",
+      responseMode: "answer_with_context",
+      confidence: 0.95,
+      needsClarification: false,
+    },
+    ietfLanguageTag: languageTag,
+    hasReportContext: false,
+    hasNearbyContext: false,
+  });
+  const systemInstruction = composeSystemPrompt(
+    buildSharedIdentityRules(),
+    buildMedicalSafetyRules(),
+    buildNaturalStyleRules(),
+    responsePlan.systemRules,
     "You are a conservative maternal symptom triage assistant.",
     "Use only the provided RISK-RULES context.",
     "Give plain-language guidance in 3-5 sentences.",
@@ -104,18 +145,20 @@ async function buildRagRiskInsightFromContext(
     hasFreeText
       ? "When the user message includes Additional notes, reflect those details together with the listed symptoms. For concerns not clearly covered by the context, advise the user to discuss them with their clinician without inventing specifics."
       : "",
+    buildLanguagePromptLines({ ietfLanguageTag: languageTag }),
     "",
     "RISK-RULES CONTEXT:",
     context,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  );
 
   const reply = await generateChatReply({
     systemInstruction,
     userMessage: buildUserMessageForRag(input),
   });
-  return reply.trim() || null;
+  const cleaned = enforceNaturalResponseQuality(reply, {
+    fallback: "Please monitor symptoms and contact your clinician if concerns continue.",
+  });
+  return cleaned.trim() || null;
 }
 
 function extractJsonArray(text: string): string | null {
@@ -128,9 +171,26 @@ function extractJsonArray(text: string): string | null {
 async function buildRagSuggestionsFromContext(
   context: string,
   input: SymptomLogInsightInput,
+  languageTag: string,
 ): Promise<string[]> {
   const hasFreeText = Boolean(input.description?.trim());
-  const systemInstruction = [
+  const responsePlan = planResponseForIntent({
+    intent: {
+      family: "symptom_guidance",
+      goal: "Generate practical next-step suggestions",
+      responseMode: "answer_with_context",
+      confidence: 0.95,
+      needsClarification: false,
+    },
+    ietfLanguageTag: languageTag,
+    hasReportContext: false,
+    hasNearbyContext: false,
+  });
+  const systemInstruction = composeSystemPrompt(
+    buildSharedIdentityRules(),
+    buildMedicalSafetyRules(),
+    buildNaturalStyleRules(),
+    responsePlan.systemRules,
     "You are a conservative maternal symptom triage assistant.",
     "Use only the provided RISK-RULES context.",
     "Return ONLY a JSON array of 3 to 5 strings: short, practical next-step suggestions tailored to this log.",
@@ -139,12 +199,11 @@ async function buildRagSuggestionsFromContext(
       ? "If the user message includes Additional notes, include at least one suggestion that addresses those notes when relevant."
       : "",
     "Example: [\"Drink water and rest 20 minutes\",\"Track contractions for 1 hour\",\"Call your provider if pain worsens\"]",
+    buildLanguagePromptLines({ ietfLanguageTag: languageTag }),
     "",
     "RISK-RULES CONTEXT:",
     context,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  );
 
   const reply = await generateChatReply({
     systemInstruction,
@@ -158,6 +217,7 @@ async function buildRagSuggestionsFromContext(
     return parsed
       .map((x) => String(x ?? "").trim())
       .filter(Boolean)
+      .map((s) => enforceNaturalResponseQuality(s))
       .slice(0, 5);
   } catch {
     return [];
@@ -176,6 +236,14 @@ export async function GET(
     if (!parsedId.success) return failJson(400, "Invalid symptom log id.");
 
     const supabase = await createSupabaseServerClient();
+    const { data: profileLangRow } = await supabase
+      .from("profiles")
+      .select("language")
+      .eq("id", session.id)
+      .maybeSingle();
+    const uiLang = normalizeUiLanguagePrior((profileLangRow?.language as string | null) ?? null);
+    const languageTag = uiLang ?? "en";
+    const outputLang: "en" | "bn" = uiLang === "bn" ? "bn" : "en";
     const { data, error } = await supabase
       .from("symptom_logs")
       .select("id, logged_at, title, description, severity, symptom_codes")
@@ -200,14 +268,14 @@ export async function GET(
       title,
       description,
     };
-    let insight = buildInsight(insightInput);
+    let insight = buildInsight(insightInput, outputLang);
     let suggestions: string[] = [];
     try {
       const ctx = await fetchRiskRulesContext(insightInput);
       if (ctx) {
         const [ragInsight, ragSuggestions] = await Promise.all([
-          buildRagRiskInsightFromContext(ctx, insightInput),
-          buildRagSuggestionsFromContext(ctx, insightInput),
+          buildRagRiskInsightFromContext(ctx, insightInput, languageTag),
+          buildRagSuggestionsFromContext(ctx, insightInput, languageTag),
         ]);
         if (ragInsight) insight = ragInsight;
         suggestions = ragSuggestions;
