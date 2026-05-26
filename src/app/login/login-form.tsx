@@ -4,7 +4,7 @@ import { Suspense, useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, useReducedMotion } from "framer-motion";
-import { Mail, Lock, ChevronRight } from "lucide-react";
+import { Mail, Lock, ChevronRight, Eye, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AuthShell } from "@/components/app/AuthShell";
@@ -45,6 +45,7 @@ function LoginFormInner() {
   const reducedMotion = useReducedMotion();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [authPhase, setAuthPhase] = useState<AuthUiPhase>("idle");
   const [otpPhase, setOtpPhase] = useState<OtpUiPhase>("hidden");
   const [otpCode, setOtpCode] = useState("");
@@ -232,16 +233,25 @@ function LoginFormInner() {
                 <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="password"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   placeholder="••••••••"
-                  className="min-w-0 pl-9"
+                  className="min-w-0 pl-9 pr-10"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
                     clearFormError();
                   }}
                 />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((prev) => !prev)}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
             </div>
             <Button type="submit" disabled={busy} className="w-full rounded-full">

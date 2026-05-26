@@ -7,9 +7,10 @@ import { dispatchPushNow } from "@/lib/push/dispatch-now";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
+const bodySchema = z.object({ liked: z.boolean().optional() });
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ postId: string }> },
 ) {
   try {
@@ -18,6 +19,10 @@ export async function POST(
 
     const parsedId = uuid.safeParse((await context.params).postId);
     if (!parsedId.success) return failJson(400, "Invalid post.");
+
+    const rawBody = await req.json().catch(() => ({}));
+    const parsedBody = bodySchema.safeParse(rawBody);
+    const desiredLiked = parsedBody.success ? parsedBody.data.liked : undefined;
 
     const supabase = await createSupabaseServerClient();
     const uid = session.id;
@@ -40,28 +45,59 @@ export async function POST(
       return failJson(500, "Could not update like.");
     }
 
-    if (existing) {
-      const { error: delErr } = await supabase
-        .from("community_post_likes")
-        .delete()
-        .eq("post_id", postId)
-        .eq("user_id", uid);
+    const hasLike = !!existing;
+    let likedAfter: boolean;
+    let didInsert = false;
 
-      if (delErr) {
-        console.error("like delete", delErr);
-        return failJson(500, "Could not update like.");
+    if (desiredLiked === undefined) {
+      likedAfter = !hasLike;
+      if (hasLike) {
+        const { error: delErr } = await supabase
+          .from("community_post_likes")
+          .delete()
+          .eq("post_id", postId)
+          .eq("user_id", uid);
+        if (delErr) {
+          console.error("like delete", delErr);
+          return failJson(500, "Could not update like.");
+        }
+      } else {
+        const { error: insErr } = await supabase.from("community_post_likes").insert({
+          post_id: postId,
+          user_id: uid,
+        });
+        if (insErr) {
+          console.error("like insert", insErr);
+          const hint =
+            process.env.NODE_ENV === "development" ? insErr.message : "Could not update like.";
+          return failJson(500, hint);
+        }
+        didInsert = true;
       }
     } else {
-      const { error: insErr } = await supabase.from("community_post_likes").insert({
-        post_id: postId,
-        user_id: uid,
-      });
-
-      if (insErr) {
-        console.error("like insert", insErr);
-        const hint =
-          process.env.NODE_ENV === "development" ? insErr.message : "Could not update like.";
-        return failJson(500, hint);
+      likedAfter = desiredLiked;
+      if (desiredLiked && !hasLike) {
+        const { error: insErr } = await supabase.from("community_post_likes").insert({
+          post_id: postId,
+          user_id: uid,
+        });
+        if (insErr) {
+          console.error("like insert", insErr);
+          const hint =
+            process.env.NODE_ENV === "development" ? insErr.message : "Could not update like.";
+          return failJson(500, hint);
+        }
+        didInsert = true;
+      } else if (!desiredLiked && hasLike) {
+        const { error: delErr } = await supabase
+          .from("community_post_likes")
+          .delete()
+          .eq("post_id", postId)
+          .eq("user_id", uid);
+        if (delErr) {
+          console.error("like delete", delErr);
+          return failJson(500, "Could not update like.");
+        }
       }
     }
 
@@ -70,12 +106,12 @@ export async function POST(
       .select("*", { count: "exact", head: true })
       .eq("post_id", postId);
 
-    if (!existing) {
-      await dispatchPushNow();
+    if (didInsert) {
+      void dispatchPushNow();
     }
 
     return Response.json({
-      liked: !existing,
+      liked: likedAfter,
       likeCount: count ?? 0,
     });
   } catch (e) {

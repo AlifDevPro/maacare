@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { Lock } from "lucide-react";
+import { Eye, EyeOff, Lock } from "lucide-react";
 import { AuthShell } from "@/components/app/AuthShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +80,7 @@ export default function ResetPage() {
 }
 
 function Field({ id, label, value, onChange }: { id: string; label: string; value: string; onChange: (v: string) => void }) {
+  const [showPassword, setShowPassword] = useState(false);
   return (
     <div>
       <Label htmlFor={id}>{label}</Label>
@@ -87,13 +88,22 @@ function Field({ id, label, value, onChange }: { id: string; label: string; valu
         <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           id={id}
-          type="password"
+          type={showPassword ? "text" : "password"}
           autoComplete={id === "password" ? "new-password" : "new-password"}
           placeholder="••••••••"
-          className="min-w-0 pl-9"
+          className="min-w-0 pl-9 pr-10"
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
+        <button
+          type="button"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+          aria-label={showPassword ? "Hide password" : "Show password"}
+          aria-pressed={showPassword}
+          onClick={() => setShowPassword((prev) => !prev)}
+        >
+          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
       </div>
     </div>
   );

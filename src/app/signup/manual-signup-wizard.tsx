@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
-import { Mail, Lock, User } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, User } from "lucide-react";
 import { JourneyStatusPicker, type ProfessionValue } from "@/components/profile/journey-profession-pickers";
 import { SignupProfessionPicker } from "@/components/signup/signup-profession-picker";
 import { StepProgressRail } from "@/components/onboarding/step-progress-rail";
@@ -28,6 +28,7 @@ import {
 import { defaultPrimaryUseForProfession } from "@/lib/profile/primary-use-case";
 import type { PrimaryUseCaseValue } from "@/lib/profile/primary-use-case";
 import {
+  accountStepCanContinue,
   validateAccountCredentials,
   validateProfession,
   validateTermsAccepted,
@@ -117,7 +118,9 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
   const [email, setEmail] = useState("");
   const [emailRegistered, setEmailRegistered] = useState<boolean | null>(null);
   const [emailLookupPending, setEmailLookupPending] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const [pregnancyStatus, setPregnancyStatus] = useState<
     "planning" | "pregnant" | "postpartum" | "not_applicable"
@@ -373,8 +376,13 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
 
     const accountStepInvalid =
       current.id === "account" &&
-      (!isValidEmailFormat(email.trim()) ||
-        (emailRegistered === true && !emailLookupPending));
+      !accountStepCanContinue({
+        name,
+        email,
+        password,
+        emailRegistered,
+        emailLookupPending,
+      });
     const finishStepInvalid = isLast && !terms;
 
     onNavChange({
@@ -391,7 +399,9 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
     });
   }, [
     current,
+    name,
     email,
+    password,
     emailConfirmSent,
     emailLookupPending,
     emailRegistered,
@@ -481,6 +491,9 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
                 autoComplete="name"
               />
             </div>
+            {!name.trim() ? (
+              <p className="mt-1.5 text-xs text-muted-foreground">Enter your full name to continue.</p>
+            ) : null}
           </div>
           <div>
             <Label htmlFor="email">{t("email")}</Label>
@@ -496,8 +509,13 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
+                  setEmailTouched(false);
                   setFormError(null);
                   setEmailRegistered(null);
+                }}
+                onBlur={() => {
+                  setEmail((prev) => prev.trim());
+                  setEmailTouched(true);
                 }}
               />
             </div>
@@ -512,7 +530,7 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
                 </Link>
               </p>
             ) : null}
-            {email.trim() && !isValidEmailFormat(email.trim()) ? (
+            {emailTouched && email.trim() && !isValidEmailFormat(email.trim()) ? (
               <p className="mt-1.5 text-xs text-destructive">{t("signup_wizard_email_invalid")}</p>
             ) : null}
           </div>
@@ -522,17 +540,31 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
               <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="new-password"
                 placeholder={t("signup_wizard_password_hint")}
-                className={`${fieldBase} pl-9`}
+                className={`${fieldBase} pl-9 pr-10`}
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
                   setFormError(null);
                 }}
               />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((prev) => !prev)}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
+            {password.length > 0 && password.length < 8 ? (
+              <p className="mt-1.5 text-xs text-destructive">{t("signup_wizard_password_hint")}</p>
+            ) : (
+              <p className="mt-1.5 text-xs text-muted-foreground">{t("signup_wizard_password_hint")}</p>
+            )}
           </div>
         </div>
       )}

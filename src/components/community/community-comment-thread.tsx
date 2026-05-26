@@ -40,6 +40,8 @@ type CommentBranchProps = {
   /** Index among siblings (for connector); roots omit. */
   siblingIndex?: number;
   siblingCount?: number;
+  parentAuthorName?: string;
+  parentBodyPreview?: string;
 };
 
 /** Vertical continuation rails (Facebook-style stacked thread). */
@@ -121,6 +123,8 @@ function CommentBranch({
   onToggleThread,
   siblingIndex = 0,
   siblingCount = 1,
+  parentAuthorName,
+  parentBodyPreview,
 }: CommentBranchProps) {
   const safeDepth = Math.min(depth, 8);
   const hasChildren = node.children.length > 0;
@@ -146,7 +150,7 @@ function CommentBranch({
   const isLastSibling = siblingIndex >= siblingCount - 1;
 
   return (
-    <div className="min-w-0">
+    <div className={cn("min-w-0", safeDepth > 0 && "pl-2 sm:pl-3")}>
       <div className={cn("flex gap-1.5 sm:gap-2", safeDepth > 0 ? "py-1.5" : "py-2 sm:py-2")}>
         {safeDepth > 0 ? (
           <>
@@ -165,7 +169,20 @@ function CommentBranch({
               fallbackClassName="bg-muted text-[10px] font-semibold text-muted-foreground sm:text-xs"
             />
           </div>
-          <div className={cn("min-w-0 flex-1 border-b border-border/45", safeDepth > 0 ? "pb-2" : "pb-3")}>
+          <div
+            className={cn(
+              "min-w-0 flex-1 border-b border-border/45",
+              safeDepth > 0 ? "rounded-lg bg-muted/20 px-2.5 py-2" : "pb-3",
+            )}
+          >
+            {safeDepth > 0 && parentAuthorName ? (
+              <p className="mb-1.5 truncate text-[11px] font-medium text-muted-foreground">
+                Replying to <span className="text-foreground/85">{parentAuthorName}</span>
+                {parentBodyPreview ? (
+                  <span className="ml-1.5 text-muted-foreground/85">• {parentBodyPreview}</span>
+                ) : null}
+              </p>
+            ) : null}
             <div
               className={cn(
                 "rounded-xl px-0 py-0",
@@ -227,7 +244,7 @@ function CommentBranch({
                 Hide replies
               </button>
               <div className="space-y-0.5 pl-2 sm:pl-3">
-                <div className="space-y-0">
+                <div className="space-y-0 border-l border-border/45 pl-2.5 sm:pl-3">
                   {node.children.map((child, idx) => (
                     <CommentBranch
                       key={child.id}
@@ -241,6 +258,8 @@ function CommentBranch({
                       onToggleThread={onToggleThread}
                       siblingIndex={idx}
                       siblingCount={node.children.length}
+                      parentAuthorName={node.authorDisplayName}
+                      parentBodyPreview={node.body.trim().slice(0, 64)}
                     />
                   ))}
                 </div>

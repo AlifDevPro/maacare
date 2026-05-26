@@ -28,9 +28,11 @@ export function AuthShell({
 }) {
   return (
     <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden bg-gradient-hero">
-      <header className="flex min-w-0 items-center justify-between gap-2 px-4 py-5">
-        <MaaCareLogo href="/" size="lg" className="min-w-0" />
-        <GlobalLanguageSwitcher align="end" />
+      <header className="w-full px-3 py-5 sm:px-4">
+        <div className="mx-auto flex w-full min-w-0 items-center justify-between gap-2 sm:max-w-md">
+          <MaaCareLogo href="/" size="md" className="min-w-0" />
+          <GlobalLanguageSwitcher align="end" />
+        </div>
       </header>
       <main className="flex w-full min-w-0 max-w-full flex-1 items-center justify-center px-3 py-6 sm:px-4 sm:py-8">
         <Card

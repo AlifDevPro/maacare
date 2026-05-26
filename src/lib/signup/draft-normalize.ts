@@ -90,9 +90,9 @@ export function normalizeSignupDraftFromUserText(
 
   if (!next.profession) {
     if (CLINICIAN_RE.test(combined)) {
-      next = { ...next, profession: "clinician" };
+      next = { ...next, profession: "clinician", primaryUseCase: "clinician" };
     } else if (PARENT_RE.test(combined) && !STUDENT_RESEARCHER_RE.test(combined)) {
-      next = { ...next, profession: "parent_caregiver" };
+      next = { ...next, profession: "parent_caregiver", primaryUseCase: "self_maternal" };
     } else if (STUDENT_RESEARCHER_RE.test(combined)) {
       next = { ...next, profession: "student_researcher", primaryUseCase: "student_research" };
       const raw = latestUserText.trim();
@@ -100,6 +100,14 @@ export function normalizeSignupDraftFromUserText(
         next = { ...next, healthNotes: appendHealthNoteLine(next.healthNotes, raw) };
       }
     }
+  }
+
+  if (next.profession === "clinician" && !next.primaryUseCase) {
+    next = { ...next, primaryUseCase: "clinician" };
+  } else if (next.profession === "student_researcher" && !next.primaryUseCase) {
+    next = { ...next, primaryUseCase: "student_research" };
+  } else if (next.profession === "parent_caregiver" && !next.primaryUseCase) {
+    next = { ...next, primaryUseCase: "self_maternal" };
   }
 
   return next;

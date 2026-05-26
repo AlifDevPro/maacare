@@ -79,7 +79,7 @@ function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-        <MaaCareLogo href="/" size="lg" wordmarkClassName="text-xl" />
+        <MaaCareLogo href="/" size="md" wordmarkClassName="text-lg" />
         <nav className="hidden items-center gap-7 md:flex">
           <a href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground">
             {t("header_features")}
@@ -422,7 +422,8 @@ function TeamSpotCard({
 }) {
   const primary = emphasis === "primary";
   const prefersReducedMotion = useReducedMotion();
-  const revealBio = prefersReducedMotion === true;
+  const [manualBioOpen, setManualBioOpen] = useState(false);
+  const revealBio = prefersReducedMotion === true || manualBioOpen;
   return (
     <div className={TEAM_CARD_OUTER}>
       <Card
@@ -456,7 +457,6 @@ function TeamSpotCard({
                   ? "mb-2 max-h-[min(13rem,42vh)] py-2.5 opacity-100"
                   : cn(
                       "mb-0 max-h-0 py-0 opacity-0 group-hover/card:mb-2 group-hover/card:max-h-[min(13rem,42vh)] group-hover/card:py-2.5 group-hover/card:opacity-100 group-focus-within/card:mb-2 group-focus-within/card:max-h-[min(13rem,42vh)] group-focus-within/card:py-2.5 group-focus-within/card:opacity-100",
-                      "[@media(hover:none)]:mb-2 [@media(hover:none)]:max-h-[min(10rem,38vh)] [@media(hover:none)]:py-2.5 [@media(hover:none)]:opacity-100",
                     ),
               )}
             >
@@ -465,6 +465,17 @@ function TeamSpotCard({
                 {m.bio}
               </p>
             </div>
+          ) : null}
+          {m.bio ? (
+            <button
+              type="button"
+              className="mb-2 w-fit rounded-full border border-white/20 bg-black/35 px-2.5 py-1 text-[11px] font-semibold text-white/90 backdrop-blur hover:bg-black/45"
+              aria-expanded={manualBioOpen}
+              aria-label={manualBioOpen ? "Hide details" : "Show details"}
+              onClick={() => setManualBioOpen((prev) => !prev)}
+            >
+              {manualBioOpen ? "Hide details" : "Show details"}
+            </button>
           ) : null}
           <h3 className="font-display text-lg font-semibold leading-tight text-white drop-shadow-sm sm:text-xl">{m.name}</h3>
           <p className="mt-1 text-sm font-medium text-white/90">{m.jobTitle}</p>

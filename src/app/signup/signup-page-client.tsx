@@ -126,9 +126,7 @@ export function SignupPageClient() {
       ? "choose"
       : phase === "manual"
         ? `manual-${wizardNav?.stepId ?? "loading"}`
-        : wizardNav
-          ? "ai-account"
-          : "ai-chat";
+        : "ai-signup";
 
   return (
     <SignupFlowShell

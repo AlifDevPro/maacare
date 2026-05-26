@@ -13,6 +13,8 @@ import {
   Table2,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -102,6 +104,7 @@ export default function KnowledgePage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteMode, setDeleteMode] = useState<DeleteMode>("ids");
   const [deletePassword, setDeletePassword] = useState("");
+  const [deletePasswordVisible, setDeletePasswordVisible] = useState(false);
   const [deleteTargetIds, setDeleteTargetIds] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
 
@@ -639,7 +642,10 @@ export default function KnowledgePage() {
         onOpenChange={(o) => {
           if (deleting && !o) return;
           setDeleteOpen(o);
-          if (!o) setDeletePassword("");
+          if (!o) {
+            setDeletePassword("");
+            setDeletePasswordVisible(false);
+          }
         }}
       >
         <DialogContent className={cn("sm:max-w-md", adminFormFieldClasses)}>
@@ -655,14 +661,26 @@ export default function KnowledgePage() {
           </DialogHeader>
           <div className="grid gap-1.5 py-2">
             <Label htmlFor="admin-delete-password">Admin password</Label>
-            <Input
-              id="admin-delete-password"
-              type="password"
-              value={deletePassword}
-              onChange={(e) => setDeletePassword(e.target.value)}
-              placeholder="Enter your account password"
-              autoComplete="current-password"
-            />
+            <div className="relative">
+              <Input
+                id="admin-delete-password"
+                type={deletePasswordVisible ? "text" : "password"}
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Enter your account password"
+                autoComplete="current-password"
+                className="pr-10"
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                aria-label={deletePasswordVisible ? "Hide password" : "Show password"}
+                aria-pressed={deletePasswordVisible}
+                onClick={() => setDeletePasswordVisible((prev) => !prev)}
+              >
+                {deletePasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleting}>

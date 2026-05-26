@@ -13,12 +13,8 @@ type Props = {
   className?: string;
 };
 
-/**
- * Single-hinge padlock: shackle pivots only at the left foot (20, 40).
- * Unlock = rotate open from that one point — no lift on both legs.
- */
-const PIVOT_X = 20;
-const PIVOT_Y = 40;
+const PIVOT_X = 22;
+const PIVOT_Y = 39;
 
 export function LoginAuthLockOverlay({
   phase,
@@ -41,22 +37,27 @@ export function LoginAuthLockOverlay({
       aria-busy={!unlocked}
     >
       <svg
-        viewBox="0 0 72 88"
+        viewBox="0 0 80 96"
         className="h-[5.5rem] w-[5.5rem] text-primary"
         fill="none"
         aria-hidden
       >
-        {/* Shackle — rotates around left hinge only */}
+        {/* Shackle: lift slightly, then open from left hinge. */}
         <motion.g
           initial={false}
-          animate={{ rotate: unlocked ? -58 : 0 }}
+          animate={
+            unlocked
+              ? reduced
+                ? { rotate: -42, y: -1 }
+                : { rotate: [-2, -6, -42], y: [0, -4, -1] }
+              : { rotate: 0, y: 0 }
+          }
           transition={
             reduced
               ? { duration: 0.2 }
               : {
-                  type: "spring",
-                  stiffness: 300,
-                  damping: 22,
+                  duration: 0.62,
+                  ease: [0.22, 0.8, 0.2, 1],
                 }
           }
           style={{
@@ -65,7 +66,7 @@ export function LoginAuthLockOverlay({
           }}
         >
           <path
-            d="M20 40 V24 C20 14.06 27.06 7 37 7 C46.94 7 54 14.06 54 24 V40"
+            d="M22 39 V24.5 C22 14.7 29.2 8 39.5 8 C49.8 8 57 14.7 57 24.5 V39"
             stroke="currentColor"
             strokeWidth="3.25"
             strokeLinecap="round"
@@ -73,12 +74,15 @@ export function LoginAuthLockOverlay({
           />
         </motion.g>
 
-        {/* Body covers shackle feet */}
-        <rect
-          x="11"
+        {/* Body */}
+        <motion.rect
+          initial={false}
+          animate={unlocked && !reduced ? { y: [0, 1.2, 0] } : { y: 0 }}
+          transition={{ duration: 0.34, ease: "easeOut" }}
+          x="12"
           y="36"
-          width="50"
-          height="44"
+          width="55"
+          height="46"
           rx="9"
           stroke="currentColor"
           strokeWidth="2.75"
@@ -86,16 +90,16 @@ export function LoginAuthLockOverlay({
           fillOpacity={0.1}
         />
         <path
-          d="M11 44 H61"
+          d="M12 45 H67"
           stroke="currentColor"
           strokeWidth="1.5"
           strokeOpacity={0.35}
         />
 
-        {/* Right latch slot — hidden when open */}
+        {/* Latch notch fades as it unlocks */}
         <motion.rect
-          x="50"
-          y="38"
+          x="55"
+          y="38.5"
           width="5"
           height="7"
           rx="1"
@@ -111,9 +115,9 @@ export function LoginAuthLockOverlay({
           animate={{ opacity: unlocked ? 0 : 1 }}
           transition={{ duration: 0.18 }}
         >
-          <circle cx="36" cy="56" r="4.5" fill="currentColor" />
+          <circle cx="40" cy="57" r="4.7" fill="currentColor" />
           <path
-            d="M36 60.5 V68"
+            d="M40 61.7 V70"
             stroke="currentColor"
             strokeWidth="2.75"
             strokeLinecap="round"

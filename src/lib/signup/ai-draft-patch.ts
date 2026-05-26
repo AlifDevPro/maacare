@@ -42,6 +42,10 @@ export const signupAiDraftPatchSchema = z
     timezone: z.string().max(120).optional(),
     notifyCommunityActivity: z.boolean().optional(),
     notifyDailyReminders: z.boolean().optional(),
+    clinicianSpecialty: z.string().max(200).optional(),
+    clinicianInstitution: z.string().max(200).optional(),
+    studentAffiliation: z.string().max(200).optional(),
+    studentFieldOfStudy: z.string().max(200).optional(),
   })
   .strict();
 
@@ -104,5 +108,9 @@ export function mergeSignupProfileDraft(base: SignupProfileDraft, patch: SignupA
   if (patch.timezone !== undefined) next.timezone = patch.timezone;
   if (patch.notifyCommunityActivity !== undefined) next.notifyCommunityActivity = patch.notifyCommunityActivity;
   if (patch.notifyDailyReminders !== undefined) next.notifyDailyReminders = patch.notifyDailyReminders;
+  if (patch.clinicianSpecialty !== undefined) next.clinicianSpecialty = patch.clinicianSpecialty;
+  if (patch.clinicianInstitution !== undefined) next.clinicianInstitution = patch.clinicianInstitution;
+  if (patch.studentAffiliation !== undefined) next.studentAffiliation = patch.studentAffiliation;
+  if (patch.studentFieldOfStudy !== undefined) next.studentFieldOfStudy = patch.studentFieldOfStudy;
   return next;
 }

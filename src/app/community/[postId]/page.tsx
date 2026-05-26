@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { formatDistanceToNow } from "date-fns";
-import { Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Trash2 } from "lucide-react";
+import { Flag, Loader2, MessageCircle, MoreHorizontal, Pencil, Send, Shield, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useSession } from "@/lib/auth-client";
 import { CommunityAvatar } from "@/components/community/community-avatar";
+import { CommunityLikeButton } from "@/components/community/community-like-button";
 import {
   CommunityAuthorBadges,
   authorRowHighlightClass,
@@ -129,9 +130,8 @@ export default function PostDetailPage() {
   >("spam");
   const [reportDetails, setReportDetails] = useState("");
   const [reporting, setReporting] = useState(false);
-  const likeRequestIdRef = useRef(0);
-
   const validId = UUID_RE.test(rawId);
+  const likeSyncPendingRef = useRef(false);
 
   const loadAll = useCallback(async () => {
     if (!validId) {
@@ -185,7 +185,15 @@ export default function PostDetailPage() {
       if (!rp.ok || !rc.ok) return;
       const pj = (await rp.json()) as { post: PostPayload };
       const cj = (await rc.json()) as { comments: CommentRow[] };
-      setPost(pj.post);
+      setPost((prev) => {
+        if (!prev) return pj.post;
+        if (!likeSyncPendingRef.current) return pj.post;
+        return {
+          ...pj.post,
+          likedByMe: prev.likedByMe,
+          likeCount: prev.likeCount,
+        };
+      });
       setComments(cj.comments ?? []);
     } catch {
       /* keep existing UI */
@@ -203,49 +211,19 @@ export default function PostDetailPage() {
     return () => window.clearTimeout(t);
   }, [loadAll]);
 
-  async function toggleLike() {
-    if (!post) return;
-    const reqId = ++likeRequestIdRef.current;
-    const postId = post.id;
-    const prevLiked = post.likedByMe;
-    const prevCount = post.likeCount;
-    const nextLiked = !prevLiked;
-    setPost((prev) =>
-      prev && prev.id === postId
-        ? { ...prev, likedByMe: nextLiked, likeCount: Math.max(0, prev.likeCount + (nextLiked ? 1 : -1)) }
-        : prev,
-    );
-    try {
-      const res = await fetch(`/api/community/posts/${postId}/like`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        liked?: boolean;
-        likeCount?: number;
-        message?: string;
-      };
-      if (!res.ok) throw new Error(j.message ?? "Could not update like");
-      if (likeRequestIdRef.current !== reqId) return;
-      setPost((prev) =>
-        prev && prev.id === postId
-          ? {
-              ...prev,
-              likedByMe: !!j.liked,
-              likeCount: typeof j.likeCount === "number" ? j.likeCount : prev.likeCount,
-            }
-          : prev,
-      );
-      dispatchNotificationsUpdated();
-    } catch (e) {
-      if (likeRequestIdRef.current === reqId) {
-        setPost((prev) =>
-          prev && prev.id === postId ? { ...prev, likedByMe: prevLiked, likeCount: prevCount } : prev,
-        );
-        toast.error(e instanceof Error ? e.message : "Could not update like");
-      }
-    }
-  }
+  const handleLikeUpdate = useCallback(
+    (_postId: string, patch: { likedByMe: boolean; likeCount: number }) => {
+      setPost((prev) => (prev ? { ...prev, ...patch } : prev));
+    },
+    [],
+  );
+
+  const handleLikePendingChange = useCallback(
+    (_postId: string, pending: boolean) => {
+      likeSyncPendingRef.current = pending;
+    },
+    [],
+  );
 
   async function sendReply(e: React.FormEvent) {
     e.preventDefault();
@@ -715,24 +693,13 @@ export default function PostDetailPage() {
           {post.title ? <p className="mb-2 font-display text-base font-semibold">{post.title}</p> : null}
           <CommunityPostBody body={post.body} bodyFormat={post.bodyFormat} className="text-sm" />
           <div className="mt-3 flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              className={cn(
-                COMMUNITY_ACTION,
-                post.likedByMe ? "text-primary hover:bg-primary/10" : "text-muted-foreground",
-              )}
-              onClick={() => void toggleLike()}
-              aria-label={post.likedByMe ? "Unlike" : "Like"}
-            >
-              <Heart
-                className={cn(
-                  "h-5 w-5",
-                  COMMUNITY_ACTION_ICON,
-                  post.likedByMe && "fill-current text-primary",
-                )}
-              />
-              {post.likeCount > 0 ? <span>{post.likeCount}</span> : null}
-            </button>
+            <CommunityLikeButton
+              postId={post.id}
+              likedByMe={post.likedByMe}
+              likeCount={post.likeCount}
+              onUpdate={handleLikeUpdate}
+              onPendingChange={handleLikePendingChange}
+            />
             <a
               href="#community-reply-composer"
               className={cn(COMMUNITY_ACTION, "text-muted-foreground no-underline")}

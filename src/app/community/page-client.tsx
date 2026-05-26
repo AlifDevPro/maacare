@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import {
-  Heart,
   Loader2,
   MessageCircle,
   MoreHorizontal,
@@ -57,8 +56,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useSession } from "@/lib/auth-client";
-import { dispatchNotificationsUpdated } from "@/lib/notifications/events";
 import { CommunityAvatar } from "@/components/community/community-avatar";
+import { CommunityLikeButton } from "@/components/community/community-like-button";
 import {
   CommunityAuthorBadges,
   authorRowHighlightClass,
@@ -181,7 +180,6 @@ export default function CommunityPageClient({
   >("spam");
   const [reportDetails, setReportDetails] = useState("");
   const [reporting, setReporting] = useState(false);
-  const [pendingLikeIds, setPendingLikeIds] = useState<Set<string>>(new Set());
   const [feedSort, setFeedSort] = useState<"new" | "trending">("new");
   const [forYouPosts, setForYouPosts] = useState<FeedPost[]>([]);
   const [forYouLoaded, setForYouLoaded] = useState(false);
@@ -355,54 +353,12 @@ export default function CommunityPageClient({
     void loadPosts();
   }, [loadPosts, debouncedSearch, feedSort]);
 
-  async function toggleLike(postId: string) {
-    if (pendingLikeIds.has(postId)) return;
-    const target = posts.find((p) => p.id === postId);
-    if (!target) return;
-    const nextLiked = !target.likedByMe;
-    const optimisticCount = Math.max(0, target.likeCount + (nextLiked ? 1 : -1));
-    setPendingLikeIds((prev) => new Set(prev).add(postId));
-    setPosts((prev) =>
-      prev.map((p) => (p.id === postId ? { ...p, likedByMe: nextLiked, likeCount: optimisticCount } : p)),
-    );
-    try {
-      const res = await fetch(`/api/community/posts/${postId}/like`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        liked?: boolean;
-        likeCount?: number;
-        message?: string;
-      };
-      if (!res.ok) throw new Error(j.message ?? "Could not update like");
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === postId
-            ? {
-                ...p,
-                likedByMe: !!j.liked,
-                likeCount: typeof j.likeCount === "number" ? j.likeCount : p.likeCount,
-              }
-            : p,
-        ),
-      );
-      dispatchNotificationsUpdated();
-    } catch (err) {
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === postId ? { ...p, likedByMe: target.likedByMe, likeCount: target.likeCount } : p,
-        ),
-      );
-      toast.error(err instanceof Error ? err.message : t("toast_like"));
-    } finally {
-      setPendingLikeIds((prev) => {
-        const next = new Set(prev);
-        next.delete(postId);
-        return next;
-      });
-    }
-  }
+  const handleLikeUpdate = useCallback(
+    (postId: string, patch: { likedByMe: boolean; likeCount: number }) => {
+      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, ...patch } : p)));
+    },
+    [],
+  );
 
   async function saveEdit() {
     if (!editPost || (editRich ? isRichPostBodyEmpty(editBody) : !editBody.trim())) {
@@ -860,25 +816,12 @@ export default function CommunityPageClient({
                     </Link>
                   </div>
                   <div className="flex flex-wrap items-center gap-1 px-2 pb-3 pt-1 sm:px-4">
-                    <button
-                      type="button"
-                      className={cn(
-                        COMMUNITY_ACTION,
-                        p.likedByMe ? "text-primary hover:bg-primary/10" : "text-muted-foreground",
-                      )}
-                      onClick={() => void toggleLike(p.id)}
-                      disabled={pendingLikeIds.has(p.id)}
-                      aria-label={p.likedByMe ? "Unlike" : "Like"}
-                    >
-                      <Heart
-                        className={cn(
-                          "h-5 w-5",
-                          COMMUNITY_ACTION_ICON,
-                          p.likedByMe && "fill-current text-primary",
-                        )}
-                      />
-                      {p.likeCount > 0 ? <span>{p.likeCount}</span> : null}
-                    </button>
+                    <CommunityLikeButton
+                      postId={p.id}
+                      likedByMe={p.likedByMe}
+                      likeCount={p.likeCount}
+                      onUpdate={handleLikeUpdate}
+                    />
                     <Link
                       href={`/community/${p.id}`}
                       onClick={saveFeedScroll}

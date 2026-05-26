@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
-import { Loader2, Mail, Lock, Send } from "lucide-react";
+import { Eye, EyeOff, Loader2, Mail, Lock, Send } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -24,6 +24,10 @@ import {
   collectRecentUserBodiesBeforeLatest,
   normalizeSignupDraftFromUserText,
 } from "@/lib/signup/draft-normalize";
+import {
+  deriveOnboardingFocus,
+  fallbackQuestionForOnboardingFocus,
+} from "@/lib/signup/onboarding-focus";
 import { emptyAiSignupProfileDraft, type SignupProfileDraft } from "@/lib/signup/signup-draft";
 import {
   signupDraftReadyForCredentials,
@@ -40,7 +44,7 @@ const SEED: Msg[] = [
   {
     role: "assistant",
     content:
-      "Hi — I’ll help you set up MaaCare with a quick chat.\n\n**How should we call you?**\n\n(Your **email** and **password** are entered only on the secure step below — never paste them here.)",
+      "Hi, I’ll help you set up MaaCare with a quick chat.\n\n**How should we call you?**\n\n(Your **email** and **password** are entered only on the secure step below — never paste them here.)",
   },
 ];
 
@@ -65,6 +69,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [terms, setTerms] = useState(false);
   const [emailRegistered, setEmailRegistered] = useState<boolean | null>(null);
   const [emailLookupPending, setEmailLookupPending] = useState(false);
@@ -121,6 +126,9 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
     const text = input.trim();
     if (!text || sending) return;
     const nextMsgs: Msg[] = [...messages, { role: "user", content: text }];
+    const outboundDraft = normalizeSignupDraftFromUserText(draft, text, {
+      recentUserTexts: collectRecentUserBodiesBeforeLatest(nextMsgs, 4),
+    });
     setInput("");
     setMessages(nextMsgs);
     setSending(true);
@@ -128,7 +136,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
       const res = await fetch("/api/signup/ai-turn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMsgs, draft }),
+        body: JSON.stringify({ messages: nextMsgs, draft: outboundDraft }),
       });
       const j = (await res.json().catch(() => ({}))) as {
         reply?: string;
@@ -154,15 +162,30 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
         ]);
         return;
       }
-      const reply = typeof j.reply === "string" ? j.reply : "";
+      const reply = typeof j.reply === "string" ? j.reply.trim() : "";
+      const resolvedDraft =
+        j.draft ??
+        normalizeSignupDraftFromUserText(outboundDraft, text, {
+          recentUserTexts: collectRecentUserBodiesBeforeLatest(nextMsgs, 4),
+        });
       if (j.draft) {
         setDraft(
           normalizeSignupDraftFromUserText(j.draft, text, {
             recentUserTexts: collectRecentUserBodiesBeforeLatest(nextMsgs, 4),
           }),
         );
+      } else {
+        setDraft(resolvedDraft);
       }
-      setMessages((prev) => [...prev, { role: "assistant", content: reply || "Thanks — tell me a bit more when you’re ready." }]);
+      const { nextFocus } = deriveOnboardingFocus(resolvedDraft);
+      const fallbackQuestion = fallbackQuestionForOnboardingFocus(nextFocus, resolvedDraft);
+      let assistantReply = reply;
+      if (!assistantReply) {
+        assistantReply = fallbackQuestion;
+      } else if (nextFocus !== "ready_for_secure_step" && !assistantReply.includes("?")) {
+        assistantReply = `${assistantReply}\n\n${fallbackQuestion}`;
+      }
+      setMessages((prev) => [...prev, { role: "assistant", content: assistantReply }]);
     } catch {
       setFormError("Network error. Try again.");
     } finally {
@@ -384,9 +407,9 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
               <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="ai-password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="new-password"
-                className={cn(fieldBase, "pl-9")}
+                className={cn(fieldBase, "pl-9 pr-10")}
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
@@ -394,6 +417,15 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
                 }}
                 placeholder="At least 8 characters"
               />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((prev) => !prev)}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
           </div>
           <label className="flex items-start gap-2.5 text-sm">
@@ -412,8 +444,9 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
         </form>
       ) : (
         <p className="text-center text-xs text-muted-foreground">
-          Chat until we have your <strong className="font-medium text-foreground">name</strong> and{" "}
-          <strong className="font-medium text-foreground">role</strong> — then this secure step unlocks.
+          Chat until we have your <strong className="font-medium text-foreground">name</strong>,{" "}
+          <strong className="font-medium text-foreground">role</strong>, and a little role-specific context — then
+          this secure step unlocks.
         </p>
       )}
     </div>
