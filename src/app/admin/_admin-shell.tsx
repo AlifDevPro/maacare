@@ -38,6 +38,7 @@ const nav = [
   { to: "/admin/feedback", label: "Feedback", icon: Inbox },
   { to: "/admin/community", label: "Community", icon: MessageSquare },
   { to: "/admin/knowledge", label: "Knowledge base", icon: BookOpen },
+  { to: "/admin/docs", label: "Live docs", icon: BookOpen },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 

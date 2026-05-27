@@ -28,6 +28,18 @@ export const DOCS_NAV: DocsNavItem[] = [
   },
   { title: "Algorithms", href: "/docs/algorithms" },
   { title: "Architecture", href: "/docs/architecture" },
+  {
+    title: "Live docs (CMS)",
+    href: "/docs/live",
+    children: [
+      { title: "All live sections", href: "/docs/live" },
+      { title: "Problem Definition", href: "/docs/live/problem" },
+      { title: "Solution Overview", href: "/docs/live/solution" },
+      { title: "AI Layer", href: "/docs/live/ai-layer" },
+      { title: "Team", href: "/docs/live/team" },
+      { title: "Changelog", href: "/docs/live/changelog" },
+    ],
+  },
 ];
 
 /** Slugs (path segments after /docs) that map to markdown files in `src/content/docs`. */

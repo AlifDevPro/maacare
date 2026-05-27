@@ -20,18 +20,14 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             onClick={onNavigate}
             className={cn(
               "flex rounded-xl px-3 py-2 text-sm font-medium transition-colors",
-              item.href === "/docs"
-                ? pathname === "/docs"
-                  ? "bg-primary/12 text-primary"
-                  : "text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-                : pathname === item.href || pathname.startsWith(item.href + "/")
+              pathname === item.href || pathname.startsWith(item.href + "/")
                   ? "bg-primary/12 text-primary"
                   : "text-muted-foreground hover:bg-muted/80 hover:text-foreground",
             )}
           >
             {item.title}
           </Link>
-          {item.children && item.href === "/docs/api" ? (
+          {item.children ? (
             <div className="ml-2 space-y-0.5 border-l border-border/60 pl-2">
               {item.children.map((c) => (
                 <Link

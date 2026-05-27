@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 
 import { ApiReferencePage } from "@/components/docs/api-reference-page";
+import { DocsRuntimeRenderer } from "@/components/docs/docs-runtime-renderer";
 import { FeaturesCatalogTable } from "@/components/docs/features-catalog-table";
 import { MarkdownDoc } from "@/components/docs/markdown-doc";
 import { VisualGuidesPage } from "@/components/docs/visual-guides-page";
@@ -14,6 +14,8 @@ import {
   parseApiDocsSlug,
   type DocsMarkdownSlug,
 } from "@/lib/docs/nav";
+import { getDocsLiveMetrics } from "@/lib/docs-runtime/live-matrix";
+import { getDocsRuntimeSnapshot } from "@/lib/docs-runtime/snapshot";
 
 type PageProps = {
   params: Promise<{ slug?: string[] }>;
@@ -21,6 +23,10 @@ type PageProps = {
 
 function titleForSlug(slug: string[] | undefined): string {
   if (!slug?.length) return "Overview";
+  if (slug[0] === "live") {
+    if (slug.length === 1) return "Live docs";
+    return `Live docs — ${decodeURIComponent(slug[1] ?? "section")}`;
+  }
   const api = parseApiDocsSlug(slug);
   if (api !== null) {
     if (api === "all") return "API reference";
@@ -49,22 +55,10 @@ function titleForSlug(slug: string[] | undefined): string {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  if (isApiDocsSlug(slug) && parseApiDocsSlug(slug) === null) {
-    return { title: "Not found — MaaCare Documentation", robots: { index: false, follow: true } };
-  }
-  if (
-    slug?.length &&
-    !isApiDocsSlug(slug) &&
-    !isMarkdownDocsSlug(slug) &&
-    !isVisualGuidesSlug(slug) &&
-    slug.length > 0
-  ) {
-    return { title: "Not found — MaaCare Documentation", robots: { index: false, follow: true } };
-  }
   return {
     title: `${titleForSlug(slug)} — MaaCare Documentation`,
     description: "Product, API, and platform documentation for MaaCare.",
-    robots: { index: false, follow: true },
+    robots: { index: true, follow: true },
   };
 }
 
@@ -73,7 +67,7 @@ export default async function DocsSlugPage({ params }: PageProps) {
 
   const apiView = parseApiDocsSlug(slug);
   if (isApiDocsSlug(slug)) {
-    if (apiView === null) notFound();
+    if (apiView === null) return <MarkdownDoc content={"# Not found\n\nAPI group not found."} />;
     return <ApiReferencePage group={apiView} />;
   }
 
@@ -100,5 +94,20 @@ export default async function DocsSlugPage({ params }: PageProps) {
     return <MarkdownDoc content={content} />;
   }
 
-  notFound();
+  if (slug[0] === "live") {
+    const [snapshot, metrics] = await Promise.all([getDocsRuntimeSnapshot(), getDocsLiveMetrics()]);
+    const sectionSlug = slug[1] ? decodeURIComponent(slug[1]) : null;
+    const filtered =
+      sectionSlug && sectionSlug !== "all"
+        ? {
+            ...snapshot,
+            sections: snapshot.sections.filter((section) => section.slug === sectionSlug),
+          }
+        : snapshot;
+    return <DocsRuntimeRenderer snapshot={filtered} metrics={metrics} />;
+  }
+
+  return (
+    <MarkdownDoc content={"# Not found\n\nThis documentation page was not found. Try the menu on the left."} />
+  );
 }
