@@ -10,6 +10,8 @@ import {
   buildSharedIdentityRules,
 } from "@/lib/ai/prompts/shared";
 import { planResponseForIntent } from "@/lib/ai/response-planner";
+import { executeMcpTool } from "@/lib/ai/mcp/gateway";
+import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { buildOneShotNearbyCatalogBlock } from "@/lib/bd-facilities/chat-nearby-context";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
@@ -60,6 +62,32 @@ export async function POST(req: Request) {
       hasReportContext: false,
       hasNearbyContext: true,
     });
+    const mcpEnabled = process.env.MCP_ENABLED === "1";
+    const mcpPlan = mcpPlanForRoute({
+      route: "nearby_once",
+      intentFamily: "nearby_facilities",
+      requestedTools: ["get_nearby_facilities"],
+      consentToken: null,
+    });
+    const mcpCtx = buildToolCallContext({
+      route: "nearby_once",
+      intentFamily: "nearby_facilities",
+      userId: session.id,
+      allowWrites: mcpPlan.allowWrites,
+      consentToken: null,
+      maxToolCalls: mcpPlan.maxToolCalls,
+    });
+    let mcpCatalog = "";
+    if (mcpEnabled && mcpPlan.allowedTools.includes("get_nearby_facilities")) {
+      const mcpOut = await executeMcpTool({
+        name: "get_nearby_facilities",
+        args: { lat: latitude, lng: longitude },
+        ctx: mcpCtx,
+      });
+      if (mcpOut.ok && typeof mcpOut.data?.catalogText === "string") {
+        mcpCatalog = mcpOut.data.catalogText;
+      }
+    }
 
     const systemInstruction = composeSystemPrompt(
       buildSharedIdentityRules(),
@@ -74,7 +102,12 @@ export async function POST(req: Request) {
       languageBlock,
     );
 
-    const userMessage = ["CATALOG (clinics → hospitals → pharmacies):", "", catalog].join("\n");
+    const userMessage = [
+      "CATALOG (clinics → hospitals → pharmacies):",
+      "",
+      catalog,
+      mcpCatalog ? `\nMCP_CATALOG:\n${mcpCatalog}` : "",
+    ].join("\n");
 
     const out = await generateTextWithGeminiGroqFailover({
       systemInstruction,
@@ -84,6 +117,14 @@ export async function POST(req: Request) {
     return Response.json({
       reply: enforceNaturalResponseQuality(out.text),
       provider: out.provider,
+      ...(process.env.AI_DEBUG_METADATA === "1"
+        ? {
+            debug: {
+              mcpEnabled,
+              mcpDeniedReason: mcpPlan.deniedReason,
+            },
+          }
+        : {}),
     });
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);

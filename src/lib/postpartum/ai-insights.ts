@@ -5,6 +5,8 @@ import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality, sanitizeStructuredTextFields } from "@/lib/ai/quality-guard";
 import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
 import { planResponseForIntent } from "@/lib/ai/response-planner";
+import { executeMcpTool } from "@/lib/ai/mcp/gateway";
+import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
 
@@ -169,6 +171,7 @@ export async function getPostpartumInsightsCached(input: {
   }
 
   let ragContext = "";
+  const mcpEnabled = process.env.MCP_ENABLED === "1";
   try {
     const hits = await searchKnowledge(
       [
@@ -184,6 +187,53 @@ export async function getPostpartumInsightsCached(input: {
         : "";
   } catch (e) {
     console.warn("[postpartum insights] RAG:", e);
+  }
+  if (mcpEnabled) {
+    try {
+      const mcpPlan = mcpPlanForRoute({
+        route: "postpartum_insights",
+        intentFamily: "planning",
+        requestedTools: ["search_medical_knowledge", "get_user_context"],
+        consentToken: null,
+      });
+      if (mcpPlan.allowedTools.includes("search_medical_knowledge")) {
+        const mcpCtx = buildToolCallContext({
+          route: "postpartum_insights",
+          intentFamily: "planning",
+          userId: input.userId,
+          allowWrites: mcpPlan.allowWrites,
+          consentToken: null,
+          maxToolCalls: mcpPlan.maxToolCalls,
+        });
+        const mcpOut = await executeMcpTool({
+          name: "search_medical_knowledge",
+          args: {
+            query: [
+              "Postpartum recovery and maternal mood support",
+              input.postpartumWeek != null ? `week ${input.postpartumWeek}` : "",
+              input.moodKey ?? "",
+            ]
+              .filter(Boolean)
+              .join(" "),
+            language: input.language,
+            audienceType: "member",
+            maxResults: 4,
+            categories: ["postpartum", "education"],
+          },
+          ctx: mcpCtx,
+        });
+        if (mcpOut.ok && Array.isArray(mcpOut.data?.hits)) {
+          const mcpCtxText = (mcpOut.data.hits as Array<{ source?: string; content?: string }>)
+            .map((h, i) => `[MCP-${i + 1}] (${h.source ?? "knowledge"})\n${h.content ?? ""}`)
+            .join("\n\n---\n\n");
+          if (mcpCtxText.trim()) {
+            ragContext = [ragContext, mcpCtxText].filter(Boolean).join("\n\n---\n\n");
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[postpartum insights] MCP:", e);
+    }
   }
 
   let value: PostpartumInsightsPayload;

@@ -9,6 +9,8 @@ import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
 import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
 import { planResponseForIntent } from "@/lib/ai/response-planner";
+import { executeMcpTool } from "@/lib/ai/mcp/gateway";
+import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 import { generateWithGroq, isRateLimitError } from "@/lib/gemini/text-failover";
@@ -240,6 +242,8 @@ export async function POST(req: Request) {
       hasReportContext: true,
       hasNearbyContext: false,
     });
+    const mcpEnabled = process.env.MCP_ENABLED === "1";
+    const consentToken = String(form.get("consentToken") ?? "").trim() || null;
 
     const systemInstruction = composeSystemPrompt(
       buildSharedIdentityRules(),
@@ -256,6 +260,7 @@ export async function POST(req: Request) {
       "If a value is not present, keep it null/empty.",
       languageBlock,
     );
+    let mcpKnowledgeContext = "";
 
     let extractedText = reportTextInput;
     let extractionMode: "provided_text" | "pdf_local" | "ocr_local" | "text_local" | "gemini_file" =
@@ -288,6 +293,45 @@ export async function POST(req: Request) {
         }
       }
     }
+    if (mcpEnabled) {
+      const mcpPlan = mcpPlanForRoute({
+        route: "reports_analyze",
+        intentFamily: "report_explanation",
+        requestedTools: ["search_medical_knowledge"],
+        consentToken,
+      });
+      if (mcpPlan.allowedTools.includes("search_medical_knowledge")) {
+        const mcpCtx = buildToolCallContext({
+          route: "reports_analyze",
+          intentFamily: "report_explanation",
+          userId: session.id,
+          allowWrites: mcpPlan.allowWrites,
+          consentToken,
+          maxToolCalls: mcpPlan.maxToolCalls,
+        });
+        const mcpOut = await executeMcpTool({
+          name: "search_medical_knowledge",
+          args: {
+            query: [
+              reportTitle,
+              extractedText ? clipText(extractedText, 1000) : "",
+              "maternal risk interpretation and safe next steps",
+            ]
+              .filter(Boolean)
+              .join(" "),
+            language: uiLang ?? "en",
+            audienceType: "member",
+            maxResults: 4,
+          },
+          ctx: mcpCtx,
+        });
+        if (mcpOut.ok && Array.isArray(mcpOut.data?.hits)) {
+          mcpKnowledgeContext = (mcpOut.data.hits as Array<{ content?: string }>)
+            .map((h, i) => `[MCP-${i + 1}] ${h.content ?? ""}`)
+            .join("\n");
+        }
+      }
+    }
 
     const userParts: Array<
       { text: string } | { inlineData: { mimeType: string; data: string } }
@@ -297,7 +341,7 @@ export async function POST(req: Request) {
     });
     if (extractedText) {
       userParts.push({
-        text: `Report text (may be extracted from file):\n${clipText(extractedText, MAX_REPORT_TEXT_FOR_AI)}`,
+        text: `Report text (may be extracted from file):\n${clipText(extractedText, MAX_REPORT_TEXT_FOR_AI)}${mcpKnowledgeContext ? `\n\nMCP context:\n${mcpKnowledgeContext}` : ""}`,
       });
     }
     if (includeRawFileForGemini && reportFile instanceof File) {

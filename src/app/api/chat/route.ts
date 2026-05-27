@@ -22,6 +22,9 @@ import {
 } from "@/lib/ai/prompts/shared";
 import { matchRegressionCase } from "@/lib/ai/regression-cases";
 import { planResponseForIntent } from "@/lib/ai/response-planner";
+import { executeMcpTool, executeMcpToolsBatch } from "@/lib/ai/mcp/gateway";
+import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
+import type { McpToolName } from "@/lib/ai/mcp/types";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 import { searchKnowledge } from "@/lib/rag/service";
@@ -51,10 +54,22 @@ const bodySchema = z.object({
     .optional(),
   /** Voice mode: shorter, spoken-style replies (no markdown); slightly higher sampling for variety. */
   replyChannel: z.enum(["text", "voice"]).optional().default("text"),
+  consentToken: z.string().max(200).optional(),
+  requestedAction: z
+    .object({
+      type: z.enum(["create_care_reminder", "log_ai_escalation_event"]),
+      title: z.string().max(140).optional(),
+      whenIso: z.string().datetime().optional(),
+      reason: z.string().max(500).optional(),
+      riskLevel: z.enum(["low", "medium", "high"]).optional(),
+    })
+    .optional(),
 });
 
 const MAX_TRANSCRIPT_TOKENS = 2600;
 const MAX_MESSAGE_CHARS_IN_TRANSCRIPT = 1200;
+const CHAT_PERF_DEBUG = process.env.CHAT_PERF_DEBUG === "1";
+const CHAT_LATENCY_OPTIMIZATIONS = process.env.CHAT_LATENCY_OPTIMIZATIONS !== "0";
 
 function line(label: string, value: string | null | undefined): string {
   return `${label}: ${value && value.trim() ? value.trim() : "n/a"}`;
@@ -120,6 +135,10 @@ function buildBudgetedTranscript(
   }
 
   return rows.join("\n");
+}
+
+function nowMs(): number {
+  return Date.now();
 }
 
 function toFriendlyChatError(err: unknown): {
@@ -198,7 +217,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { messages, reportContext, userLocation, replyChannel } = bodySchema.parse(await req.json());
+    const perfAllStart = nowMs();
+    const perf: Record<string, number> = {};
+    const markPerf = (key: string, start: number) => {
+      if (CHAT_PERF_DEBUG || process.env.AI_DEBUG_METADATA === "1") perf[key] = nowMs() - start;
+    };
+
+    const parseStart = nowMs();
+    const { messages, reportContext, userLocation, replyChannel, consentToken, requestedAction } =
+      bodySchema.parse(await req.json());
+    markPerf("parse_ms", parseStart);
     const isVoiceChannel = replyChannel === "voice";
     const supabase = await createSupabaseServerClient();
 
@@ -214,24 +242,127 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No user message" }, { status: 400 });
     }
 
+    const profileStart = nowMs();
     const profileMini = await supabase
       .from("profiles")
       .select("language, date_of_birth, primary_use_case")
       .eq("id", session.id)
       .maybeSingle();
+    markPerf("profile_lookup_ms", profileStart);
     if (profileMini.error) console.warn("[chat] profile:", profileMini.error.message);
     const profileLang = (profileMini.data?.language as string | null) ?? null;
     const uiLanguagePrior = normalizeUiLanguagePrior(profileLang);
+    const primaryUseCase = (profileMini.data?.primary_use_case as string | null) ?? null;
 
     const lastUserIndex = findLastUserMessageIndex(messages);
     const priorAssistantSnippet =
       lastUserIndex >= 0 ? priorAssistantSnippetBefore(messages, lastUserIndex) : null;
+    const transcriptStart = nowMs();
+    const transcript = buildBudgetedTranscript(messages);
+    markPerf("transcript_build_ms", transcriptStart);
 
-    const multilingualPrep = await resolveLanguageForTurn({
+    const languageStart = nowMs();
+    const languagePrepPromise = resolveLanguageForTurn({
       latestUserMessage: lastUser.content,
       priorAssistantSnippet,
       uiLanguagePrior,
     });
+
+    const careResolveStart = nowMs();
+    const careResolvePromise = resolvePregnancyUserIdForRequester(
+      supabase,
+      session.id,
+      primaryUseCase,
+    );
+    const healthContextPromise = careResolvePromise.then(async ({ pregnancyUserId, activeCare }) => {
+      const vitalsUserId = resolveHealthDataUserId(session.id, primaryUseCase, activeCare, "vitals");
+      const symptomsUserId = resolveHealthDataUserId(session.id, primaryUseCase, activeCare, "symptoms");
+      const [
+        pregnancyRes,
+        healthRes,
+        conditionsRes,
+        allergiesRes,
+        medsRes,
+        vitalsRes,
+        symptomRes,
+        plannerRes,
+        appointmentsRes,
+      ] = await Promise.all([
+        supabase
+          .from("pregnancy_profiles")
+          .select("pregnancy_status, gestational_age_weeks, edd_date, risk_flags")
+          .eq("user_id", pregnancyUserId)
+          .maybeSingle(),
+        supabase
+          .from("user_health_profiles")
+          .select("blood_type, notes, primary_care_provider")
+          .eq("user_id", session.id)
+          .maybeSingle(),
+        supabase
+          .from("medical_conditions")
+          .select("condition_name, status, severity")
+          .eq("user_id", session.id)
+          .order("updated_at", { ascending: false })
+          .limit(8),
+        supabase
+          .from("allergies")
+          .select("name, allergen_type, severity, reaction")
+          .eq("user_id", session.id)
+          .order("updated_at", { ascending: false })
+          .limit(8),
+        supabase
+          .from("medications")
+          .select("name, dose, frequency, is_active")
+          .eq("user_id", session.id)
+          .eq("is_active", true)
+          .order("updated_at", { ascending: false })
+          .limit(8),
+        supabase
+          .from("vital_signs")
+          .select(
+            "recorded_at, systolic_bp, diastolic_bp, heart_rate_bpm, weight_kg, temperature_c, glucose_mg_dl, spo2_pct",
+          )
+          .eq("user_id", vitalsUserId)
+          .order("recorded_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("symptom_logs")
+          .select("logged_at, title, severity, symptom_codes")
+          .eq("user_id", symptomsUserId)
+          .order("logged_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("planner_daily_logs")
+          .select("plan_date, water_glasses, tasks, completion_percent, completed")
+          .eq("user_id", session.id)
+          .order("plan_date", { ascending: false })
+          .limit(7),
+        supabase
+          .from("appointments")
+          .select("title, status, scheduled_at, provider_name, location")
+          .eq("user_id", session.id)
+          .order("scheduled_at", { ascending: false })
+          .limit(5),
+      ]);
+      return {
+        pregnancyUserId,
+        activeCare,
+        pregnancyRes,
+        healthRes,
+        conditionsRes,
+        allergiesRes,
+        medsRes,
+        vitalsRes,
+        symptomRes,
+        plannerRes,
+        appointmentsRes,
+      };
+    });
+
+    const multilingualPrep = await languagePrepPromise;
+    markPerf("language_resolve_ms", languageStart);
     const ietfLanguageTag = multilingualPrep.ietfLanguageTag.trim().toLowerCase() || "en";
     const retrievalQuery = multilingualPrep.englishRetrievalQuery.trim();
     const latestUserOriginal = lastUser.content.trim();
@@ -241,7 +372,6 @@ export async function POST(req: Request) {
     const latestUserRetrievalQuery = retrievalQuery || latestUserOriginal;
     const retrievalQueryExpanded =
       multilingualPrep.queryExpansion.trim() || latestUserRetrievalQuery;
-    const transcript = buildBudgetedTranscript(messages);
 
     const nearbyIntent = mergeNearbyIntents(
       detectNearbyFacilitiesIntent(lastUser.content),
@@ -250,11 +380,13 @@ export async function POST(req: Request) {
 
     const replyLanguageHint =
       multilingualPrep.languageHintForPrompt?.trim() || ietfLanguageTag;
+    const intentStart = nowMs();
     const intent = await detectIntentForTurn({
       latestUserMessage: latestUserOriginal,
       transcriptSnippet: transcript,
       ietfLanguageTag,
     });
+    markPerf("intent_detect_ms", intentStart);
     const responsePlan = planResponseForIntent({
       intent,
       ietfLanguageTag,
@@ -262,12 +394,100 @@ export async function POST(req: Request) {
       hasNearbyContext: Boolean(nearbyIntent && userLocation),
       voice: isVoiceChannel,
     });
-
-    const hits = responsePlan.shouldRetrieveKnowledge
-      ? await searchKnowledge(retrievalQueryExpanded, {
-          limit: 8,
+    const ragLimit = CHAT_LATENCY_OPTIMIZATIONS
+      ? intent.family === "general_health"
+        ? 6
+        : intent.family === "symptom_guidance"
+          ? 6
+          : intent.family === "planning"
+            ? 5
+            : 4
+      : 8;
+    const mcpEnabled = process.env.MCP_ENABLED === "1";
+    const mcpRequestedReadTools: McpToolName[] = [];
+    if (responsePlan.allowedToolFamilies.includes("knowledge") && responsePlan.shouldRetrieveKnowledge) {
+      mcpRequestedReadTools.push("search_medical_knowledge");
+    }
+    if (responsePlan.allowedToolFamilies.includes("facilities") && nearbyIntent && userLocation) {
+      mcpRequestedReadTools.push("get_nearby_facilities");
+    }
+    const mcpPlan = mcpPlanForRoute({
+      route: "chat",
+      intentFamily: intent.family,
+      requestedTools: mcpRequestedReadTools,
+      consentToken,
+    });
+    const mcpCtx = buildToolCallContext({
+      route: "chat",
+      intentFamily: intent.family,
+      userId: session.id,
+      sessionName: session.name ?? null,
+      allowWrites: mcpPlan.allowWrites,
+      consentToken,
+      maxToolCalls: Math.min(responsePlan.maxToolCalls, mcpPlan.maxToolCalls),
+    });
+    const mcpStart = nowMs();
+    const mcpReadBatch = mcpEnabled
+      ? await executeMcpToolsBatch({
+          ctx: mcpCtx,
+          calls: mcpPlan.allowedTools.map((toolName) => {
+            if (toolName === "search_medical_knowledge") {
+              return {
+                name: toolName,
+                args: {
+                  query: retrievalQueryExpanded,
+                  language: ietfLanguageTag,
+                  audienceType: "member",
+                  maxResults: ragLimit,
+                },
+              };
+            }
+            return {
+              name: toolName,
+              args: {
+                lat: userLocation!.latitude,
+                lng: userLocation!.longitude,
+              },
+            };
+          }),
         })
-      : [];
+      : { results: [], traces: [] };
+    markPerf("mcp_tools_ms", mcpStart);
+    const mcpKnowledgeResult = CHAT_LATENCY_OPTIMIZATIONS
+      ? mcpReadBatch.results.find((r) => r.tool === "search_medical_knowledge" && r.ok)
+      : null;
+    const mcpNearbyResult = CHAT_LATENCY_OPTIMIZATIONS
+      ? mcpReadBatch.results.find((r) => r.tool === "get_nearby_facilities" && r.ok)
+      : null;
+    const mcpReadContextBlock =
+      mcpReadBatch.results.length > 0
+        ? [
+            "MCP TOOL CONTEXT:",
+            ...mcpReadBatch.results.map((r) =>
+              r.ok
+                ? `${r.tool}: ${JSON.stringify(r.data ?? {})}`
+                : `${r.tool}: unavailable (${r.error ?? "unknown_error"})`,
+            ),
+          ].join("\n")
+        : "";
+
+    const ragStart = nowMs();
+    const hits = Array.isArray(mcpKnowledgeResult?.data?.hits)
+      ? (mcpKnowledgeResult.data.hits as Array<{
+          id: string;
+          score: number;
+          content: string;
+          title?: string;
+          source?: string;
+          category?: string;
+        }>)
+      : responsePlan.shouldRetrieveKnowledge
+        ? await searchKnowledge(retrievalQueryExpanded, {
+            limit: ragLimit,
+            cacheTtlMs: CHAT_LATENCY_OPTIMIZATIONS ? 30_000 : 0,
+          })
+        : [];
+    markPerf("rag_ms", ragStart);
     const context =
       hits.length > 0
         ? hits
@@ -276,17 +496,9 @@ export async function POST(req: Request) {
         : responsePlan.shouldRetrieveKnowledge
           ? "(No matching internal articles were retrieved; answer generally and recommend professional care when unsure.)"
           : "(Knowledge retrieval intentionally skipped for this intent. Answer directly and naturally.)";
-
-    const primaryUseCase = (profileMini.data?.primary_use_case as string | null) ?? null;
-    const { pregnancyUserId, activeCare } = await resolvePregnancyUserIdForRequester(
-      supabase,
-      session.id,
-      primaryUseCase,
-    );
-    const vitalsUserId = resolveHealthDataUserId(session.id, primaryUseCase, activeCare, "vitals");
-    const symptomsUserId = resolveHealthDataUserId(session.id, primaryUseCase, activeCare, "symptoms");
-
-    const [
+    const dbStart = nowMs();
+    const {
+      activeCare,
       pregnancyRes,
       healthRes,
       conditionsRes,
@@ -296,65 +508,9 @@ export async function POST(req: Request) {
       symptomRes,
       plannerRes,
       appointmentsRes,
-    ] = await Promise.all([
-      supabase
-        .from("pregnancy_profiles")
-        .select("pregnancy_status, gestational_age_weeks, edd_date, risk_flags")
-        .eq("user_id", pregnancyUserId)
-        .maybeSingle(),
-      supabase
-        .from("user_health_profiles")
-        .select("blood_type, notes, primary_care_provider")
-        .eq("user_id", session.id)
-        .maybeSingle(),
-      supabase
-        .from("medical_conditions")
-        .select("condition_name, status, severity")
-        .eq("user_id", session.id)
-        .order("updated_at", { ascending: false })
-        .limit(8),
-      supabase
-        .from("allergies")
-        .select("name, allergen_type, severity, reaction")
-        .eq("user_id", session.id)
-        .order("updated_at", { ascending: false })
-        .limit(8),
-      supabase
-        .from("medications")
-        .select("name, dose, frequency, is_active")
-        .eq("user_id", session.id)
-        .eq("is_active", true)
-        .order("updated_at", { ascending: false })
-        .limit(8),
-      supabase
-        .from("vital_signs")
-        .select(
-          "recorded_at, systolic_bp, diastolic_bp, heart_rate_bpm, weight_kg, temperature_c, glucose_mg_dl, spo2_pct",
-        )
-        .eq("user_id", vitalsUserId)
-        .order("recorded_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("symptom_logs")
-        .select("logged_at, title, severity, symptom_codes")
-        .eq("user_id", symptomsUserId)
-        .order("logged_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("planner_daily_logs")
-        .select("plan_date, water_glasses, tasks, completion_percent, completed")
-        .eq("user_id", session.id)
-        .order("plan_date", { ascending: false })
-        .limit(7),
-      supabase
-        .from("appointments")
-        .select("title, status, scheduled_at, provider_name, location")
-        .eq("user_id", session.id)
-        .order("scheduled_at", { ascending: false })
-        .limit(5),
-    ]);
+    } = await healthContextPromise;
+    markPerf("care_resolve_ms", careResolveStart);
+    markPerf("health_context_db_ms", dbStart);
 
     if (pregnancyRes.error) console.warn("[chat] pregnancy:", pregnancyRes.error.message);
     if (healthRes.error) console.warn("[chat] health:", healthRes.error.message);
@@ -459,14 +615,19 @@ export async function POST(req: Request) {
       line("Health notes", (healthRes.data?.notes as string | null) ?? null),
     ].join("\n");
 
+    const nearbyStart = nowMs();
     let nearbyFacilitiesText = "";
     if (nearbyIntent) {
       if (userLocation) {
-        nearbyFacilitiesText = await buildNearbyFacilitiesContextForChat(supabase, {
-          latitude: userLocation.latitude,
-          longitude: userLocation.longitude,
-          intent: nearbyIntent,
-        });
+        if (typeof mcpNearbyResult?.data?.catalogText === "string") {
+          nearbyFacilitiesText = mcpNearbyResult.data.catalogText;
+        } else {
+          nearbyFacilitiesText = await buildNearbyFacilitiesContextForChat(supabase, {
+            latitude: userLocation.latitude,
+            longitude: userLocation.longitude,
+            intent: nearbyIntent,
+          });
+        }
       } else {
         nearbyFacilitiesText = [
           "The user’s message suggests they want nearby hospitals or pharmacies, but no GPS coordinates were sent yet.",
@@ -475,6 +636,7 @@ export async function POST(req: Request) {
         ].join(" ");
       }
     }
+    markPerf("nearby_context_ms", nearbyStart);
 
     let reportContextText = "";
     if (reportContext) {
@@ -566,6 +728,7 @@ export async function POST(req: Request) {
       "",
       reportContextText ? `${reportContextText}\n` : "",
       nearbyFacilitiesText ? `${nearbyFacilitiesText}\n` : "",
+      mcpReadContextBlock ? `${mcpReadContextBlock}\n` : "",
       "CONTEXT (retrieved articles):",
       context,
     );
@@ -589,6 +752,7 @@ export async function POST(req: Request) {
     ].join("\n");
 
     let providerUsed: "gemini" | "groq" = "gemini";
+    const generationStart = nowMs();
     const qualityRun = await withQualityRetry({
       latestUserMessage: latestUserOriginal,
       ietfLanguageTag,
@@ -610,8 +774,60 @@ export async function POST(req: Request) {
         return out.text;
       },
     });
+    markPerf("generation_with_quality_ms", generationStart);
 
     const needsClientLocation = Boolean(nearbyIntent && !userLocation);
+    let mcpActionResult: {
+      tool: McpToolName;
+      ok: boolean;
+      error: string | null;
+      data: Record<string, unknown> | null;
+    } | null = null;
+    if (mcpEnabled && requestedAction) {
+      const toolName: McpToolName = requestedAction.type;
+      const writePolicy = mcpPlanForRoute({
+        route: "chat",
+        intentFamily: intent.family,
+        requestedTools: [toolName],
+        consentToken,
+      });
+      const writeCtx = buildToolCallContext({
+        route: "chat",
+        intentFamily: intent.family,
+        userId: session.id,
+        sessionName: session.name ?? null,
+        allowWrites: writePolicy.allowWrites,
+        consentToken,
+        maxToolCalls: 1,
+      });
+      const writeArgs =
+        toolName === "create_care_reminder"
+          ? {
+              userId: session.id,
+              title: requestedAction.title ?? "MaaCare care reminder",
+              timeIso: requestedAction.whenIso ?? new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+              channel: "in_app",
+              consentToken: consentToken ?? "",
+            }
+          : {
+              userId: session.id,
+              riskLevel: requestedAction.riskLevel ?? "medium",
+              reason: requestedAction.reason ?? "User-triggered escalation event",
+              routeContext: "chat",
+              consentToken: consentToken ?? "",
+            };
+      const writeOut = await executeMcpTool({
+        name: toolName,
+        args: writeArgs,
+        ctx: writeCtx,
+      });
+      mcpActionResult = {
+        tool: toolName,
+        ok: writeOut.ok,
+        error: writeOut.error,
+        data: writeOut.data,
+      };
+    }
 
     const debugMeta =
       process.env.AI_DEBUG_METADATA === "1"
@@ -634,6 +850,14 @@ export async function POST(req: Request) {
             identityTarget,
             qualityRetried: qualityRun.retried,
             qualityReasons: qualityRun.quality.reasons,
+            mcpTools: mcpReadBatch.traces,
+            mcpDeniedReason: mcpPlan.deniedReason,
+            mcpAction: mcpActionResult,
+            latencyOptimizations: CHAT_LATENCY_OPTIMIZATIONS,
+            performance: {
+              ...perf,
+              totalMs: nowMs() - perfAllStart,
+            },
           }
         : undefined;
 
@@ -641,6 +865,7 @@ export async function POST(req: Request) {
       reply: qualityRun.reply,
       provider: providerUsed,
       needsClientLocation,
+      ...(mcpActionResult ? { action: mcpActionResult } : {}),
       ...(debugMeta ? { debug: debugMeta } : {}),
       citations: hits.map((h) => ({
         id: h.id,

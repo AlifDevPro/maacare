@@ -143,31 +143,31 @@ export async function fetchNearbyEmergencyListPrioritized(
     }
   };
 
-  const clinics = await fetchNearbyFacilityRowsFromDb(supabase, {
-    latitude: params.latitude,
-    longitude: params.longitude,
-    tags: [...CLINIC_TAGS],
-    limit: clinicLimit,
-  });
-  pushTier(clinics, "clinic");
-
-  const hospitals = await fetchNearbyFacilityRowsFromDb(supabase, {
-    latitude: params.latitude,
-    longitude: params.longitude,
-    tags: [...HOSPITAL_TAGS],
-    limit: hospitalLimit,
-  });
-  pushTier(hospitals, "hospital");
-
-  if (includePharmacy) {
-    const pharmacies = await fetchNearbyFacilityRowsFromDb(supabase, {
+  const [clinics, hospitals, pharmacies] = await Promise.all([
+    fetchNearbyFacilityRowsFromDb(supabase, {
       latitude: params.latitude,
       longitude: params.longitude,
-      tags: [...DEFAULT_PHARMACY_TAGS],
-      limit: pharmacyLimit,
-    });
-    pushTier(pharmacies, "pharmacy");
-  }
+      tags: [...CLINIC_TAGS],
+      limit: clinicLimit,
+    }),
+    fetchNearbyFacilityRowsFromDb(supabase, {
+      latitude: params.latitude,
+      longitude: params.longitude,
+      tags: [...HOSPITAL_TAGS],
+      limit: hospitalLimit,
+    }),
+    includePharmacy
+      ? fetchNearbyFacilityRowsFromDb(supabase, {
+          latitude: params.latitude,
+          longitude: params.longitude,
+          tags: [...DEFAULT_PHARMACY_TAGS],
+          limit: pharmacyLimit,
+        })
+      : Promise.resolve([]),
+  ]);
+  pushTier(clinics, "clinic");
+  pushTier(hospitals, "hospital");
+  if (includePharmacy) pushTier(pharmacies, "pharmacy");
 
   return out.slice(0, maxTotal);
 }

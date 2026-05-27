@@ -5,6 +5,8 @@ export type ResponsePlan = {
   shouldRetrieveKnowledge: boolean;
   shouldAskClarifyingQuestion: boolean;
   maxSentences: number;
+  maxToolCalls: number;
+  allowedToolFamilies: Array<"profile" | "knowledge" | "facilities" | "planner" | "observability">;
   directAnswerFirst: boolean;
   avoidOpeningSmallTalk: boolean;
   systemRules: string[];
@@ -31,6 +33,8 @@ export function planResponseForIntent(input: {
 
   let shouldRetrieveKnowledge = true;
   let shouldAskClarifyingQuestion = false;
+  let maxToolCalls = 2;
+  let allowedToolFamilies: ResponsePlan["allowedToolFamilies"] = ["profile", "knowledge"];
   let mode: ResponseMode = input.intent.responseMode;
   let directAnswerFirst = true;
   let avoidOpeningSmallTalk = false;
@@ -38,6 +42,8 @@ export function planResponseForIntent(input: {
 
   if (family === "greeting" || family === "identity" || family === "smalltalk") {
     shouldRetrieveKnowledge = false;
+    maxToolCalls = family === "identity" ? 1 : 0;
+    allowedToolFamilies = family === "identity" ? ["profile"] : [];
     mode = "answer_without_context";
     baseRules.push("Keep response short and welcoming.");
     if (family === "identity") {
@@ -47,12 +53,18 @@ export function planResponseForIntent(input: {
     }
   } else if (family === "nearby_facilities") {
     shouldRetrieveKnowledge = false;
+    maxToolCalls = 2;
+    allowedToolFamilies = ["facilities"];
     baseRules.push("Focus on concrete nearby-care next steps.");
   } else if (family === "report_explanation" && input.hasReportContext) {
     shouldRetrieveKnowledge = false;
+    maxToolCalls = 1;
+    allowedToolFamilies = ["knowledge"];
     baseRules.push("Use provided report context first before generic retrieval.");
   } else if (family === "offtopic") {
     shouldRetrieveKnowledge = false;
+    maxToolCalls = 0;
+    allowedToolFamilies = [];
     mode = "brief_redirect";
     baseRules.push("Briefly acknowledge then steer back to maternal and wellness topics.");
   }
@@ -61,6 +73,7 @@ export function planResponseForIntent(input: {
     shouldAskClarifyingQuestion = true;
     mode = "ask_clarification";
     shouldRetrieveKnowledge = false;
+    maxToolCalls = Math.min(maxToolCalls, 1);
     directAnswerFirst = false;
     baseRules.push("Ask one focused clarifying question and avoid assumptions.");
   }
@@ -78,6 +91,8 @@ export function planResponseForIntent(input: {
     shouldRetrieveKnowledge,
     shouldAskClarifyingQuestion,
     maxSentences: sentenceBudgetForIntent(family, voice),
+    maxToolCalls,
+    allowedToolFamilies,
     directAnswerFirst,
     avoidOpeningSmallTalk,
     systemRules: baseRules,

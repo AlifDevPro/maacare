@@ -9,6 +9,8 @@ import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
 import { buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
 import { planResponseForIntent } from "@/lib/ai/response-planner";
+import { executeMcpToolsBatch } from "@/lib/ai/mcp/gateway";
+import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { trimEchoOfPreviousAssistant } from "@/lib/signup/assistant-reply-trim";
 import { mergeSignupProfileDraft, parseDraftPatchLine } from "@/lib/signup/ai-draft-patch";
 import {
@@ -376,6 +378,27 @@ export async function POST(req: Request) {
       hasNearbyContext: false,
       voice: false,
     });
+    const mcpEnabled = process.env.MCP_ENABLED === "1";
+    const mcpPlan = mcpPlanForRoute({
+      route: "signup_ai_turn",
+      intentFamily: intent.family === "unknown" ? "onboarding" : intent.family,
+      requestedTools: ["get_user_context", "search_medical_knowledge", "create_care_reminder"],
+      consentToken: null,
+    });
+    const mcpCtx = buildToolCallContext({
+      route: "signup_ai_turn",
+      intentFamily: intent.family === "unknown" ? "onboarding" : intent.family,
+      userId: null,
+      allowWrites: mcpPlan.allowWrites,
+      consentToken: null,
+      maxToolCalls: mcpPlan.maxToolCalls,
+    });
+    const mcpBatch = mcpEnabled
+      ? await executeMcpToolsBatch({
+          calls: mcpPlan.allowedTools.map((name) => ({ name, args: {} })),
+          ctx: mcpCtx,
+        })
+      : { results: [], traces: [] };
 
     const userMessage = `Known from draft (trust this; do not re-ask filled items): ${filledSummary}
 
@@ -426,6 +449,14 @@ ${latestUser}`;
     return NextResponse.json({
       reply: assistantVisible,
       draft: mergedDraft,
+      ...(process.env.AI_DEBUG_METADATA === "1"
+        ? {
+            debug: {
+              mcpTools: mcpBatch.traces,
+              mcpDeniedReason: mcpPlan.deniedReason,
+            },
+          }
+        : {}),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

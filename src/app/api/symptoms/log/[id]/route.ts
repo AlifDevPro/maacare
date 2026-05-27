@@ -7,6 +7,8 @@ import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
 import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
 import { planResponseForIntent } from "@/lib/ai/response-planner";
+import { executeMcpTool } from "@/lib/ai/mcp/gateway";
+import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
@@ -225,7 +227,7 @@ async function buildRagSuggestionsFromContext(
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -268,10 +270,64 @@ export async function GET(
       title,
       description,
     };
+    const mcpEnabled = process.env.MCP_ENABLED === "1";
+    const consentToken = req.nextUrl.searchParams.get("consentToken");
+    const mcpReadPlan = mcpPlanForRoute({
+      route: "symptom_log_insight",
+      intentFamily: "symptom_guidance",
+      requestedTools: ["search_medical_knowledge"],
+      consentToken,
+    });
+    const mcpCtx = buildToolCallContext({
+      route: "symptom_log_insight",
+      intentFamily: "symptom_guidance",
+      userId: session.id,
+      allowWrites: mcpReadPlan.allowWrites,
+      consentToken,
+      maxToolCalls: mcpReadPlan.maxToolCalls,
+    });
     let insight = buildInsight(insightInput, outputLang);
     let suggestions: string[] = [];
+    const mcpTraces: Array<Record<string, unknown>> = [];
     try {
-      const ctx = await fetchRiskRulesContext(insightInput);
+      let ctx: string | null = null;
+      if (mcpEnabled && mcpReadPlan.allowedTools.includes("search_medical_knowledge")) {
+        const query = [
+          "Pregnancy symptom risk rules and triage guidance.",
+          title ? `Title: ${title}.` : "",
+          symptomCodes.length > 0 ? `Symptoms: ${symptomCodes.join(", ")}.` : "",
+          severity != null ? `Severity: ${severity}/10.` : "",
+          description ? `User additional notes: ${truncateForDisplay(description, DESC_TRUNC_RAG)}.` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const mcpOut = await executeMcpTool({
+          name: "search_medical_knowledge",
+          args: {
+            query,
+            language: languageTag,
+            audienceType: "member",
+            maxResults: 5,
+            categories: ["risk-rules"],
+          },
+          ctx: mcpCtx,
+        });
+        mcpTraces.push({
+          tool: mcpOut.tool,
+          ok: mcpOut.ok,
+          error: mcpOut.error,
+          trace: mcpOut.trace,
+        });
+        if (mcpOut.ok && Array.isArray(mcpOut.data?.hits)) {
+          const hits = (mcpOut.data.hits as Array<{ source?: string; content?: string }>).filter(Boolean);
+          if (hits.length > 0) {
+            ctx = hits
+              .map((h, i) => `[${i + 1}] (${h.source ?? "risk-rules"})\n${h.content ?? ""}`)
+              .join("\n\n---\n\n");
+          }
+        }
+      }
+      if (!ctx) ctx = await fetchRiskRulesContext(insightInput);
       if (ctx) {
         const [ragInsight, ragSuggestions] = await Promise.all([
           buildRagRiskInsightFromContext(ctx, insightInput, languageTag),
@@ -279,6 +335,39 @@ export async function GET(
         ]);
         if (ragInsight) insight = ragInsight;
         suggestions = ragSuggestions;
+      }
+      if (mcpEnabled && severity != null && severity >= 8) {
+        const writePlan = mcpPlanForRoute({
+          route: "symptom_log_insight",
+          intentFamily: "symptom_guidance",
+          requestedTools: ["log_ai_escalation_event"],
+          consentToken,
+        });
+        const writeCtx = buildToolCallContext({
+          route: "symptom_log_insight",
+          intentFamily: "symptom_guidance",
+          userId: session.id,
+          allowWrites: writePlan.allowWrites,
+          consentToken,
+          maxToolCalls: 1,
+        });
+        const escalation = await executeMcpTool({
+          name: "log_ai_escalation_event",
+          args: {
+            userId: session.id,
+            riskLevel: severity >= 9 ? "high" : "medium",
+            reason: `Symptom severity ${severity}/10`,
+            routeContext: "symptoms_log_insight",
+            consentToken: consentToken ?? undefined,
+          },
+          ctx: writeCtx,
+        });
+        mcpTraces.push({
+          tool: escalation.tool,
+          ok: escalation.ok,
+          error: escalation.error,
+          trace: escalation.trace,
+        });
       }
     } catch (e) {
       console.warn("[symptoms/log/id] risk-rules fallback:", e);
@@ -296,6 +385,7 @@ export async function GET(
       insight,
       level,
       suggestions,
+      ...(process.env.AI_DEBUG_METADATA === "1" ? { debug: { mcpTraces } } : {}),
     });
   } catch (e) {
     return serverErrorJson("symptoms_log_id GET", e);

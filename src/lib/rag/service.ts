@@ -16,6 +16,7 @@ type SearchKnowledgeOptions = {
   limit?: number;
   categories?: string[];
   minSimilarity?: number;
+  cacheTtlMs?: number;
 };
 
 type MatchRow = {
@@ -28,6 +29,57 @@ type MatchRow = {
   chunk_index: number;
   similarity: number;
 };
+
+type SearchCacheEntry = {
+  expiresAt: number;
+  value: RagSearchHit[];
+};
+
+const searchCache = new Map<string, SearchCacheEntry>();
+const SEARCH_CACHE_MAX = 600;
+
+function buildSearchCacheKey(query: string, options?: SearchKnowledgeOptions): string {
+  const categories = (options?.categories ?? [])
+    .map((c) => c.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join(",");
+  const limit = Math.max(1, Math.min(20, options?.limit ?? 5));
+  const minSimilarity = options?.minSimilarity ?? 0.05;
+  return `${query.trim().toLowerCase()}|${limit}|${minSimilarity}|${categories}`;
+}
+
+function getSearchCacheTtlMs(options?: SearchKnowledgeOptions): number {
+  if (typeof options?.cacheTtlMs === "number") return Math.max(0, options.cacheTtlMs);
+  const env = Number.parseInt(process.env.RAG_SEARCH_CACHE_TTL_MS ?? "25000", 10);
+  return Number.isFinite(env) ? Math.max(0, env) : 25_000;
+}
+
+function maybeReadCache(key: string): RagSearchHit[] | null {
+  const entry = searchCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    searchCache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function writeCache(key: string, value: RagSearchHit[], ttlMs: number) {
+  if (ttlMs <= 0) return;
+  searchCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  if (searchCache.size > SEARCH_CACHE_MAX) {
+    const now = Date.now();
+    for (const [k, v] of searchCache.entries()) {
+      if (v.expiresAt <= now) searchCache.delete(k);
+      if (searchCache.size <= SEARCH_CACHE_MAX) break;
+    }
+    if (searchCache.size > SEARCH_CACHE_MAX) {
+      const firstKey = searchCache.keys().next().value;
+      if (typeof firstKey === "string") searchCache.delete(firstKey);
+    }
+  }
+}
 
 export async function ingestKnowledgeChunk(input: {
   title?: string;
@@ -148,6 +200,10 @@ export async function searchKnowledge(
   query: string,
   options?: SearchKnowledgeOptions,
 ): Promise<RagSearchHit[]> {
+  const cacheKey = buildSearchCacheKey(query, options);
+  const cacheTtlMs = getSearchCacheTtlMs(options);
+  const cached = maybeReadCache(cacheKey);
+  if (cached) return cached;
   const supabase = await createSupabaseServerClient();
   const vector = await embedText(query);
   const limit = Math.max(1, Math.min(20, options?.limit ?? 5));
@@ -169,7 +225,7 @@ export async function searchKnowledge(
 
   const rows = (data ?? []) as MatchRow[];
 
-  return rows.map((r) => ({
+  const hits = rows.map((r) => ({
     id: r.chunk_id,
     score: r.similarity,
     content: r.content,
@@ -179,4 +235,6 @@ export async function searchKnowledge(
     category: r.category ?? undefined,
     chunkIndex: r.chunk_index,
   }));
+  writeCache(cacheKey, hits, cacheTtlMs);
+  return hits;
 }

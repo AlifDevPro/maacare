@@ -6,6 +6,8 @@ import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
 import { buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
 import { planResponseForIntent } from "@/lib/ai/response-planner";
+import { executeMcpTool } from "@/lib/ai/mcp/gateway";
+import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
@@ -118,6 +120,23 @@ export async function GET(req: NextRequest) {
       hasReportContext: false,
       hasNearbyContext: false,
     });
+    const mcpEnabled = process.env.MCP_ENABLED === "1";
+    const consentToken = req.nextUrl.searchParams.get("consentToken");
+    const mcpPlan = mcpPlanForRoute({
+      route: "planner_food",
+      intentFamily: "planning",
+      requestedTools: ["get_user_context", "search_medical_knowledge"],
+      consentToken,
+    });
+    const mcpCtx = buildToolCallContext({
+      route: "planner_food",
+      intentFamily: "planning",
+      userId: uid,
+      allowWrites: mcpPlan.allowWrites,
+      consentToken,
+      maxToolCalls: mcpPlan.maxToolCalls,
+    });
+    let mcpKnowledgeContext = "";
 
     const since = new Date();
     since.setUTCDate(since.getUTCDate() - 7);
@@ -148,6 +167,24 @@ export async function GET(req: NextRequest) {
     const query = week
       ? `Pregnancy week ${week} daily meal suggestions with maternal nutrition guidance.`
       : "Daily pregnancy meal suggestions with maternal nutrition guidance.";
+    if (mcpEnabled && mcpPlan.allowedTools.includes("search_medical_knowledge")) {
+      const mcpOut = await executeMcpTool({
+        name: "search_medical_knowledge",
+        args: {
+          query,
+          language: uiLang ?? "en",
+          audienceType: "member",
+          maxResults: 6,
+          categories: ["food"],
+        },
+        ctx: mcpCtx,
+      });
+      if (mcpOut.ok && Array.isArray(mcpOut.data?.hits)) {
+        mcpKnowledgeContext = (mcpOut.data.hits as Array<{ content?: string }>)
+          .map((h, i) => `[MCP-${i + 1}] ${h.content ?? ""}`)
+          .join("\n");
+      }
+    }
 
     const hits = await searchKnowledge(query, {
       limit: 6,
@@ -173,6 +210,7 @@ export async function GET(req: NextRequest) {
       languageBlock,
       avoidBlock ? `${avoidBlock}\n` : "",
       yesterdayBlock ? `${yesterdayBlock}\n` : "",
+      mcpKnowledgeContext ? `MCP FOOD CONTEXT:\n${mcpKnowledgeContext}\n` : "",
       "FOOD CONTEXT:",
       context,
     );
@@ -192,8 +230,32 @@ export async function GET(req: NextRequest) {
     }
 
     await persistMealsForToday(supabase, uid, meals, "food-rag");
+    let actionResult: { ok: boolean; error: string | null } | null = null;
+    if (
+      mcpEnabled &&
+      req.nextUrl.searchParams.get("action") === "create_reminder" &&
+      mcpPlanForRoute({
+        route: "planner_food",
+        intentFamily: "planning",
+        requestedTools: ["create_care_reminder"],
+        consentToken,
+      }).allowWrites
+    ) {
+      const createOut = await executeMcpTool({
+        name: "create_care_reminder",
+        args: {
+          userId: uid,
+          title: "Meal plan follow-up",
+          timeIso: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          channel: "in_app",
+          consentToken: consentToken ?? "",
+        },
+        ctx: mcpCtx,
+      });
+      actionResult = { ok: createOut.ok, error: createOut.error };
+    }
 
-    return Response.json({ meals, source: "food-rag" });
+    return Response.json({ meals, source: "food-rag", ...(actionResult ? { action: actionResult } : {}) });
   } catch (e) {
     return serverErrorJson("planner_food GET", e);
   }
