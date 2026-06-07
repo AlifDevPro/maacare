@@ -1,19 +1,19 @@
 "use client";
-import { useState } from "react";
-import Link from "next/link";
-import { useRef } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Upload,
   FileText,
   Sparkles,
-  Bot,
   MessageCircle,
   CheckCircle2,
   AlertCircle,
   Loader2,
   HeartPulse,
+  History,
+  Bot,
 } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -23,6 +23,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import {
+  REPORT_IMAGE_ACCEPT,
+  validateReportUploadFile,
+} from "@/lib/reports/file-utils";
+import { apiErrorMessage, reportLoadingSteps } from "@/lib/reports/user-messages";
 import { useTranslation } from "react-i18next";
 
 type Finding = {
@@ -34,30 +39,13 @@ type Finding = {
 };
 
 type AnalysisResult = {
+  isMedicalReport?: boolean;
   summary: string;
   plainExplanation: string;
   riskLevel: "low" | "medium" | "high";
   findings: Finding[];
   recommendations: string[];
-  extractedVitals: {
-    systolicBp?: number | null;
-    diastolicBp?: number | null;
-    heartRateBpm?: number | null;
-    weightKg?: number | null;
-    temperatureC?: number | null;
-    glucoseMgDl?: number | null;
-    spo2Pct?: number | null;
-  };
-  provider?: "gemini" | "groq";
-  extractionMode?:
-    | "provided_text"
-    | "pdf_local"
-    | "ocr_local"
-    | "text_local"
-    | "groq_vision_ocr"
-    | "gemini_file"
-    | "groq_vision_file";
-  extractedTextPreview?: string;
+  extractedVitals: Record<string, number | null | undefined>;
   savedVitalId?: string | null;
   savedVitals?: boolean;
   extractedProfile: {
@@ -72,16 +60,21 @@ type AnalysisResult = {
     medications: number;
     notesUpdated: boolean;
   };
+  savedReportId?: string | null;
+  reportAvailableToAi?: boolean;
 };
+
+const ANALYZE_TIMEOUT_MS = 55_000;
+const RATE_LIMIT_RE = /\b(resource_exhausted|quota|rate[\s_-]*limit|too many requests|429|rate_limited)\b/i;
 
 export default function ReportsPage() {
   const { t } = useTranslation("health");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const loadingTimerRef = useRef<number | null>(null);
   const [stage, setStage] = useState<"input" | "loading" | "result">("input");
   const [inputMode, setInputMode] = useState<"file" | "text">("file");
   const [reportText, setReportText] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  /** When true, save extracted vitals and profile insights for the signed-in user. */
   const [reportForSelf, setReportForSelf] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
@@ -91,21 +84,14 @@ export default function ReportsPage() {
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingProgress, setLoadingProgress] = useState(12);
 
-  const loadingStepsFile = [
-    "Reading your file on the server (PDF text or local OCR when available)...",
-    "Running the clinical simplifier — this usually takes 15–60 seconds...",
-    reportForSelf
-      ? "Finishing up: saving vitals and insights to your profile when found..."
-      : "Finishing up: generating your summary (not saving to your profile)...",
-  ];
-  const loadingStepsText = [
-    "Preparing your pasted report text...",
-    "Running the clinical simplifier — this usually takes 15–60 seconds...",
-    reportForSelf
-      ? "Finishing up: saving vitals and insights to your profile when found..."
-      : "Finishing up: generating your summary (not saving to your profile)...",
-  ];
-  const RATE_LIMIT_RE = /\b(resource_exhausted|quota|rate[\s_-]*limit|too many requests|429)\b/i;
+  const loadingSteps =
+    inputMode === "file" ? reportLoadingSteps.file : reportLoadingSteps.text;
+
+  useEffect(() => {
+    return () => {
+      if (loadingTimerRef.current != null) window.clearInterval(loadingTimerRef.current);
+    };
+  }, []);
 
   function resetToFreshInput() {
     setStage("input");
@@ -119,16 +105,17 @@ export default function ReportsPage() {
     setLoadingStep(0);
     setLoadingProgress(12);
     setUiError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function startCooldown(seconds: number, message?: string) {
     const retry = Math.max(1, Number(seconds || 60));
     setCooldownSeconds(retry);
-    setLimitMessage(message ?? "AI usage limit reached. Please wait and try again.");
-    const t = window.setInterval(() => {
+    setLimitMessage(message ?? "We're busy right now. Please wait and try again.");
+    const timer = window.setInterval(() => {
       setCooldownSeconds((prev) => {
         if (prev <= 1) {
-          window.clearInterval(t);
+          window.clearInterval(timer);
           setLimitMessage(null);
           return 0;
         }
@@ -137,71 +124,67 @@ export default function ReportsPage() {
     }, 1000);
   }
 
-  async function analyzeReport() {
-    if (inputMode === "text" && !reportText.trim()) {
-      setUiError("Paste report text first, then tap Analyze report.");
+  function handleFileChange(next: File | null) {
+    if (!next) {
+      setFile(null);
       return;
     }
-    if (inputMode === "file" && !file) {
-      setUiError("Upload a report file first, then tap Analyze report.");
+    const validationError = validateReportUploadFile(next);
+    if (validationError) {
+      setUiError(validationError);
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
+    }
+    setUiError(null);
+    setFile(next);
+  }
+
+  function startLoadingAnimation() {
+    setLoadingStep(0);
+    setLoadingProgress(10);
+    if (loadingTimerRef.current != null) window.clearInterval(loadingTimerRef.current);
+
+    loadingTimerRef.current = window.setInterval(() => {
+      setLoadingProgress((p) => (p >= 92 ? p : p + 1));
+      setLoadingStep((s) => (s >= loadingSteps.length - 1 ? s : s + (Math.random() > 0.65 ? 1 : 0)));
+    }, 900);
+  }
+
+  function stopLoadingAnimation(finalProgress?: number) {
+    if (loadingTimerRef.current != null) {
+      window.clearInterval(loadingTimerRef.current);
+      loadingTimerRef.current = null;
+    }
+    if (finalProgress != null) setLoadingProgress(finalProgress);
+  }
+
+  async function analyzeReport() {
+    if (inputMode === "text" && !reportText.trim()) {
+      setUiError("Paste your report text first, then tap Simplify report.");
+      return;
+    }
+    if (inputMode === "file") {
+      if (!file) {
+        setUiError("Upload an image of your report first, then tap Simplify report.");
+        return;
+      }
+      const validationError = validateReportUploadFile(file);
+      if (validationError) {
+        setUiError(validationError);
+        return;
+      }
     }
 
     setUiError(null);
     setAnalyzing(true);
     setStage("loading");
-    setLoadingStep(0);
-    setLoadingProgress(8);
+    startLoadingAnimation();
 
-    let creep: number | undefined;
-
-    const stopCreep = () => {
-      if (creep != null) {
-        window.clearInterval(creep);
-        creep = undefined;
-      }
-    };
-
-    const startCreep = (to: number, everyMs: number) => {
-      stopCreep();
-      creep = window.setInterval(() => {
-        setLoadingProgress((p) => (p >= to ? p : Math.min(to, p + 1)));
-      }, everyMs);
-    };
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
 
     try {
-      if (inputMode === "file" && file) {
-        setLoadingStep(0);
-        startCreep(36, 320);
-        const previewFd = new FormData();
-        previewFd.append("file", file);
-        const previewRes = await fetch("/api/reports/extract-local", {
-          method: "POST",
-          credentials: "include",
-          body: previewFd,
-        });
-        stopCreep();
-        const previewData = (await previewRes.json().catch(() => ({}))) as {
-          ok?: boolean;
-          mode?: string;
-          chars?: number;
-          preview?: string;
-          message?: string;
-        };
-        if (!previewRes.ok || !previewData.ok) {
-          throw new Error(
-            previewData.message ??
-              "Local extraction failed. Please upload a clearer image or switch to Paste text.",
-          );
-        }
-        setLoadingProgress(40);
-      } else {
-        setLoadingProgress(22);
-      }
-
-      setLoadingStep(1);
-      startCreep(88, 420);
-
       const fd = new FormData();
       fd.append("reportTitle", "");
       fd.append("reportText", inputMode === "text" ? reportText.trim() : "");
@@ -213,52 +196,72 @@ export default function ReportsPage() {
         method: "POST",
         credentials: "include",
         body: fd,
+        signal: controller.signal,
       });
-      stopCreep();
-      const data = (await res.json().catch(() => ({}))) as
-        | (AnalysisResult & { error?: string; retryAfterSeconds?: number })
-        | { error?: string; retryAfterSeconds?: number };
 
-      const errText = (data as { error?: string }).error ?? "";
-      const looksLikeLimit = res.status === 429 || RATE_LIMIT_RE.test(errText);
+      const data = (await res.json().catch(() => ({}))) as AnalysisResult & {
+        error?: string;
+        message?: string;
+        retryAfterSeconds?: number;
+      };
+
+      const errText = apiErrorMessage(data);
+      const looksLikeLimit = res.status === 429 || RATE_LIMIT_RE.test(data.error ?? "") || RATE_LIMIT_RE.test(data.message ?? "");
       if (looksLikeLimit) {
-        startCooldown(
-          Number((data as { retryAfterSeconds?: number }).retryAfterSeconds ?? 60),
-          errText || undefined,
-        );
+        startCooldown(Number(data.retryAfterSeconds ?? 60), errText);
         setStage("input");
         return;
       }
 
       if (!res.ok) {
-        throw new Error((data as { error?: string }).error ?? "Could not analyze report.");
+        throw new Error(errText);
       }
 
-      setLoadingStep(2);
-      setLoadingProgress(96);
-      setAnalysis(data as AnalysisResult);
-      setLoadingProgress(100);
+      stopLoadingAnimation(100);
+      setLoadingStep(loadingSteps.length - 1);
+      setAnalysis(data);
       setStage("result");
     } catch (e) {
-      stopCreep();
-      const msg = e instanceof Error ? e.message : "Could not analyze report.";
-      if (RATE_LIMIT_RE.test(msg)) {
-        startCooldown(60, "AI usage limit reached. Please wait and try again.");
-        setStage("input");
-        return;
+      stopLoadingAnimation();
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setUiError("This is taking longer than expected. Please try again with a smaller or clearer image.");
+      } else {
+        const msg = e instanceof Error ? e.message : "We couldn't simplify this report.";
+        if (RATE_LIMIT_RE.test(msg)) {
+          startCooldown(60);
+          setStage("input");
+          return;
+        }
+        setUiError(apiErrorMessage({ message: msg }));
       }
       setStage("input");
-      setUiError(msg);
     } finally {
-      stopCreep();
+      window.clearTimeout(timeoutId);
+      stopLoadingAnimation();
       setAnalyzing(false);
     }
   }
+
+  const hasProfileInsights =
+    analysis &&
+    (analysis.extractedProfile.conditions.length > 0 ||
+      analysis.extractedProfile.allergies.length > 0 ||
+      analysis.extractedProfile.medications.length > 0 ||
+      Boolean(analysis.extractedProfile.notes?.trim()));
 
   return (
     <AppShell>
       <AppHeader title={t("reports_understand_title")} showBack />
       <div className="space-y-5 px-4 pt-4">
+        {stage === "input" ? (
+          <div className="flex justify-end">
+            <Button asChild variant="outline" size="sm" className="rounded-xl">
+              <Link href="/reports/history">
+                <History className="mr-1.5 h-4 w-4" /> Report history
+              </Link>
+            </Button>
+          </div>
+        ) : null}
         <AnimatePresence mode="wait">
           {stage === "input" ? (
             <motion.div
@@ -273,15 +276,15 @@ export default function ReportsPage() {
                   <div className="flex items-center gap-4 rounded-xl border border-border/70 bg-muted/20 px-4 py-3.5">
                     <div className="min-w-0 flex-1">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Report subject
+                        Whose report is this?
                       </p>
                       <p className="mt-1 text-sm font-semibold leading-snug text-foreground">
-                        {reportForSelf ? "My report" : "Another person's report"}
+                        {reportForSelf ? "My report" : "Someone else's report"}
                       </p>
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                         {reportForSelf
-                          ? "We can save vitals and clinical insights to your profile after analysis."
-                          : "Preview only — nothing is saved to your account. Turn the switch off if this is your own report."}
+                          ? "We can save useful details to your health profile after simplifying."
+                          : "We'll only show a summary — nothing will be saved to your profile."}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center">
@@ -291,7 +294,7 @@ export default function ReportsPage() {
                         aria-label={
                           reportForSelf
                             ? "This is my report; turn on if it is for someone else"
-                            : "This is another person's report; turn off for my report"
+                            : "This is someone else's report; turn off for my report"
                         }
                       />
                     </div>
@@ -308,7 +311,7 @@ export default function ReportsPage() {
                           : "border-transparent text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      Upload file
+                      Upload image
                     </button>
                     <button
                       type="button"
@@ -325,19 +328,18 @@ export default function ReportsPage() {
                   </div>
 
                   {inputMode === "text" ? (
-                    <Textarea
-                      value={reportText}
-                      onChange={(e) => setReportText(e.target.value)}
-                      placeholder="Paste full report text here..."
-                      className="min-h-[180px] rounded-xl border border-border/80 bg-background px-3 py-2 text-sm"
-                    />
+                    <>
+                      <Textarea
+                        value={reportText}
+                        onChange={(e) => setReportText(e.target.value)}
+                        placeholder="Paste the text from your lab or medical report here..."
+                        className="min-h-[180px] rounded-xl border border-border/80 bg-background px-3 py-2 text-sm"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Paste the full report text for the clearest summary.
+                      </p>
+                    </>
                   ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Upload your report file below. For best accuracy, use <strong>Paste text</strong> when you can.
-                    </p>
-                  )}
-
-                  {inputMode === "file" ? (
                     <div className="rounded-2xl border border-dashed border-border/80 p-4">
                       <button
                         type="button"
@@ -347,16 +349,16 @@ export default function ReportsPage() {
                         <span className="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary-soft text-primary">
                           <Upload className="h-5 w-5" />
                         </span>
-                        <p className="text-sm font-semibold">Upload file</p>
+                        <p className="text-sm font-semibold">Upload an image of your report</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          PDF, image, text, CSV, or JSON (max 10MB)
+                          JPG, PNG, or WebP · up to 10 MB
                         </p>
                       </button>
                       <Input
                         ref={fileInputRef}
                         type="file"
-                        accept=".pdf,image/*,.txt,.csv,.json"
-                        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                        accept={REPORT_IMAGE_ACCEPT}
+                        onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
                         className="hidden"
                       />
                       {file ? (
@@ -371,24 +373,22 @@ export default function ReportsPage() {
                         </div>
                       ) : (
                         <p className="mt-2 text-[11px] text-muted-foreground">
-                          Tip: switch to <strong>Paste text</strong> for highest extraction accuracy.
+                          Use a well-lit photo with all text visible. You can also paste the report text instead.
                         </p>
                       )}
                     </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Pasted text usually gives the best extraction quality and uses less AI quota than files.
-                    </p>
                   )}
 
                   {cooldownSeconds > 0 ? (
                     <div className="rounded-xl border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">
-                      {limitMessage ?? "AI usage limit reached."} Try again in {cooldownSeconds}s.
+                      {limitMessage ?? "We're busy right now."} Try again in {cooldownSeconds}s.
                     </div>
                   ) : null}
                   {uiError ? (
                     <div className="rounded-xl border border-red-300/60 bg-red-50 px-3 py-2 dark:border-red-500/40 dark:bg-red-500/15">
-                      <p className="text-xs font-semibold text-red-800 dark:text-red-200">Could not analyze this report</p>
+                      <p className="text-xs font-semibold text-red-800 dark:text-red-200">
+                        Could not simplify this report
+                      </p>
                       <p className="mt-0.5 text-xs text-red-700 dark:text-red-300">{uiError}</p>
                     </div>
                   ) : null}
@@ -398,7 +398,7 @@ export default function ReportsPage() {
                     disabled={analyzing || cooldownSeconds > 0}
                     onClick={() => void analyzeReport()}
                   >
-                    <Sparkles className="mr-1.5 h-4 w-4" /> Analyze report
+                    <Sparkles className="mr-1.5 h-4 w-4" /> Simplify report
                   </Button>
                 </div>
               </Card>
@@ -418,10 +418,8 @@ export default function ReportsPage() {
                   <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-soft text-primary">
                     <Loader2 className="h-6 w-6 animate-spin" />
                   </span>
-                  <p className="text-base font-semibold">Analyzing your report...</p>
-                  <p className="max-w-sm text-sm text-muted-foreground">
-                    {(inputMode === "file" ? loadingStepsFile : loadingStepsText)[loadingStep]}
-                  </p>
+                  <p className="text-base font-semibold">Working on your summary...</p>
+                  <p className="max-w-sm text-sm text-muted-foreground">{loadingSteps[loadingStep]}</p>
                   <div className="mt-2 w-full max-w-sm">
                     <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                       <div
@@ -429,7 +427,7 @@ export default function ReportsPage() {
                         style={{ width: `${loadingProgress}%` }}
                       />
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">{loadingProgress}% complete</p>
+                    <p className="mt-1 text-xs text-muted-foreground">This usually takes under a minute</p>
                   </div>
                 </div>
               </Card>
@@ -439,75 +437,106 @@ export default function ReportsPage() {
 
         {stage === "result" && analysis ? (
           <>
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }}>
-            <Card className="overflow-hidden border-0 bg-gradient-warm p-5">
-              <div className="flex items-center justify-between gap-2">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.24 }}
+            >
+              <Card className="overflow-hidden border-0 bg-gradient-warm p-5">
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary/80">
-                  <Sparkles className="h-3.5 w-3.5" /> AI report summary
+                  <Sparkles className="h-3.5 w-3.5" /> Simplified summary
                 </span>
-                <span
-                  className="text-muted-foreground"
-                  title={analysis.provider === "groq" ? "Groq" : "Gemini"}
-                >
-                  {analysis.provider === "groq" ? (
-                    <Bot className="h-4 w-4" />
+                <div className="mt-2 flex items-center gap-2">
+                  {analysis.isMedicalReport === false ? (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Not a medical report
+                    </span>
                   ) : (
-                    <Sparkles className="h-4 w-4" />
+                    <>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                          analysis.riskLevel === "high"
+                            ? "bg-risk-high text-risk-high-foreground"
+                            : analysis.riskLevel === "medium"
+                              ? "bg-risk-medium text-risk-medium-foreground"
+                              : "bg-risk-low text-risk-low-foreground"
+                        }`}
+                      >
+                        {analysis.riskLevel === "high"
+                          ? "Needs attention"
+                          : analysis.riskLevel === "medium"
+                            ? "Worth discussing"
+                            : "Mostly reassuring"}
+                      </span>
+                      {analysis.findings.length > 0 ? (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          {analysis.findings.length} key result{analysis.findings.length === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
+                    </>
                   )}
-                </span>
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                    analysis.riskLevel === "high"
-                      ? "bg-risk-high text-risk-high-foreground"
-                      : analysis.riskLevel === "medium"
-                        ? "bg-risk-medium text-risk-medium-foreground"
-                        : "bg-risk-low text-risk-low-foreground"
-                  }`}
-                >
-                  {analysis.riskLevel} risk
-                </span>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {analysis.findings.length} key markers
-                </span>
-              </div>
-              <p className="mt-3 text-sm leading-relaxed text-foreground/95">{analysis.summary}</p>
-            </Card>
+                </div>
+                <p className="mt-3 text-sm leading-relaxed text-foreground/95">{analysis.summary}</p>
+              </Card>
             </motion.div>
+
+            {analysis.savedReportId ? (
+              <Card className="flex items-start gap-2 bg-primary-soft/30 p-3">
+                <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">
+                    {analysis.reportAvailableToAi
+                      ? "This report is now available to your AI assistant."
+                      : "This report was saved to your history."}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Ask questions in chat about your results — your assistant can reference saved reports when relevant.
+                  </p>
+                  <Button asChild variant="link" className="mt-1 h-auto p-0 text-xs">
+                    <Link href={`/reports/${analysis.savedReportId}`}>View saved report</Link>
+                  </Button>
+                </div>
+              </Card>
+            ) : null}
 
             {analysis.savedVitals ? (
               <Card className="flex items-center gap-2 bg-accent-soft/40 p-3">
                 <HeartPulse className="h-4 w-4 text-accent" />
-                <p className="text-sm">
-                  Extracted vitals saved to tracker{analysis.savedVitalId ? ` (ID: ${analysis.savedVitalId})` : ""}.
-                </p>
+                <p className="text-sm">Key measurements were saved to your health tracker.</p>
               </Card>
             ) : null}
+
             {analysis.savedProfile &&
             (analysis.savedProfile.conditions > 0 ||
               analysis.savedProfile.allergies > 0 ||
               analysis.savedProfile.medications > 0 ||
               analysis.savedProfile.notesUpdated) ? (
               <Card className="p-3">
-                <p className="text-sm font-medium">Clinical insights saved to your profile</p>
+                <p className="text-sm font-medium">Useful details saved to your profile</p>
                 <p className="text-xs text-muted-foreground">
-                  Conditions: {analysis.savedProfile.conditions} · Allergies: {analysis.savedProfile.allergies} ·
-                  Medications: {analysis.savedProfile.medications}
-                  {analysis.savedProfile.notesUpdated ? " · Notes updated" : ""}
+                  {[
+                    analysis.savedProfile.conditions > 0
+                      ? `${analysis.savedProfile.conditions} condition${analysis.savedProfile.conditions === 1 ? "" : "s"}`
+                      : null,
+                    analysis.savedProfile.allergies > 0
+                      ? `${analysis.savedProfile.allergies} allerg${analysis.savedProfile.allergies === 1 ? "y" : "ies"}`
+                      : null,
+                    analysis.savedProfile.medications > 0
+                      ? `${analysis.savedProfile.medications} medication${analysis.savedProfile.medications === 1 ? "" : "s"}`
+                      : null,
+                    analysis.savedProfile.notesUpdated ? "notes updated" : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               </Card>
             ) : null}
 
-            <div className="space-y-2">
-              <h2 className="font-display text-sm font-semibold">Key information</h2>
-              <div className="grid gap-2">
-                {analysis.findings.length === 0 ? (
-                  <Card className="p-3 text-sm text-muted-foreground">
-                    No structured values were detected.
-                  </Card>
-                ) : (
-                  analysis.findings.map((f, idx) => (
+            {analysis.findings.length > 0 ? (
+              <div className="space-y-2">
+                <h2 className="font-display text-sm font-semibold">Important results</h2>
+                <div className="grid gap-2">
+                  {analysis.findings.map((f, idx) => (
                     <ValueRow
                       key={`${f.name}-${idx}`}
                       name={f.name}
@@ -515,42 +544,43 @@ export default function ReportsPage() {
                       range={f.range || "—"}
                       status={f.status === "borderline" ? "high" : f.status}
                     />
-                  ))
-                )}
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : null}
 
             <Card className="p-4">
               <h3 className="font-display text-sm font-semibold">What this means</h3>
-              <p className="mt-1 text-sm text-foreground/90">{analysis.plainExplanation}</p>
+              <p className="mt-1 text-sm leading-relaxed text-foreground/90">{analysis.plainExplanation}</p>
             </Card>
 
-            <Card className="p-4">
-              <h3 className="font-display text-sm font-semibold">Recommended next steps</h3>
-              <ul className="mt-2 space-y-1.5 text-sm">
-                {analysis.recommendations.length ? (
-                  analysis.recommendations.map((r) => (
+            {analysis.recommendations.length > 0 ? (
+              <Card className="p-4">
+                <h3 className="font-display text-sm font-semibold">Suggested next steps</h3>
+                <ul className="mt-2 space-y-1.5 text-sm">
+                  {analysis.recommendations.map((r) => (
                     <li key={r} className="flex items-start gap-2">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 text-accent" />
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                       <span>{r}</span>
                     </li>
-                  ))
-                ) : (
-                  <li className="text-muted-foreground">No recommendations generated.</li>
-                )}
-              </ul>
-            </Card>
-            <Card className="p-4">
-              <h3 className="font-display text-sm font-semibold">Extracted profile insights</h3>
-              <div className="mt-2 space-y-2 text-sm">
-                <InsightList title="Conditions" items={analysis.extractedProfile.conditions} />
-                <InsightList title="Allergies" items={analysis.extractedProfile.allergies} />
-                <InsightList title="Medications" items={analysis.extractedProfile.medications} />
-              </div>
-              {analysis.extractedProfile.notes ? (
-                <p className="mt-2 text-xs text-muted-foreground">{analysis.extractedProfile.notes}</p>
-              ) : null}
-            </Card>
+                  ))}
+                </ul>
+              </Card>
+            ) : null}
+
+            {hasProfileInsights ? (
+              <Card className="p-4">
+                <h3 className="font-display text-sm font-semibold">Also noted in your report</h3>
+                <div className="mt-2 space-y-2 text-sm">
+                  <InsightList title="Conditions" items={analysis.extractedProfile.conditions} />
+                  <InsightList title="Allergies" items={analysis.extractedProfile.allergies} />
+                  <InsightList title="Medications" items={analysis.extractedProfile.medications} />
+                </div>
+                {analysis.extractedProfile.notes ? (
+                  <p className="mt-2 text-xs text-muted-foreground">{analysis.extractedProfile.notes}</p>
+                ) : null}
+              </Card>
+            ) : null}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Button asChild variant="outline" className="rounded-2xl">
@@ -565,7 +595,7 @@ export default function ReportsPage() {
                     }),
                   )}`}
                 >
-                  <MessageCircle className="mr-1.5 h-4 w-4" /> Ask AI
+                  <MessageCircle className="mr-1.5 h-4 w-4" /> Ask a question
                 </Link>
               </Button>
               <Button type="button" variant="outline" className="rounded-2xl" onClick={resetToFreshInput}>
@@ -575,7 +605,7 @@ export default function ReportsPage() {
           </>
         ) : null}
         <p className="px-2 text-center text-[11px] text-muted-foreground">
-          AI guidance only — not diagnosis. Always review critical findings with your clinician.
+          For guidance only — not a diagnosis. Share anything urgent with your care team.
         </p>
       </div>
     </AppShell>
@@ -583,20 +613,17 @@ export default function ReportsPage() {
 }
 
 function InsightList({ title, items }: { title: string; items: string[] }) {
+  if (!items.length) return null;
   return (
     <div>
       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-      {items.length ? (
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {items.map((item) => (
-            <span key={item} className="rounded-full bg-muted px-2 py-0.5 text-xs">
-              {item}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-1 text-xs text-muted-foreground">None detected</p>
-      )}
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {items.map((item) => (
+          <span key={item} className="rounded-full bg-muted px-2 py-0.5 text-xs">
+            {item}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -622,7 +649,7 @@ function ValueRow({
     <Card className="flex items-center justify-between p-3">
       <div>
         <p className="text-sm font-semibold">{name}</p>
-        <p className="text-xs text-muted-foreground">Normal: {range}</p>
+        {range !== "—" ? <p className="text-xs text-muted-foreground">Typical range: {range}</p> : null}
       </div>
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold">{value}</span>

@@ -6,7 +6,8 @@ export type ResponsePlan = {
   shouldAskClarifyingQuestion: boolean;
   maxSentences: number;
   maxToolCalls: number;
-  allowedToolFamilies: Array<"profile" | "knowledge" | "facilities" | "planner" | "observability">;
+  allowedToolFamilies: Array<"profile" | "knowledge" | "reports" | "facilities" | "planner" | "observability">;
+  shouldSearchUserReports: boolean;
   directAnswerFirst: boolean;
   avoidOpeningSmallTalk: boolean;
   systemRules: string[];
@@ -34,11 +35,13 @@ export function planResponseForIntent(input: {
   let shouldRetrieveKnowledge = true;
   let shouldAskClarifyingQuestion = false;
   let maxToolCalls = 2;
-  let allowedToolFamilies: ResponsePlan["allowedToolFamilies"] = ["profile", "knowledge"];
+  const family = input.intent.family;
+  let allowedToolFamilies: ResponsePlan["allowedToolFamilies"] = ["profile", "knowledge", "reports"];
+  let shouldSearchUserReports =
+    family === "report_explanation" || family === "general_health" || family === "symptom_guidance";
   let mode: ResponseMode = input.intent.responseMode;
   let directAnswerFirst = true;
   let avoidOpeningSmallTalk = false;
-  const family = input.intent.family;
 
   if (family === "greeting" || family === "identity" || family === "smalltalk") {
     shouldRetrieveKnowledge = false;
@@ -57,10 +60,11 @@ export function planResponseForIntent(input: {
     allowedToolFamilies = ["facilities"];
     baseRules.push("Focus on concrete nearby-care next steps.");
   } else if (family === "report_explanation" && input.hasReportContext) {
-    shouldRetrieveKnowledge = false;
-    maxToolCalls = 1;
-    allowedToolFamilies = ["knowledge"];
-    baseRules.push("Use provided report context first before generic retrieval.");
+    shouldRetrieveKnowledge = true;
+    shouldSearchUserReports = true;
+    maxToolCalls = 3;
+    allowedToolFamilies = ["knowledge", "reports"];
+    baseRules.push("Use provided report context and the user's saved reports before generic retrieval.");
   } else if (family === "offtopic") {
     shouldRetrieveKnowledge = false;
     maxToolCalls = 0;
@@ -73,6 +77,7 @@ export function planResponseForIntent(input: {
     shouldAskClarifyingQuestion = true;
     mode = "ask_clarification";
     shouldRetrieveKnowledge = false;
+    shouldSearchUserReports = false;
     maxToolCalls = Math.min(maxToolCalls, 1);
     directAnswerFirst = false;
     baseRules.push("Ask one focused clarifying question and avoid assumptions.");
@@ -89,6 +94,7 @@ export function planResponseForIntent(input: {
   return {
     mode,
     shouldRetrieveKnowledge,
+    shouldSearchUserReports,
     shouldAskClarifyingQuestion,
     maxSentences: sentenceBudgetForIntent(family, voice),
     maxToolCalls,

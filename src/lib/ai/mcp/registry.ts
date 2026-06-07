@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { buildOneShotNearbyCatalogBlock } from "@/lib/bd-facilities/chat-nearby-context";
 import { searchKnowledge } from "@/lib/rag/service";
+import { searchUserReports } from "@/lib/reports/rag-search";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
@@ -83,6 +84,30 @@ async function getUserContext(
         ])
       : [null, null];
   return { user: profile ?? null, pregnancy, vitals, locale: args.locale };
+}
+
+const searchUserReportsSchema = z.object({
+  query: z.string().min(2).max(1200),
+  maxResults: z.number().int().min(1).max(10).optional().default(6),
+});
+
+async function searchUserReportsTool(
+  args: z.infer<typeof searchUserReportsSchema>,
+  ctx: ToolCallContext,
+): Promise<ToolResult> {
+  if (!ctx.userId) return { query: args.query, hits: [] };
+  const hits = await searchUserReports(ctx.userId, args.query, { limit: args.maxResults });
+  return {
+    query: args.query,
+    hits: hits.map((h) => ({
+      id: h.id,
+      reportId: h.reportId,
+      reportTitle: h.reportTitle,
+      reportDate: h.reportDate,
+      score: h.score,
+      content: h.content,
+    })),
+  };
 }
 
 async function searchMedicalKnowledge(
@@ -171,6 +196,13 @@ export const MCP_TOOL_REGISTRY: Record<McpToolName, ToolDefinition> = {
     inputSchema: searchMedicalKnowledgeSchema,
     outputSchema: z.object({}).passthrough(),
     handler: searchMedicalKnowledge,
+  },
+  search_user_reports: {
+    name: "search_user_reports",
+    readonly: true,
+    inputSchema: searchUserReportsSchema,
+    outputSchema: z.object({}).passthrough(),
+    handler: searchUserReportsTool,
   },
   get_nearby_facilities: {
     name: "get_nearby_facilities",

@@ -1,166 +1,75 @@
-import path from "node:path";
-
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { clipReportText, extractTextFromReportFileLocally } from "@/lib/reports/extraction";
+import {
+  classifyReportFile,
+  isReportImageFile,
+  MAX_REPORT_FILE_BYTES,
+  validateReportUploadFile,
+} from "@/lib/reports/file-utils";
 
 export const runtime = "nodejs";
 
-const MIN_TEXT_CHARS = 20;
-
-function isVercel(): boolean {
-  return process.env.VERCEL === "1";
-}
-
-type ExtractionMode =
-  | "provided_text"
-  | "text_local"
-  | "pdf_local"
-  | "ocr_local"
-  | "deferred_ai"
-  | "none";
-type PdfParseFn = (dataBuffer: Buffer) => Promise<{ text?: string }>;
-
-async function loadPdfParse(): Promise<PdfParseFn> {
-  const mod = (await import("pdf-parse")) as unknown;
-  if (typeof mod === "function") return mod as PdfParseFn;
-  if (
-    mod &&
-    typeof mod === "object" &&
-    "default" in mod &&
-    typeof (mod as { default?: unknown }).default === "function"
-  ) {
-    return (mod as { default: PdfParseFn }).default;
-  }
-  throw new Error("pdf-parse loader is not a function");
-}
-
-function clipText(text: string, maxChars = 2000): string {
-  const t = text.trim();
-  if (t.length <= maxChars) return t;
-  return `${t.slice(0, maxChars)}\n\n[Truncated preview]`;
-}
-
-async function extractFromFile(file: File): Promise<{
-  mode: ExtractionMode;
-  text: string;
-  error?: string;
-}> {
-  const mime = (file.type || "").toLowerCase();
-  const name = file.name.toLowerCase();
-  const bytes = await file.arrayBuffer();
-  const buf = Buffer.from(bytes);
-
-  if (
-    mime.startsWith("text/") ||
-    name.endsWith(".txt") ||
-    name.endsWith(".csv") ||
-    name.endsWith(".json")
-  ) {
-    return { mode: "text_local", text: buf.toString("utf8") };
-  }
-
-  if (mime.includes("pdf") || name.endsWith(".pdf")) {
-    try {
-      const pdfParse = await loadPdfParse();
-      const parsed = await pdfParse(buf);
-      return { mode: "pdf_local", text: parsed.text?.trim() ?? "" };
-    } catch (e) {
-      return {
-        mode: "none",
-        text: "",
-        error: `PDF extraction failed: ${e instanceof Error ? e.message : String(e)}`,
-      };
-    }
-  }
-
-  if (mime.startsWith("image/") || /\.(png|jpe?g|webp|bmp|gif)$/i.test(name)) {
-    // Tesseract worker paths are not reliable in Vercel serverless bundles; analysis uses Gemini on file instead.
-    if (isVercel()) {
-      return { mode: "none", text: "" };
-    }
-    try {
-      const tesseractMod = await import("tesseract.js");
-      const createWorker = tesseractMod.createWorker;
-      const workerPath = path.resolve(
-        process.cwd(),
-        "node_modules",
-        "tesseract.js",
-        "src",
-        "worker-script",
-        "node",
-        "index.js",
-      );
-      const worker = await createWorker("eng", 1, { workerPath });
-      const out = await worker.recognize(buf);
-      await worker.terminate();
-      return { mode: "ocr_local", text: out.data.text?.trim() ?? "" };
-    } catch (e) {
-      return {
-        mode: "none",
-        text: "",
-        error: `Image OCR failed: ${e instanceof Error ? e.message : String(e)}`,
-      };
-    }
-  }
-
-  return {
-    mode: "none",
-    text: "",
-    error: "Unsupported file type for local extraction.",
-  };
-}
+const MIN_PREVIEW_CHARS = 20;
 
 export async function POST(req: Request) {
   try {
     const session = await getSessionFromCookies();
-    if (!session) return failJson(401, "Sign in.");
+    if (!session) return failJson(401, "Please sign in and try again.");
 
     const form = await req.formData();
     const reportText = String(form.get("reportText") ?? "").trim();
-    const reportFile = form.get("file");
+    const reportFile = form.get("file") instanceof File ? (form.get("file") as File) : null;
 
-    if (!reportText && !(reportFile instanceof File)) {
-      return failJson(400, "Add report text or upload a file.");
+    if (!reportText && !reportFile) {
+      return failJson(400, "Add report text or upload an image of your report.");
     }
-    if (reportFile instanceof File && reportFile.size > 10 * 1024 * 1024) {
-      return failJson(400, "File is too large (max 10MB).");
+    if (reportFile) {
+      const validationError = validateReportUploadFile(reportFile);
+      if (validationError) return failJson(400, validationError);
+      if (reportFile.size > MAX_REPORT_FILE_BYTES) {
+        return failJson(400, "This file is too large. Please use an image under 10 MB.");
+      }
     }
 
     if (reportText) {
       return Response.json({
         ok: true,
-        mode: "provided_text" as ExtractionMode,
+        mode: "provided_text",
         chars: reportText.length,
-        preview: clipText(reportText),
       });
     }
 
-    const extracted = await extractFromFile(reportFile as File);
+    const extracted = await extractTextFromReportFileLocally(reportFile as File);
     const text = extracted.text.trim();
     const file = reportFile as File;
-    const looksLikeImage =
-      ((file.type || "").toLowerCase().startsWith("image/") ||
-        /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name.toLowerCase())) &&
-      !((file.type || "").toLowerCase().includes("pdf")) &&
-      !file.name.toLowerCase().endsWith(".pdf");
+    const isImage = isReportImageFile(file);
 
-    if (text.length < MIN_TEXT_CHARS) {
-      if (isVercel() && looksLikeImage) {
-        return Response.json({
-          ok: true,
-          mode: "deferred_ai" as ExtractionMode,
-          chars: 0,
-          preview:
-            "Image received. Text will be read from your image during analysis (secure AI on the server).",
-        });
-      }
+    // Images on serverless: local OCR is skipped; analysis reads the image directly.
+    if (text.length < MIN_PREVIEW_CHARS && isImage && extracted.mode === "deferred_ai") {
+      return Response.json({
+        ok: true,
+        mode: "deferred_ai",
+        chars: 0,
+      });
+    }
+
+    // PDF with little embedded text may still work via server-side analysis.
+    if (text.length < MIN_PREVIEW_CHARS && classifyReportFile(file) === "pdf") {
+      return Response.json({
+        ok: true,
+        mode: "deferred_ai",
+        chars: text.length,
+      });
+    }
+
+    if (text.length < MIN_PREVIEW_CHARS) {
       return Response.json(
         {
           ok: false,
           mode: extracted.mode,
           chars: text.length,
-          preview: clipText(text),
-          message: extracted.error ?? "Could not extract enough text from this file.",
+          message: "We couldn't read enough from this file. Try a clearer image or paste the text.",
         },
         { status: 422 },
       );
@@ -170,7 +79,7 @@ export async function POST(req: Request) {
       ok: true,
       mode: extracted.mode,
       chars: text.length,
-      preview: clipText(text),
+      preview: clipReportText(text, 500),
     });
   } catch (e) {
     return serverErrorJson("reports_extract_local POST", e);

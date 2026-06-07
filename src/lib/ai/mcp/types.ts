@@ -3,6 +3,7 @@ import type { IntentFamily } from "@/lib/ai/intent";
 export const MCP_TOOL_NAMES = [
   "get_user_context",
   "search_medical_knowledge",
+  "search_user_reports",
   "get_nearby_facilities",
   "create_care_reminder",
   "log_ai_escalation_event",
@@ -51,5 +52,5 @@ export type ToolCallContext = {
   maxToolCalls: number;
 };
 
-export type McpToolFamily = "profile" | "knowledge" | "facilities" | "planner" | "observability";
+export type McpToolFamily = "profile" | "knowledge" | "reports" | "facilities" | "planner" | "observability";
 

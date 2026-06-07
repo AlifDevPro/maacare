@@ -28,6 +28,11 @@ import type { McpToolName } from "@/lib/ai/mcp/types";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 import { searchKnowledge } from "@/lib/rag/service";
 import {
+  formatUserReportHitsForPrompt,
+  searchUserReports,
+  shouldSearchUserReports as queryNeedsUserReports,
+} from "@/lib/reports/rag-search";
+import {
   resolveHealthDataUserId,
   resolvePregnancyUserIdForRequester,
 } from "@/lib/app/care-access";
@@ -445,6 +450,13 @@ export async function POST(req: Request) {
     if (responsePlan.allowedToolFamilies.includes("facilities") && nearbyIntent && userLocation) {
       mcpRequestedReadTools.push("get_nearby_facilities");
     }
+    const wantUserReports =
+      responsePlan.shouldSearchUserReports &&
+      responsePlan.allowedToolFamilies.includes("reports") &&
+      queryNeedsUserReports(retrievalQueryExpanded, intent.family);
+    if (wantUserReports) {
+      mcpRequestedReadTools.push("search_user_reports");
+    }
     const mcpPlan = mcpPlanForRoute({
       route: "chat",
       intentFamily: intent.family,
@@ -476,13 +488,25 @@ export async function POST(req: Request) {
                 },
               };
             }
-            return {
-              name: toolName,
-              args: {
-                lat: userLocation!.latitude,
-                lng: userLocation!.longitude,
-              },
-            };
+            if (toolName === "search_user_reports") {
+              return {
+                name: toolName,
+                args: {
+                  query: retrievalQueryExpanded,
+                  maxResults: 6,
+                },
+              };
+            }
+            if (toolName === "get_nearby_facilities") {
+              return {
+                name: toolName,
+                args: {
+                  lat: userLocation!.latitude,
+                  lng: userLocation!.longitude,
+                },
+              };
+            }
+            return { name: toolName, args: {} };
           }),
         })
       : { results: [], traces: [] };
@@ -504,6 +528,35 @@ export async function POST(req: Request) {
             ),
           ].join("\n")
         : "";
+
+    const mcpUserReportsResult = mcpReadBatch.results.find(
+      (r) => r.tool === "search_user_reports" && r.ok,
+    );
+    const userReportRagStart = nowMs();
+    const userReportHits = Array.isArray(mcpUserReportsResult?.data?.hits)
+      ? (mcpUserReportsResult.data.hits as Array<{
+          id: string;
+          reportId: string;
+          reportTitle: string;
+          reportDate: string;
+          score: number;
+          content: string;
+        }>).map((h) => ({
+          id: h.id,
+          reportId: h.reportId,
+          reportTitle: h.reportTitle,
+          reportDate: h.reportDate,
+          score: h.score,
+          content: h.content,
+          chunkIndex: 0,
+        }))
+      : wantUserReports
+        ? await searchUserReports(session.id, retrievalQueryExpanded, { limit: 6 })
+        : [];
+    markPerf("user_report_rag_ms", userReportRagStart);
+    const userReportContextBlock = wantUserReports
+      ? formatUserReportHitsForPrompt(userReportHits)
+      : "";
 
     const ragStart = nowMs();
     const hits = Array.isArray(mcpKnowledgeResult?.data?.hits)
@@ -766,6 +819,8 @@ export async function POST(req: Request) {
       personalContext,
       "",
       reportContextText ? `${reportContextText}\n` : "",
+      wantUserReports ? "USER REPORT CONTEXT (this user's uploaded reports):\n" : "",
+      wantUserReports ? `${userReportContextBlock}\n` : "",
       nearbyFacilitiesText ? `${nearbyFacilitiesText}\n` : "",
       mcpReadContextBlock ? `${mcpReadContextBlock}\n` : "",
       "CONTEXT (retrieved articles):",

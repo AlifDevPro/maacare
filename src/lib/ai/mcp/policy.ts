@@ -18,14 +18,14 @@ const ROUTE_POLICY: Record<McpRouteId, Record<IntentFamily, PolicyRule>> = {
   chat: {
     identity: { maxToolCalls: 1, families: ["profile"], allowWrites: false },
     greeting: { maxToolCalls: 1, families: ["profile"], allowWrites: false },
-    symptom_guidance: { maxToolCalls: 2, families: ["profile", "knowledge", "observability"], allowWrites: false },
+    symptom_guidance: { maxToolCalls: 3, families: ["profile", "knowledge", "reports", "observability"], allowWrites: false },
     planning: { maxToolCalls: 2, families: ["profile", "knowledge", "planner"], allowWrites: false },
     nearby_facilities: { maxToolCalls: 2, families: ["facilities"], allowWrites: false },
-    report_explanation: { maxToolCalls: 2, families: ["knowledge"], allowWrites: false },
+    report_explanation: { maxToolCalls: 3, families: ["knowledge", "reports"], allowWrites: false },
     onboarding: { maxToolCalls: 1, families: [], allowWrites: false },
     smalltalk: { maxToolCalls: 0, families: [], allowWrites: false },
     offtopic: { maxToolCalls: 0, families: [], allowWrites: false },
-    general_health: { maxToolCalls: 2, families: ["profile", "knowledge"], allowWrites: false },
+    general_health: { maxToolCalls: 3, families: ["profile", "knowledge", "reports"], allowWrites: false },
     unknown: { maxToolCalls: 0, families: [], allowWrites: false },
   },
   signup_ai_turn: {
@@ -111,6 +111,7 @@ const ROUTE_POLICY: Record<McpRouteId, Record<IntentFamily, PolicyRule>> = {
 const TOOL_FAMILY: Record<McpToolName, McpToolFamily> = {
   get_user_context: "profile",
   search_medical_knowledge: "knowledge",
+  search_user_reports: "reports",
   get_nearby_facilities: "facilities",
   create_care_reminder: "planner",
   log_ai_escalation_event: "observability",
