@@ -10,9 +10,9 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { DmPeerHeader } from "@/components/messages/dm-peer-header";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { CommunityAvatar } from "@/components/community/community-avatar";
 import { dispatchDmUnreadUpdated } from "@/lib/dm/events";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useSession } from "@/lib/auth-client";
@@ -149,8 +149,6 @@ export default function DmThreadClient() {
     }
   }
 
-  const title = meta?.peerDisplayName ?? t("thread_peer_fallback");
-
   const ordered = useMemo(() => [...messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [messages]);
 
   if (!valid) {
@@ -179,25 +177,20 @@ export default function DmThreadClient() {
   return (
     <AppShell>
       <AppHeader
-        title={title}
+        title={t("inbox_title")}
         showBack
         backHref="/messages"
         showNotifications
-        right={
-          meta ? (
-            <CommunityAvatar
-              url={meta.peerAvatarUrl}
-              name={meta.peerDisplayName}
-              className="h-8 w-8"
-              fallbackClassName="bg-primary-soft text-xs font-semibold"
-            />
-          ) : null
-        }
       />
 
       {!loading && meta ? (
         <>
-          <div className="max-h-[calc(100dvh-14rem)] overflow-y-auto px-4 pb-32 pt-3">
+          <DmPeerHeader
+            peerUserId={meta.peerUserId}
+            displayName={meta.peerDisplayName}
+            avatarUrl={meta.peerAvatarUrl}
+          />
+          <div className="max-h-[calc(100dvh-16rem)] overflow-y-auto px-4 pb-32 pt-3">
             <div className="space-y-2">
               {ordered.map((m) => {
                 const mine = user?.id === m.sender_id;

@@ -1,6 +1,10 @@
 export type AiRegressionCase = {
   key: string;
   query: string;
+  /** Expected BCP-47 primary tag from CLD3/heuristic detector (pipeline validation). */
+  expectedLanguageTag?: string;
+  /** Minimum English word count expected in normalized retrieval query (non-English inputs). */
+  minEnglishQueryWords?: number;
   expectedResponseBehavior:
     | "direct_identity_assistant"
     | "direct_identity_user"
@@ -22,6 +26,8 @@ export const AI_REGRESSION_CASES: AiRegressionCase[] = [
   {
     key: "identity_assistant_bn_script",
     query: "তোমার নাম কি?",
+    expectedLanguageTag: "bn",
+    minEnglishQueryWords: 2,
     expectedResponseBehavior: "direct_identity_assistant",
     expectedIntentFamily: "identity",
   },
@@ -34,6 +40,7 @@ export const AI_REGRESSION_CASES: AiRegressionCase[] = [
   {
     key: "identity_assistant_en",
     query: "what is your name?",
+    expectedLanguageTag: "en",
     expectedResponseBehavior: "direct_identity_assistant",
     expectedIntentFamily: "identity",
   },
@@ -68,8 +75,36 @@ export const AI_REGRESSION_CASES: AiRegressionCase[] = [
     expectedIntentFamily: "symptom_guidance",
   },
   {
+    key: "symptom_hinglish",
+    query: "mujhe kal se fever aur body pain hai kya karu",
+    expectedLanguageTag: "hi",
+    minEnglishQueryWords: 3,
+    expectedResponseBehavior: "direct_answer",
+    expectedIntentFamily: "symptom_guidance",
+  },
+  {
+    key: "symptom_hindi_script",
+    query: "मुझे बुखार और सिर दर्द है, क्या करूं?",
+    expectedResponseBehavior: "direct_answer",
+    expectedIntentFamily: "symptom_guidance",
+  },
+  {
+    key: "symptom_banglish",
+    query: "amar stomach pain hocche and nausea lagse ki korbo",
+    expectedResponseBehavior: "direct_answer",
+    expectedIntentFamily: "symptom_guidance",
+  },
+  {
     key: "planner_food_bn",
     query: "আজকে pregnancy meal plan dao",
+    expectedLanguageTag: "bn",
+    minEnglishQueryWords: 2,
+    expectedResponseBehavior: "direct_answer",
+    expectedIntentFamily: "planning",
+  },
+  {
+    key: "planner_food_hinglish",
+    query: "week 24 pregnancy ke liye aaj ka meal plan do",
     expectedResponseBehavior: "direct_answer",
     expectedIntentFamily: "planning",
   },
@@ -90,6 +125,12 @@ export const AI_REGRESSION_CASES: AiRegressionCase[] = [
     query: "teach me hacking wifi",
     expectedResponseBehavior: "direct_answer",
     expectedIntentFamily: "offtopic",
+  },
+  {
+    key: "low_confidence_clarify_noise",
+    query: "ami ??? qzx 123 kiii",
+    expectedResponseBehavior: "clarification",
+    expectedIntentFamily: "unknown",
   },
 ];
 

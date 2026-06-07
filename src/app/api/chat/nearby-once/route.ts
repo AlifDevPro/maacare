@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
+import { generateLocalizedAiReply } from "@/lib/ai/generate-localized-reply";
 import { buildLanguagePromptLines, normalizeUiLanguagePrior } from "@/lib/ai/language";
+import { resolveLanguageFromTextOrPrior } from "@/lib/ai/multilingual-pipeline";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
 import {
@@ -15,7 +17,6 @@ import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { buildOneShotNearbyCatalogBlock } from "@/lib/bd-facilities/chat-nearby-context";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
-import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -46,9 +47,14 @@ export async function POST(req: Request) {
       .eq("id", session.id)
       .maybeSingle();
     const uiLang = normalizeUiLanguagePrior((profileRow?.language as string | null) ?? null);
+    const langCtx = await resolveLanguageFromTextOrPrior({
+      userText: "nearest maternity hospital near me",
+      uiLanguagePrior: uiLang,
+    });
     const languageBlock = buildLanguagePromptLines({
-      ietfLanguageTag: uiLang ?? "en",
-      languageHintForPrompt: uiLang === "bn" ? "Bengali (Bangla)" : "English",
+      ietfLanguageTag: langCtx.ietfLanguageTag,
+      languageHintForPrompt: langCtx.languageHintForPrompt,
+      userStyleHint: langCtx.userStyleHint,
     });
     const responsePlan = planResponseForIntent({
       intent: {
@@ -58,7 +64,7 @@ export async function POST(req: Request) {
         confidence: 0.95,
         needsClarification: false,
       },
-      ietfLanguageTag: uiLang ?? "en",
+      ietfLanguageTag: langCtx.ietfLanguageTag,
       hasReportContext: false,
       hasNearbyContext: true,
     });
@@ -109,13 +115,16 @@ export async function POST(req: Request) {
       mcpCatalog ? `\nMCP_CATALOG:\n${mcpCatalog}` : "",
     ].join("\n");
 
-    const out = await generateTextWithGeminiGroqFailover({
+    const out = await generateLocalizedAiReply({
+      latestUserMessage: "nearest maternity hospital near me",
+      ietfLanguageTag: langCtx.ietfLanguageTag,
       systemInstruction,
       userMessage,
+      userStyleHint: langCtx.userStyleHint,
     });
 
     return Response.json({
-      reply: enforceNaturalResponseQuality(out.text),
+      reply: enforceNaturalResponseQuality(out.reply),
       provider: out.provider,
       ...(process.env.AI_DEBUG_METADATA === "1"
         ? {

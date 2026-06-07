@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
+import { generateLocalizedAiReply } from "@/lib/ai/generate-localized-reply";
 import { buildLanguagePromptLines, normalizeUiLanguagePrior } from "@/lib/ai/language";
+import { resolveLanguageFromTextOrPrior } from "@/lib/ai/multilingual-pipeline";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
 import { buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
@@ -9,7 +11,6 @@ import { planResponseForIntent } from "@/lib/ai/response-planner";
 import { executeMcpTool } from "@/lib/ai/mcp/gateway";
 import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
-import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -104,9 +105,19 @@ export async function GET(req: NextRequest) {
       .eq("id", uid)
       .maybeSingle();
     const uiLang = normalizeUiLanguagePrior((profileRow?.language as string | null) ?? null);
+    const weekRaw = req.nextUrl.searchParams.get("week");
+    const week = weekRaw ? Math.max(1, Math.min(40, Number(weekRaw) || 0)) : null;
+    const userFacingQuery = week
+      ? `Pregnancy week ${week} daily meal suggestions with maternal nutrition guidance.`
+      : "Daily pregnancy meal suggestions with maternal nutrition guidance.";
+    const langCtx = await resolveLanguageFromTextOrPrior({
+      userText: userFacingQuery,
+      uiLanguagePrior: uiLang,
+    });
     const languageBlock = buildLanguagePromptLines({
-      ietfLanguageTag: uiLang ?? "en",
-      languageHintForPrompt: uiLang === "bn" ? "Bengali (Bangla)" : "English",
+      ietfLanguageTag: langCtx.ietfLanguageTag,
+      languageHintForPrompt: langCtx.languageHintForPrompt,
+      userStyleHint: langCtx.userStyleHint,
     });
     const responsePlan = planResponseForIntent({
       intent: {
@@ -116,7 +127,7 @@ export async function GET(req: NextRequest) {
         confidence: 0.96,
         needsClarification: false,
       },
-      ietfLanguageTag: uiLang ?? "en",
+      ietfLanguageTag: langCtx.ietfLanguageTag,
       hasReportContext: false,
       hasNearbyContext: false,
     });
@@ -161,12 +172,7 @@ export async function GET(req: NextRequest) {
     const avoidBlock = avoidRepeatPromptFromPrior(priorRows ?? null);
     const yesterdayBlock = yesterdayMealsPrompt(yesterdayRow ?? null);
 
-    const weekRaw = req.nextUrl.searchParams.get("week");
-    const week = weekRaw ? Math.max(1, Math.min(40, Number(weekRaw) || 0)) : null;
-
-    const query = week
-      ? `Pregnancy week ${week} daily meal suggestions with maternal nutrition guidance.`
-      : "Daily pregnancy meal suggestions with maternal nutrition guidance.";
+    const query = langCtx.englishRetrievalQuery.trim() || userFacingQuery;
     if (mcpEnabled && mcpPlan.allowedTools.includes("search_medical_knowledge")) {
       const mcpOut = await executeMcpTool({
         name: "search_medical_knowledge",
@@ -216,7 +222,14 @@ export async function GET(req: NextRequest) {
     );
 
     const userMessage = `Create daily meal suggestions${week ? ` for pregnancy week ${week}` : ""}.`;
-    const text = await generateChatReply({ systemInstruction, userMessage });
+    const gen = await generateLocalizedAiReply({
+      latestUserMessage: userFacingQuery,
+      ietfLanguageTag: langCtx.ietfLanguageTag,
+      systemInstruction,
+      userMessage,
+      userStyleHint: langCtx.userStyleHint,
+    });
+    const text = gen.reply;
     const json = extractJsonBlock(text);
     const parsed = json ? JSON.parse(json) : null;
     const meals = coerceMeals(parsed).map((m) => ({

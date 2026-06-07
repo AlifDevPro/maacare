@@ -14,7 +14,7 @@ import {
 } from "@/lib/ai/language";
 import { detectIntentForTurn } from "@/lib/ai/intent";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
-import { withQualityRetry } from "@/lib/ai/quality-guard";
+import { generateLocalizedAiReply } from "@/lib/ai/generate-localized-reply";
 import {
   buildMedicalSafetyRules,
   buildNaturalStyleRules,
@@ -26,12 +26,12 @@ import { executeMcpTool, executeMcpToolsBatch } from "@/lib/ai/mcp/gateway";
 import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import type { McpToolName } from "@/lib/ai/mcp/types";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
-import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 import { searchKnowledge } from "@/lib/rag/service";
 import {
   resolveHealthDataUserId,
   resolvePregnancyUserIdForRequester,
 } from "@/lib/app/care-access";
+import { persistAiChatTurn } from "@/lib/chat/history-repository";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const bodySchema = z.object({
@@ -64,6 +64,8 @@ const bodySchema = z.object({
       riskLevel: z.enum(["low", "medium", "high"]).optional(),
     })
     .optional(),
+  /** When set, user/assistant turns are persisted to this conversation after a successful reply. */
+  conversationId: z.string().uuid().optional(),
 });
 
 const MAX_TRANSCRIPT_TOKENS = 2600;
@@ -224,8 +226,15 @@ export async function POST(req: Request) {
     };
 
     const parseStart = nowMs();
-    const { messages, reportContext, userLocation, replyChannel, consentToken, requestedAction } =
-      bodySchema.parse(await req.json());
+    const {
+      messages,
+      reportContext,
+      userLocation,
+      replyChannel,
+      consentToken,
+      requestedAction,
+      conversationId: requestConversationId,
+    } = bodySchema.parse(await req.json());
     markPerf("parse_ms", parseStart);
     const isVoiceChannel = replyChannel === "voice";
     const supabase = await createSupabaseServerClient();
@@ -365,7 +374,31 @@ export async function POST(req: Request) {
     markPerf("language_resolve_ms", languageStart);
     const ietfLanguageTag = multilingualPrep.ietfLanguageTag.trim().toLowerCase() || "en";
     const retrievalQuery = multilingualPrep.englishRetrievalQuery.trim();
-    const latestUserOriginal = lastUser.content.trim();
+    const latestUserOriginal = multilingualPrep.normalizedUserMessage.trim() || lastUser.content.trim();
+    if (multilingualPrep.shouldClarifyBeforeRetrieval) {
+      const clarification = multilingualPrep.clarificationText?.trim();
+      if (clarification) {
+        return NextResponse.json({
+          reply: clarification,
+          provider: "gemini",
+          needsClientLocation: false,
+          citations: [],
+          ...(process.env.AI_DEBUG_METADATA === "1"
+            ? {
+                debug: {
+                  languageTag: ietfLanguageTag,
+                  translationConfidence: multilingualPrep.translationConfidence,
+                  haltedBeforeRetrieval: true,
+                  performance: {
+                    ...perf,
+                    totalMs: nowMs() - perfAllStart,
+                  },
+                },
+              }
+            : {}),
+        });
+      }
+    }
     const identityTarget = detectIdentityTargetFromUserTurn(latestUserOriginal);
     const shortUserTurn = isShortUserTurn(latestUserOriginal);
     const userWroteBanglaScript = containsBanglaScript(latestUserOriginal);
@@ -382,7 +415,7 @@ export async function POST(req: Request) {
       multilingualPrep.languageHintForPrompt?.trim() || ietfLanguageTag;
     const intentStart = nowMs();
     const intent = await detectIntentForTurn({
-      latestUserMessage: latestUserOriginal,
+      latestUserMessage: latestUserRetrievalQuery,
       transcriptSnippet: transcript,
       ietfLanguageTag,
     });
@@ -394,7 +427,7 @@ export async function POST(req: Request) {
       hasNearbyContext: Boolean(nearbyIntent && userLocation),
       voice: isVoiceChannel,
     });
-    const ragLimit = CHAT_LATENCY_OPTIMIZATIONS
+    const ragLimitBase = CHAT_LATENCY_OPTIMIZATIONS
       ? intent.family === "general_health"
         ? 6
         : intent.family === "symptom_guidance"
@@ -403,6 +436,7 @@ export async function POST(req: Request) {
             ? 5
             : 4
       : 8;
+    const ragLimit = Math.max(ragLimitBase, multilingualPrep.retrievalCandidateSize);
     const mcpEnabled = process.env.MCP_ENABLED === "1";
     const mcpRequestedReadTools: McpToolName[] = [];
     if (responsePlan.allowedToolFamilies.includes("knowledge") && responsePlan.shouldRetrieveKnowledge) {
@@ -694,6 +728,7 @@ export async function POST(req: Request) {
       `Current response mode: ${responsePlan.mode}.`,
       `Target max sentence count: ${responsePlan.maxSentences}.`,
       "MaaCare knowledge includes trusted admin-managed sources and user-specific health context.",
+      "Translation-sandwich contract: internal retrieval, tool planning, and grounding run in English; user-facing answer must follow the target language instruction.",
       "Do not say or imply that global knowledge was uploaded by this user.",
       "Only mention user-uploaded content when REPORT CONTEXT is explicitly provided in this request.",
       "Ground answers in the provided CONTEXT when it is relevant. If CONTEXT is insufficient, say so clearly.",
@@ -721,7 +756,11 @@ export async function POST(req: Request) {
       "If personal context is missing for a needed decision, ask a brief clarifying question.",
       "Always prioritize the LATEST USER TURN intent over earlier turns.",
       "If latest turn is a short acknowledgement, continue naturally from the immediate prior context.",
-      ...buildLanguagePromptLines({ ietfLanguageTag, languageHintForPrompt: replyLanguageHint }),
+      ...buildLanguagePromptLines({
+        ietfLanguageTag,
+        languageHintForPrompt: replyLanguageHint,
+        userStyleHint: multilingualPrep.userStyleHint,
+      }),
       ...voiceSpeechBlock,
       "",
       personalContext,
@@ -751,12 +790,15 @@ export async function POST(req: Request) {
       "Do not mention translation or retrieval preparation steps.",
     ].join("\n");
 
-    let providerUsed: "gemini" | "groq" = "gemini";
     const generationStart = nowMs();
-    const qualityRun = await withQualityRetry({
+    const qualityRun = await generateLocalizedAiReply({
       latestUserMessage: latestUserOriginal,
       ietfLanguageTag,
+      systemInstruction: composeSystemPrompt(systemInstructionBase),
+      userMessage,
+      ...(isVoiceChannel ? { temperature: 0.82 } : {}),
       minChars: responsePlan.mode === "ask_clarification" ? 8 : 16,
+      userStyleHint: multilingualPrep.userStyleHint,
       alignment: {
         shortQuery: shortUserTurn,
         identityTarget,
@@ -764,16 +806,8 @@ export async function POST(req: Request) {
       },
       recoveryRule:
         "Quality correction pass: answer directly, keep natural tone, do not echo user text, and never claim the user's profile name as your own. If asked identity, say you are MaaCare.",
-      generator: async (extraRule?: string) => {
-        const out = await generateTextWithGeminiGroqFailover({
-          systemInstruction: composeSystemPrompt(systemInstructionBase, extraRule),
-          userMessage,
-          ...(isVoiceChannel ? { temperature: 0.82 } : {}),
-        });
-        providerUsed = out.provider;
-        return out.text;
-      },
     });
+    const providerUsed = qualityRun.provider;
     markPerf("generation_with_quality_ms", generationStart);
 
     const needsClientLocation = Boolean(nearbyIntent && !userLocation);
@@ -842,8 +876,13 @@ export async function POST(req: Request) {
               };
             })(),
             languageTag: ietfLanguageTag,
+            translationConfidence: multilingualPrep.translationConfidence,
+            detectorSource: multilingualPrep.detectorSource,
+            translatorSource: multilingualPrep.translatorSource,
+            englishRetrievalQuery: latestUserRetrievalQuery,
             retrievalQuery: latestUserRetrievalQuery,
             retrievalQueryExpanded,
+            postProcessed: qualityRun.postProcessed,
             intentFamily: intent.family,
             intentConfidence: intent.confidence,
             responseMode: responsePlan.mode,
@@ -861,10 +900,50 @@ export async function POST(req: Request) {
           }
         : undefined;
 
+    let persistedConversationId: string | undefined;
+    if (!needsClientLocation) {
+      try {
+        let reportContextJson: unknown;
+        if (reportContext) {
+          try {
+            reportContextJson = JSON.parse(reportContext);
+          } catch {
+            reportContextJson = { raw: reportContext };
+          }
+        }
+
+        persistedConversationId = await persistAiChatTurn(supabase, {
+          userId: session.id,
+          conversationId: requestConversationId,
+          userContent: lastUser.content,
+          assistantContent: qualityRun.reply,
+          reportContext: reportContextJson,
+          userMetadata: {
+            ietfLanguageTag,
+            englishRetrievalQuery: latestUserRetrievalQuery,
+            detectorSource: multilingualPrep.detectorSource,
+            translatorSource: multilingualPrep.translatorSource,
+          },
+          metadata: {
+            provider: providerUsed,
+            citationCount: hits.length,
+            ietfLanguageTag,
+            englishRetrievalQuery: latestUserRetrievalQuery,
+            detectorSource: multilingualPrep.detectorSource,
+            translatorSource: multilingualPrep.translatorSource,
+            postProcessed: qualityRun.postProcessed,
+          },
+        });
+      } catch (persistErr) {
+        console.warn("[chat] history persist failed:", persistErr);
+      }
+    }
+
     return NextResponse.json({
       reply: qualityRun.reply,
       provider: providerUsed,
       needsClientLocation,
+      ...(persistedConversationId ? { conversationId: persistedConversationId } : {}),
       ...(mcpActionResult ? { action: mcpActionResult } : {}),
       ...(debugMeta ? { debug: debugMeta } : {}),
       citations: hits.map((h) => ({

@@ -1,83 +1,25 @@
 import { z } from "zod";
 
+import {
+  applyReplyLanguageOverrides,
+  IETF_LANGUAGE_TAG_RE,
+  inferUserStyleHint,
+  type MultilingualChatPrep,
+} from "@/lib/ai/multilingual-pipeline/language-heuristics";
 import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 
-/** Loose BCP-47 primary tag + optional subtags (ASCII letters/digits/hyphen). */
-const IETF_LANGUAGE_TAG_RE = /^[a-z]{2,8}(-[a-zA-Z0-9]{1,8}){0,3}$/;
+export type { MultilingualChatPrep };
+export type UiLanguagePrior = "en" | "bn" | null;
 
-const BANGLA_CHAR_RE = /[\u0980-\u09FF]/;
-
-/** Common English tokens — used only to reduce false `bn` tags on Latin-script English. */
-const ENGLISH_HINT_WORDS = new Set([
-  "the",
-  "a",
-  "an",
-  "is",
-  "are",
-  "was",
-  "were",
-  "what",
-  "when",
-  "where",
-  "how",
-  "why",
-  "who",
-  "which",
-  "can",
-  "could",
-  "would",
-  "should",
-  "my",
-  "i",
-  "me",
-  "we",
-  "you",
-  "your",
-  "have",
-  "has",
-  "had",
-  "do",
-  "does",
-  "did",
-  "not",
-  "with",
-  "for",
-  "from",
-  "this",
-  "that",
-  "please",
-  "thanks",
-  "thank",
-  "hello",
-  "hi",
-  "ok",
-  "okay",
-  "yes",
-  "no",
-  "help",
-  "pain",
-  "feel",
-  "feeling",
-  "week",
-  "pregnant",
-  "pregnancy",
-  "baby",
-  "blood",
-  "doctor",
-  "hospital",
-  "near",
-  "nearest",
-]);
+export { applyReplyLanguageOverrides };
 
 const multilingualPrepSchema = z.object({
   ietfLanguageTag: z.string().trim().min(2).max(35).regex(IETF_LANGUAGE_TAG_RE),
   englishRetrievalQuery: z.string().trim().max(4000),
   languageHintForPrompt: z.string().trim().max(200).optional(),
+  translationConfidence: z.number().min(0).max(1).optional(),
+  userStyleHint: z.enum(["native_script", "latin_transliteration", "mixed_code_switch"]).optional(),
 });
-
-export type MultilingualChatPrep = z.infer<typeof multilingualPrepSchema>;
-
-export type UiLanguagePrior = "en" | "bn" | null;
 
 function extractJsonObject(raw: string): string | null {
   const trimmed = raw.trim();
@@ -95,125 +37,17 @@ function fallbackPrep(latestUserMessage: string): MultilingualChatPrep {
     ietfLanguageTag: "en",
     englishRetrievalQuery,
     languageHintForPrompt: "English",
+    translationConfidence: 0.78,
   };
 }
 
-function containsBengaliScript(text: string): boolean {
-  return BANGLA_CHAR_RE.test(text);
-}
-
-/** Very short replies where profile UI language may disambiguate. */
-function isAmbiguousShortReply(text: string): boolean {
-  const t = text.trim();
-  if (t.length === 0) return true;
-  if (t.length > 48) return false;
-  const words = t.split(/\s+/).filter(Boolean);
-  return words.length <= 6;
-}
-
 /**
- * Latin-script English-ish heuristic: no Bangla letters, mostly ASCII letters,
- * and a few common English function words (reduces false `bn` from domain bias).
- */
-function looksLikePredominantlyEnglishLatin(text: string): boolean {
-  if (!text.trim()) return false;
-  if (containsBengaliScript(text)) return false;
-
-  const letters = text.match(/\p{L}/gu) ?? [];
-  if (letters.length === 0) return false;
-
-  let latinCount = 0;
-  let nonLatinLetterCount = 0;
-  for (const ch of letters) {
-    const cp = ch.codePointAt(0)!;
-    if ((cp >= 65 && cp <= 90) || (cp >= 97 && cp <= 122)) latinCount += 1;
-    else nonLatinLetterCount += 1;
-  }
-  const letterTotal = latinCount + nonLatinLetterCount;
-  if (letterTotal === 0) return false;
-  if (latinCount / letterTotal < 0.82) return false;
-
-  const tokens = text.toLowerCase().match(/[a-z]+/g) ?? [];
-  let hintHits = 0;
-  for (const w of tokens) {
-    if (ENGLISH_HINT_WORDS.has(w)) hintHits += 1;
-  }
-  if (text.length >= 24 && hintHits >= 2) return true;
-  if (text.length >= 8 && hintHits >= 1 && tokens.length <= 8) return true;
-  if (text.length >= 64 && hintHits >= 1) return true;
-  return false;
-}
-
-function primaryTag(tag: string): string {
-  return tag.trim().toLowerCase().split("-")[0] ?? "en";
-}
-
-/**
- * Post-LLM corrections: script-based checks, false Bangla on English Latin, UI prior for short replies.
- */
-export function applyReplyLanguageOverrides(
-  prep: MultilingualChatPrep,
-  latestUserMessage: string,
-  uiLanguagePrior: UiLanguagePrior,
-): MultilingualChatPrep {
-  const latest = latestUserMessage.trim();
-  if (!latest) return prep;
-
-  const tag = prep.ietfLanguageTag.trim().toLowerCase() || "en";
-  const hint = prep.languageHintForPrompt?.trim();
-  const q = prep.englishRetrievalQuery.trim() || latest;
-
-  if (containsBengaliScript(latest) && primaryTag(tag) !== "bn") {
-    return {
-      ietfLanguageTag: "bn",
-      englishRetrievalQuery: q,
-      languageHintForPrompt: hint ?? "Bengali (Bangla)",
-    };
-  }
-
-  if (primaryTag(tag) === "bn" && !containsBengaliScript(latest) && looksLikePredominantlyEnglishLatin(latest)) {
-    return {
-      ietfLanguageTag: "en",
-      englishRetrievalQuery: q,
-      languageHintForPrompt: "English",
-    };
-  }
-
-  if (
-    isAmbiguousShortReply(latest) &&
-    uiLanguagePrior === "en" &&
-    !containsBengaliScript(latest) &&
-    primaryTag(tag) === "bn"
-  ) {
-    return {
-      ietfLanguageTag: "en",
-      englishRetrievalQuery: q,
-      languageHintForPrompt: "English",
-    };
-  }
-
-  if (isAmbiguousShortReply(latest) && uiLanguagePrior === "bn" && containsBengaliScript(latest)) {
-    return {
-      ietfLanguageTag: "bn",
-      englishRetrievalQuery: q,
-      languageHintForPrompt: hint ?? "Bengali (Bangla)",
-    };
-  }
-
-  const out: MultilingualChatPrep = { ietfLanguageTag: tag, englishRetrievalQuery: q };
-  if (hint) out.languageHintForPrompt = hint;
-  return out;
-}
-
-/**
- * One LLM call: infer reply language (BCP-47) and produce an English string suitable for embedding / RAG.
- * On parse or validation failure, falls back to English + raw message (safe for retrieval).
+ * @deprecated Use runMultilingualPipeline when MULTILINGUAL_PIPELINE_ENABLED is on.
+ * Legacy LLM JSON prep — kept for rollback via MULTILINGUAL_PIPELINE_ENABLED=0.
  */
 export async function prepareMultilingualChatTurn(input: {
   latestUserMessage: string;
-  /** Short prior assistant line helps disambiguate terse replies (e.g. "ok", "thanks"). */
   priorAssistantSnippet?: string | null;
-  /** Profile UI language (`profiles.language`): tie-breaker for ambiguous short replies only. */
   uiLanguagePrior?: UiLanguagePrior;
 }): Promise<MultilingualChatPrep> {
   const trimmed = input.latestUserMessage.trim();
@@ -246,12 +80,14 @@ export async function prepareMultilingualChatTurn(input: {
     '  "ietfLanguageTag": BCP-47 tag for the language the user is writing in on the LATEST user message (e.g. "en", "bn", "es", "ar", "hi-Latn").',
     '  "englishRetrievalQuery": one concise English line suitable for semantic search over an English-only medical corpus. Preserve drug names, conditions, and numbers. If the latest message is already good for English embedding, you may repeat it cleaned up.',
     '  "languageHintForPrompt": optional short English label for the answer model (e.g. "Bengali (Bangla)", "Spanish").',
+    '  "translationConfidence": number in [0,1] indicating confidence that englishRetrievalQuery preserves user intent for English-only retrieval.',
+    '  "userStyleHint": one of native_script, latin_transliteration, mixed_code_switch based on how the user typed this turn.',
     "Rules:",
     "- The LATEST user message is the source of truth for ietfLanguageTag. Use the prior assistant message only when the latest message is very short or ambiguous (e.g. ok, thanks, yes).",
     '- If the latest message is ordinary Latin-script English (clear English words and grammar), ietfLanguageTag MUST be "en". Do NOT set "bn" because the app is Bangladesh-focused, because the prior assistant was Bangla, or because the topic is pregnancy.',
     "- If the latest message contains Bengali script (Unicode Bengali range U+0980–U+09FF), prefer ietfLanguageTag \"bn\" unless the same turn is clearly another language.",
     '- If UI_LANGUAGE_PRIOR is present and the latest message is ambiguous, use it only as a tie-breaker (e.g. "thanks" + prior en -> "en").',
-    "- Do not answer the medical question. Do not add keys beyond the three above.",
+    "- Do not answer the medical question. Do not add keys beyond the five above.",
   ].join("\n");
 
   try {
@@ -280,6 +116,12 @@ export async function prepareMultilingualChatTurn(input: {
       ietfLanguageTag: tag,
       englishRetrievalQuery: q,
       ...(hint ? { languageHintForPrompt: hint } : {}),
+      ...(typeof data.data.translationConfidence === "number"
+        ? { translationConfidence: data.data.translationConfidence }
+        : {}),
+      ...(data.data.userStyleHint
+        ? { userStyleHint: data.data.userStyleHint }
+        : { userStyleHint: inferUserStyleHint({ latestUserMessage: trimmed, ietfLanguageTag: tag }) }),
     };
     return applyReplyLanguageOverrides(rawPrep, trimmed, input.uiLanguagePrior ?? null);
   } catch {

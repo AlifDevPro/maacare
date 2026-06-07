@@ -49,7 +49,14 @@ type AnalysisResult = {
     spo2Pct?: number | null;
   };
   provider?: "gemini" | "groq";
-  extractionMode?: "provided_text" | "pdf_local" | "ocr_local" | "text_local" | "gemini_file";
+  extractionMode?:
+    | "provided_text"
+    | "pdf_local"
+    | "ocr_local"
+    | "text_local"
+    | "groq_vision_ocr"
+    | "gemini_file"
+    | "groq_vision_file";
   extractedTextPreview?: string;
   savedVitalId?: string | null;
   savedVitals?: boolean;

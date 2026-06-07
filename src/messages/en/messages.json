@@ -16,5 +16,11 @@
   "back_to_messages": "Back to messages",
   "placeholder_write": "Write a message…",
   "send_aria": "Send",
-  "thread_peer_fallback": "Chat"
+  "thread_peer_fallback": "Chat",
+  "inbox_search_placeholder": "Search messages or people",
+  "inbox_no_search_results": "No conversations or people match your search.",
+  "inbox_people_section": "People",
+  "inbox_active_section": "Active",
+  "thread_view_profile": "View profile",
+  "thread_active": "Member"
 }

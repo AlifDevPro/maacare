@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { generateLocalizedAiReply } from "@/lib/ai/generate-localized-reply";
 import { buildLanguagePromptLines } from "@/lib/ai/language";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality, sanitizeStructuredTextFields } from "@/lib/ai/quality-guard";
@@ -7,7 +8,6 @@ import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRul
 import { planResponseForIntent } from "@/lib/ai/response-planner";
 import { executeMcpTool } from "@/lib/ai/mcp/gateway";
 import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
-import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
 
 export type PostpartumInsightsPayload = {
@@ -127,7 +127,13 @@ async function generatePostpartumAiJson(input: {
     `Latest mood check-in key (or none): ${input.moodKey ?? "none"}.`,
   ].join("\n");
 
-  const raw = await generateChatReply({ systemInstruction, userMessage });
+  const gen = await generateLocalizedAiReply({
+    latestUserMessage: userMessage,
+    ietfLanguageTag: input.language,
+    systemInstruction,
+    userMessage,
+  });
+  const raw = gen.reply;
   const block = extractJsonObject(raw.trim());
   if (!block) throw new Error("No JSON object in model output");
   const parsed = insightSchema.safeParse(JSON.parse(block));

@@ -2,7 +2,9 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
+import { generateLocalizedAiReply } from "@/lib/ai/generate-localized-reply";
 import { buildLanguagePromptLines, normalizeUiLanguagePrior } from "@/lib/ai/language";
+import { resolveLanguageFromTextOrPrior } from "@/lib/ai/multilingual-pipeline";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
 import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
@@ -10,7 +12,6 @@ import { planResponseForIntent } from "@/lib/ai/response-planner";
 import { executeMcpTool } from "@/lib/ai/mcp/gateway";
 import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
-import { generateChatReply } from "@/lib/gemini/chat";
 import { searchKnowledge } from "@/lib/rag/service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -79,9 +80,12 @@ function buildInsight(input: SymptomLogInsightInput, lang: "en" | "bn"): string 
   return `${symptomPart} ${sevPart} ${advice}${notePart}`;
 }
 
-async function fetchRiskRulesContext(input: SymptomLogInsightInput): Promise<string | null> {
+async function fetchRiskRulesContext(
+  input: SymptomLogInsightInput,
+  englishQueryOverride?: string,
+): Promise<string | null> {
   const descQ = truncateForDisplay(input.description, DESC_TRUNC_RAG);
-  const query = [
+  const query = englishQueryOverride?.trim() || [
     "Pregnancy symptom risk rules and triage guidance.",
     input.title ? `Title: ${input.title}.` : "",
     input.symptomCodes.length > 0 ? `Symptoms: ${input.symptomCodes.join(", ")}.` : "",
@@ -91,7 +95,7 @@ async function fetchRiskRulesContext(input: SymptomLogInsightInput): Promise<str
     .filter(Boolean)
     .join(" ");
 
-  const hits = await searchKnowledge(query, {
+  const hits = await searchKnowledge(query.trim(), {
     limit: 5,
     categories: ["risk-rules"],
   });
@@ -121,6 +125,8 @@ async function buildRagRiskInsightFromContext(
   context: string,
   input: SymptomLogInsightInput,
   languageTag: string,
+  latestUserMessage: string,
+  userStyleHint?: "native_script" | "latin_transliteration" | "mixed_code_switch",
 ): Promise<string | null> {
   const hasFreeText = Boolean(input.description?.trim());
   const responsePlan = planResponseForIntent({
@@ -153,11 +159,14 @@ async function buildRagRiskInsightFromContext(
     context,
   );
 
-  const reply = await generateChatReply({
+  const gen = await generateLocalizedAiReply({
+    latestUserMessage,
+    ietfLanguageTag: languageTag,
     systemInstruction,
     userMessage: buildUserMessageForRag(input),
+    userStyleHint,
   });
-  const cleaned = enforceNaturalResponseQuality(reply, {
+  const cleaned = enforceNaturalResponseQuality(gen.reply, {
     fallback: "Please monitor symptoms and contact your clinician if concerns continue.",
   });
   return cleaned.trim() || null;
@@ -174,6 +183,8 @@ async function buildRagSuggestionsFromContext(
   context: string,
   input: SymptomLogInsightInput,
   languageTag: string,
+  latestUserMessage: string,
+  userStyleHint?: "native_script" | "latin_transliteration" | "mixed_code_switch",
 ): Promise<string[]> {
   const hasFreeText = Boolean(input.description?.trim());
   const responsePlan = planResponseForIntent({
@@ -207,11 +218,14 @@ async function buildRagSuggestionsFromContext(
     context,
   );
 
-  const reply = await generateChatReply({
+  const gen = await generateLocalizedAiReply({
+    latestUserMessage,
+    ietfLanguageTag: languageTag,
     systemInstruction,
     userMessage: buildUserMessageForRag(input),
+    userStyleHint,
   });
-  const block = extractJsonArray(reply.trim());
+  const block = extractJsonArray(gen.reply.trim());
   if (!block) return [];
   try {
     const parsed = JSON.parse(block) as unknown;
@@ -244,8 +258,6 @@ export async function GET(
       .eq("id", session.id)
       .maybeSingle();
     const uiLang = normalizeUiLanguagePrior((profileLangRow?.language as string | null) ?? null);
-    const languageTag = uiLang ?? "en";
-    const outputLang: "en" | "bn" = uiLang === "bn" ? "bn" : "en";
     const { data, error } = await supabase
       .from("symptom_logs")
       .select("id, logged_at, title, description, severity, symptom_codes")
@@ -270,6 +282,26 @@ export async function GET(
       title,
       description,
     };
+    const userText = [title, description].filter(Boolean).join(" ").trim();
+    const langCtx = await resolveLanguageFromTextOrPrior({
+      userText: userText || null,
+      uiLanguagePrior: uiLang,
+    });
+    const languageTag = langCtx.ietfLanguageTag;
+    const outputLang: "en" | "bn" = languageTag.startsWith("bn") ? "bn" : "en";
+    const latestUserMessage = userText || buildUserMessageForRag(insightInput);
+    const ragEnglishQuery =
+      langCtx.queryExpansion.trim() ||
+      langCtx.englishRetrievalQuery.trim() ||
+      [
+        "Pregnancy symptom risk rules and triage guidance.",
+        title ? `Title: ${title}.` : "",
+        symptomCodes.length > 0 ? `Symptoms: ${symptomCodes.join(", ")}.` : "",
+        severity != null ? `Severity: ${severity}/10.` : "",
+        description ? `User additional notes: ${truncateForDisplay(description, DESC_TRUNC_RAG)}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
     const mcpEnabled = process.env.MCP_ENABLED === "1";
     const consentToken = req.nextUrl.searchParams.get("consentToken");
     const mcpReadPlan = mcpPlanForRoute({
@@ -292,19 +324,10 @@ export async function GET(
     try {
       let ctx: string | null = null;
       if (mcpEnabled && mcpReadPlan.allowedTools.includes("search_medical_knowledge")) {
-        const query = [
-          "Pregnancy symptom risk rules and triage guidance.",
-          title ? `Title: ${title}.` : "",
-          symptomCodes.length > 0 ? `Symptoms: ${symptomCodes.join(", ")}.` : "",
-          severity != null ? `Severity: ${severity}/10.` : "",
-          description ? `User additional notes: ${truncateForDisplay(description, DESC_TRUNC_RAG)}.` : "",
-        ]
-          .filter(Boolean)
-          .join(" ");
         const mcpOut = await executeMcpTool({
           name: "search_medical_knowledge",
           args: {
-            query,
+            query: ragEnglishQuery,
             language: languageTag,
             audienceType: "member",
             maxResults: 5,
@@ -327,11 +350,23 @@ export async function GET(
           }
         }
       }
-      if (!ctx) ctx = await fetchRiskRulesContext(insightInput);
+      if (!ctx) ctx = await fetchRiskRulesContext(insightInput, ragEnglishQuery);
       if (ctx) {
         const [ragInsight, ragSuggestions] = await Promise.all([
-          buildRagRiskInsightFromContext(ctx, insightInput, languageTag),
-          buildRagSuggestionsFromContext(ctx, insightInput, languageTag),
+          buildRagRiskInsightFromContext(
+            ctx,
+            insightInput,
+            languageTag,
+            latestUserMessage,
+            langCtx.userStyleHint,
+          ),
+          buildRagSuggestionsFromContext(
+            ctx,
+            insightInput,
+            languageTag,
+            latestUserMessage,
+            langCtx.userStyleHint,
+          ),
         ]);
         if (ragInsight) insight = ragInsight;
         suggestions = ragSuggestions;

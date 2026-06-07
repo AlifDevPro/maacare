@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { buildLanguagePromptLines, normalizeUiLanguagePrior } from "@/lib/ai/language";
+import { postProcessMultilingualReply, resolveLanguageFromTextOrPrior } from "@/lib/ai/multilingual-pipeline";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
 import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
@@ -13,10 +14,17 @@ import { executeMcpTool } from "@/lib/ai/mcp/gateway";
 import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
-import { generateWithGroq, isRateLimitError } from "@/lib/gemini/text-failover";
+import {
+  analyzeReportWithGroqVisionFailover,
+  extractTextWithGroqVisionFailover,
+  generateWithGroq,
+  getGroqReportModelName,
+  isRateLimitError,
+} from "@/lib/gemini/text-failover";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 function isVercel(): boolean {
   return process.env.VERCEL === "1";
@@ -104,6 +112,27 @@ function clipText(text: string, maxChars: number): string {
   const t = text.trim();
   if (t.length <= maxChars) return t;
   return `${t.slice(0, maxChars)}\n\n[Truncated for processing]`;
+}
+
+function visionMimeForImageFile(file: File): string {
+  const mime = (file.type || "").toLowerCase();
+  if (mime.includes("png")) return "image/png";
+  if (mime.includes("webp")) return "image/webp";
+  if (mime.includes("gif")) return "image/gif";
+  if (mime.includes("bmp")) return "image/bmp";
+  return "image/jpeg";
+}
+
+async function imageFileToVisionBase64(file: File): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    const bytes = await file.arrayBuffer();
+    return {
+      base64: Buffer.from(bytes).toString("base64"),
+      mimeType: visionMimeForImageFile(file),
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function imageToPdfBase64(file: File): Promise<string | null> {
@@ -226,9 +255,14 @@ export async function POST(req: Request) {
       .eq("id", session.id)
       .maybeSingle();
     const uiLang = normalizeUiLanguagePrior((profileRow?.language as string | null) ?? null);
+    const langCtx = await resolveLanguageFromTextOrPrior({
+      userText: reportTextInput || reportTitle || "please explain my medical report",
+      uiLanguagePrior: uiLang,
+    });
     const languageBlock = buildLanguagePromptLines({
-      ietfLanguageTag: uiLang ?? "en",
-      languageHintForPrompt: uiLang === "bn" ? "Bengali (Bangla)" : "English",
+      ietfLanguageTag: langCtx.ietfLanguageTag,
+      languageHintForPrompt: langCtx.languageHintForPrompt,
+      userStyleHint: langCtx.userStyleHint,
     });
     const responsePlan = planResponseForIntent({
       intent: {
@@ -238,7 +272,7 @@ export async function POST(req: Request) {
         confidence: 0.97,
         needsClarification: false,
       },
-      ietfLanguageTag: uiLang ?? "en",
+      ietfLanguageTag: langCtx.ietfLanguageTag,
       hasReportContext: true,
       hasNearbyContext: false,
     });
@@ -263,10 +297,17 @@ export async function POST(req: Request) {
     let mcpKnowledgeContext = "";
 
     let extractedText = reportTextInput;
-    let extractionMode: "provided_text" | "pdf_local" | "ocr_local" | "text_local" | "gemini_file" =
-      "provided_text";
+    let extractionMode:
+      | "provided_text"
+      | "pdf_local"
+      | "ocr_local"
+      | "text_local"
+      | "groq_vision_ocr"
+      | "gemini_file"
+      | "groq_vision_file" = "provided_text";
     let includeRawFileForGemini = false;
     let extractionFailureReason: string | null = null;
+    let visionImagePayload: { base64: string; mimeType: string } | null = null;
 
     let fallbackPdfBase64: string | null = null;
     if (!extractedText && reportFile instanceof File) {
@@ -274,18 +315,36 @@ export async function POST(req: Request) {
       if ((local.text ?? "").trim().length >= MIN_LOCAL_TEXT_CHARS) {
         extractedText = local.text;
         extractionMode = local.mode === "none" ? "text_local" : local.mode;
-      } else {
+      } else if (isImageUpload && gKeys.length > 0) {
+        visionImagePayload = await imageFileToVisionBase64(reportFile);
+        if (visionImagePayload) {
+          const groqOcrText = await extractTextWithGroqVisionFailover(
+            visionImagePayload.base64,
+            visionImagePayload.mimeType,
+            MIN_LOCAL_TEXT_CHARS,
+          );
+          if (groqOcrText) {
+            extractedText = groqOcrText;
+            extractionMode = "groq_vision_ocr";
+          }
+        }
+      }
+
+      if (!extractedText) {
         extractionFailureReason =
           "Could not read enough text from the uploaded file on server. Try a clearer file or paste the report text.";
         if (isImageUpload) {
+          if (!visionImagePayload) {
+            visionImagePayload = await imageFileToVisionBase64(reportFile);
+          }
           fallbackPdfBase64 = await imageToPdfBase64(reportFile);
-          if (!fallbackPdfBase64) {
+          if (!fallbackPdfBase64 && !visionImagePayload) {
             return failJson(
               400,
               "Could not read enough text from image locally. Please upload a clearer image or paste report text.",
             );
           }
-          includeRawFileForGemini = true;
+          includeRawFileForGemini = Boolean(fallbackPdfBase64);
           extractionMode = "gemini_file";
         } else {
           includeRawFileForGemini = true;
@@ -319,7 +378,7 @@ export async function POST(req: Request) {
             ]
               .filter(Boolean)
               .join(" "),
-            language: uiLang ?? "en",
+            language: langCtx.ietfLanguageTag,
             audienceType: "member",
             maxResults: 4,
           },
@@ -383,20 +442,56 @@ export async function POST(req: Request) {
       }
     }
     if (!rawText && extractedText) {
+      const groqUserMessage = [
+        `Report title: ${reportTitle || "Untitled medical report"}`,
+        `User: ${session.name}`,
+        "",
+        `Report text:\n${clipText(extractedText, MAX_REPORT_TEXT_FOR_AI)}`,
+        mcpKnowledgeContext ? `\nMCP context:\n${mcpKnowledgeContext}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
       for (const key of gKeys) {
         try {
-          rawText = await generateWithGroq(
-            key,
-            systemInstruction,
-            `Report title: ${reportTitle || "Untitled medical report"}\nUser: ${session.name}\n\nReport text:\n${clipText(extractedText, MAX_REPORT_TEXT_FOR_AI)}`,
-            { temperature: 0.2 },
-          );
+          rawText = await generateWithGroq(key, systemInstruction, groqUserMessage, {
+            temperature: 0.2,
+            model: getGroqReportModelName(),
+          });
           provider = "groq";
           break;
         } catch (e) {
           errors.push(`groq: ${e instanceof Error ? e.message : String(e)}`);
           if (!isRateLimitError(String(e))) break;
         }
+      }
+    }
+
+    if (
+      !rawText &&
+      includeRawFileForGemini &&
+      isImageUpload &&
+      visionImagePayload &&
+      gKeys.length > 0
+    ) {
+      const contextText = [
+        `Report title: ${reportTitle || "Untitled medical report"}`,
+        `User: ${session.name}`,
+        mcpKnowledgeContext ? `MCP context:\n${mcpKnowledgeContext}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const groqVisionReply = await analyzeReportWithGroqVisionFailover(
+        systemInstruction,
+        visionImagePayload.base64,
+        visionImagePayload.mimeType,
+        contextText,
+      );
+      if (groqVisionReply) {
+        rawText = groqVisionReply;
+        provider = "groq";
+        extractionMode = "groq_vision_file";
       }
     }
 
@@ -436,10 +531,26 @@ export async function POST(req: Request) {
     if (!parsed.success) return failJson(500, "AI response format was invalid.");
 
     const analysis = parsed.data;
+    const userFacingSource =
+      reportTextInput || reportTitle || "please explain my medical report";
+    const [summaryPost, explanationPost] = await Promise.all([
+      postProcessMultilingualReply({
+        reply: analysis.summary,
+        latestUserMessage: userFacingSource,
+        ietfLanguageTag: langCtx.ietfLanguageTag,
+        userStyleHint: langCtx.userStyleHint,
+      }),
+      postProcessMultilingualReply({
+        reply: analysis.plainExplanation,
+        latestUserMessage: userFacingSource,
+        ietfLanguageTag: langCtx.ietfLanguageTag,
+        userStyleHint: langCtx.userStyleHint,
+      }),
+    ]);
     const cleanedAnalysis = {
       ...analysis,
-      summary: enforceNaturalResponseQuality(analysis.summary),
-      plainExplanation: enforceNaturalResponseQuality(analysis.plainExplanation),
+      summary: enforceNaturalResponseQuality(summaryPost.reply),
+      plainExplanation: enforceNaturalResponseQuality(explanationPost.reply),
       recommendations: analysis.recommendations
         .map((r) => enforceNaturalResponseQuality(r))
         .filter(Boolean),

@@ -63,9 +63,11 @@ export function useAppShellColumnRect() {
 export function AppShellColumn({
   children,
   className,
+  wide,
 }: {
   children: ReactNode;
   className?: string;
+  wide?: boolean;
 }) {
   const ctx = useContext(AppShellColumnContext);
   if (!ctx) {
@@ -77,7 +79,7 @@ export function AppShellColumn({
       ref={ctx.setColumn}
       className={cn(
         "relative flex min-h-screen w-full flex-col overflow-x-hidden",
-        APP_SHELL_COLUMN_MAX,
+        wide ? "max-w-none" : APP_SHELL_COLUMN_MAX,
         className,
       )}
     >

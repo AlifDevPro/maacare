@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { detectIntentForTurn } from "@/lib/ai/intent";
+import { generateLocalizedAiReply } from "@/lib/ai/generate-localized-reply";
 import { buildLanguagePromptLines, resolveLanguageForTurn } from "@/lib/ai/language";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
@@ -25,7 +26,6 @@ import {
 import { redactTranscriptForLlm } from "@/lib/signup/redact-for-llm";
 import { signupProfileDraftSchema, type SignupProfileDraft } from "@/lib/signup/signup-draft";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
-import { generateTextWithGeminiGroqFailover } from "@/lib/gemini/text-failover";
 
 const MAX_MESSAGES = 26;
 const MAX_MESSAGE_CHARS = 2800;
@@ -359,12 +359,32 @@ export async function POST(req: Request) {
       priorAssistantSnippet: prevAssistant ?? null,
       uiLanguagePrior: null,
     });
+    const latestUserNormalized = languagePrep.normalizedUserMessage.trim() || latestUser;
+    if (languagePrep.shouldClarifyBeforeRetrieval) {
+      return NextResponse.json({
+        reply:
+          languagePrep.clarificationText ??
+          "To make sure I understand correctly, could you share that one more time with a little more detail?",
+        draft,
+        ...(process.env.AI_DEBUG_METADATA === "1"
+          ? {
+              debug: {
+                translationConfidence: languagePrep.translationConfidence,
+                haltedBeforeOnboardingStep: true,
+              },
+            }
+          : {}),
+      });
+    }
     const languageBlock = buildLanguagePromptLines({
       ietfLanguageTag: languagePrep.ietfLanguageTag,
       languageHintForPrompt: languagePrep.languageHintForPrompt,
+      userStyleHint: languagePrep.userStyleHint,
     });
+    const englishIntentQuery =
+      languagePrep.englishRetrievalQuery.trim() || latestUserNormalized;
     const intent = await detectIntentForTurn({
-      latestUserMessage: latestUser,
+      latestUserMessage: englishIntentQuery,
       transcriptSnippet: transcript,
       ietfLanguageTag: languagePrep.ietfLanguageTag,
     });
@@ -411,21 +431,26 @@ Recent conversation (newest at bottom):
 ${transcript}
 
 Latest user message (answer this only; do not re-output prior assistant text):
-${latestUser}`;
+${latestUserNormalized}`;
 
     const systemInstruction = composeSystemPrompt(
       ONBOARDING_SYSTEM,
+      "Translation-sandwich contract: interpret user input and run internal reasoning/retrieval in English, then reply naturally in the user's language.",
       buildSharedIdentityRules(),
       buildNaturalStyleRules(),
       responsePlan.systemRules,
       languageBlock,
     );
 
-    const { text } = await generateTextWithGeminiGroqFailover({
+    const gen = await generateLocalizedAiReply({
+      latestUserMessage: latestUserNormalized,
+      ietfLanguageTag: languagePrep.ietfLanguageTag,
       systemInstruction,
       userMessage,
       temperature: 0.38,
+      userStyleHint: languagePrep.userStyleHint,
     });
+    const text = gen.reply;
 
     const parsedLine = parseDraftPatchLine(text);
     const assistantVisibleRaw = trimEchoOfPreviousAssistant(parsedLine.assistantVisible, prevAssistant);
@@ -454,6 +479,12 @@ ${latestUser}`;
             debug: {
               mcpTools: mcpBatch.traces,
               mcpDeniedReason: mcpPlan.deniedReason,
+              translationConfidence: languagePrep.translationConfidence,
+              detectorSource: languagePrep.detectorSource,
+              translatorSource: languagePrep.translatorSource,
+              englishRetrievalQuery: languagePrep.englishRetrievalQuery,
+              postProcessed: gen.postProcessed,
+              provider: gen.provider,
             },
           }
         : {}),

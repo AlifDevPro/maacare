@@ -3,6 +3,7 @@ const DASH_PAIR_RE = /--+/g;
 const MARKDOWN_HEADER_RE = /^\s{0,3}#{1,6}\s+/gm;
 const BULLET_PREFIX_RE = /^\s*[-*]\s+/gm;
 const BANGLA_CHAR_RE = /[\u0980-\u09FF]/;
+const DEVANAGARI_CHAR_RE = /[\u0900-\u097F]/;
 
 function normalizeTextForEchoCheck(text: string): string {
   return text
@@ -19,6 +20,27 @@ function looksLikeEcho(reply: string, latestUserMessage: string): boolean {
   if (r === u) return true;
   if (r.startsWith(u) && r.length <= Math.max(u.length + 40, Math.ceil(u.length * 1.5))) return true;
   return false;
+}
+
+function scriptCounts(text: string): { latin: number; bangla: number; devanagari: number; totalLetters: number } {
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  const bangla = (text.match(BANGLA_CHAR_RE) ?? []).length;
+  const devanagari = (text.match(DEVANAGARI_CHAR_RE) ?? []).length;
+  const totalLetters = (text.match(/\p{L}/gu) ?? []).length;
+  return { latin, bangla, devanagari, totalLetters };
+}
+
+function dominantScript(input: ReturnType<typeof scriptCounts>): "latin" | "bangla" | "devanagari" | "none" {
+  if (input.totalLetters === 0) return "none";
+  const entries: Array<{ key: "latin" | "bangla" | "devanagari"; value: number }> = [
+    { key: "latin", value: input.latin },
+    { key: "bangla", value: input.bangla },
+    { key: "devanagari", value: input.devanagari },
+  ];
+  entries.sort((a, b) => b.value - a.value);
+  const top = entries[0]!;
+  if (top.value / input.totalLetters < 0.45) return "none";
+  return top.key;
 }
 
 export type QualityEvaluation = {
@@ -49,10 +71,25 @@ export function evaluateResponseQuality(input: {
   if (looksLikeEcho(reply, input.latestUserMessage)) reasons.push("echo");
 
   const tag = input.ietfLanguageTag.trim().toLowerCase();
-  if (tag.startsWith("bn")) {
-    const hasBangla = BANGLA_CHAR_RE.test(reply);
-    const hasLatinHeavy = (reply.match(/[A-Za-z]/g) ?? []).length > (reply.match(/\p{L}/gu) ?? []).length * 0.7;
-    if (!hasBangla && hasLatinHeavy) reasons.push("language_drift");
+  const userScripts = scriptCounts(input.latestUserMessage);
+  const replyScripts = scriptCounts(reply);
+  const userDominant = dominantScript(userScripts);
+  const replyDominant = dominantScript(replyScripts);
+  const userLatinHeavy = userScripts.totalLetters > 0 && userScripts.latin / userScripts.totalLetters >= 0.75;
+  const replyLatinHeavy = replyScripts.totalLetters > 0 && replyScripts.latin / replyScripts.totalLetters >= 0.75;
+  const userNonLatinHeavy =
+    userScripts.totalLetters > 0 && (userScripts.bangla + userScripts.devanagari) / userScripts.totalLetters >= 0.45;
+
+  if (!tag.startsWith("en") && userNonLatinHeavy && replyLatinHeavy) {
+    reasons.push("language_drift");
+  }
+  if (
+    userDominant !== "none" &&
+    replyDominant !== "none" &&
+    userDominant !== replyDominant &&
+    !(userLatinHeavy && tag.startsWith("en"))
+  ) {
+    reasons.push("style_drift");
   }
 
   const nReply = normalizeTextForEchoCheck(reply);

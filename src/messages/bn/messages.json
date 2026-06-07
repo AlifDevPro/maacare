@@ -16,5 +16,11 @@
   "back_to_messages": "বার্তায় ফিরে যান",
   "placeholder_write": "বার্তা লিখুন…",
   "send_aria": "পাঠান",
-  "thread_peer_fallback": "চ্যাট"
+  "thread_peer_fallback": "চ্যাট",
+  "inbox_search_placeholder": "বার্তা বা মানুষ খুঁজুন",
+  "inbox_no_search_results": "আপনার অনুসন্ধানের সাথে কোনো কথোপকথন বা মানুষ মিলছে না।",
+  "inbox_people_section": "মানুষ",
+  "inbox_active_section": "সক্রিয়",
+  "thread_view_profile": "প্রোফাইল দেখুন",
+  "thread_active": "সদস্য"
 }

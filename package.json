@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "import-bd-facilities": "node scripts/import-bd-facilities.mjs",
-    "generate-brand-icons": "node scripts/generate-brand-icons.mjs"
+    "generate-brand-icons": "node scripts/generate-brand-icons.mjs",
+    "test:multilingual": "npx tsx scripts/test-multilingual-pipeline.ts"
   },
   "dependencies": {
     "@fontsource/figtree": "^5.2.10",
@@ -51,6 +52,7 @@
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
     "class-variance-authority": "^0.7.1",
+    "cld3-asm": "^4.0.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",

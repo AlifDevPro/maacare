@@ -14,22 +14,30 @@ import { cn } from "@/lib/utils";
 interface AppShellProps {
   children: ReactNode;
   hideNav?: boolean;
+  /** Full viewport width (e.g. chat with persistent sidebar). */
+  wide?: boolean;
   className?: string;
 }
 
-export function AppShell({ children, hideNav, className }: AppShellProps) {
+export function AppShell({ children, hideNav, wide, className }: AppShellProps) {
   return (
     <ProfileMenuProvider>
       <AppShellColumnProvider>
         <div className="relative z-10 min-h-screen bg-background">
-          <AppShellColumn>
+          <AppShellColumn wide={wide}>
             <WebPushManager />
             <PwaManager />
             <main
               className={cn(
-                APP_SHELL_CONTENT_PADDING,
-                "min-w-0 flex-1 pb-24",
-                hideNav && "pb-6",
+                wide
+                  ? cn(
+                      "flex min-h-0 flex-col px-0",
+                      hideNav ? "h-[100dvh]" : "h-[calc(100dvh-5.5rem)]",
+                    )
+                  : APP_SHELL_CONTENT_PADDING,
+                "min-w-0 flex-1",
+                wide ? "pb-0" : "pb-24",
+                hideNav && !wide && "pb-0",
                 className,
               )}
             >
