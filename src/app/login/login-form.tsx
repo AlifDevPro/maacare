@@ -24,6 +24,7 @@ import {
   loginUnlockRedirectMs,
   type LoginAuthLockPhase,
 } from "@/components/auth/login-auth-lock-overlay";
+import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +33,7 @@ import { safeInternalPath } from "@/lib/auth/safe-internal-path";
 import {
   loginWithPassword,
   sendLoginEmailOtp,
+  signInWithGoogle,
   verifyLoginEmailOtp,
 } from "@/lib/auth-client";
 
@@ -52,6 +54,7 @@ function LoginFormInner() {
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [otpError, setOtpError] = useState<string | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const busy = authPhase !== "idle";
   const otpBusy = otpPhase === "sending" || otpVerifying;
@@ -151,6 +154,21 @@ function LoginFormInner() {
     setFormError(null);
   };
 
+  const handleGoogleLogin = async () => {
+    if (busy || otpBusy || googleLoading) return;
+    setFormError(null);
+    setGoogleLoading(true);
+    try {
+      const next = safeInternalPath(searchParams.get("next"), "/app");
+      const result = await signInWithGoogle({ flow: "login", next });
+      if (!result.ok) {
+        setFormError(result.error);
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <AuthShell
       title={t("login_title")}
@@ -204,6 +222,16 @@ function LoginFormInner() {
         ) : (
           <form onSubmit={submit} className="space-y-4">
             {formError ? <AuthInlineAlert message={formError} /> : null}
+            <GoogleSignInButton
+              label={t("signup_continue_google")}
+              onClick={() => void handleGoogleLogin()}
+              loading={googleLoading}
+              disabled={busy || otpBusy}
+            />
+            <div className="relative my-2 text-center text-xs text-muted-foreground">
+              <span className="relative z-10 bg-card px-2">{t("or_divider")}</span>
+              <span className="absolute left-0 right-0 top-1/2 -z-0 h-px bg-border" />
+            </div>
             <motion.div>
               <Label htmlFor="email">{t("email")}</Label>
               <div className="relative mt-1.5">
