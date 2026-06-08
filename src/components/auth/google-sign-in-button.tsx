@@ -48,7 +48,7 @@ export function GoogleSignInButton({
       variant="outline"
       className={
         className ??
-        "h-11 w-full rounded-full border-2 border-border/80 bg-background text-sm font-semibold shadow-sm hover:bg-muted/40"
+        "h-11 w-full rounded-full border-2 border-border/80 bg-background text-sm font-semibold text-foreground shadow-sm hover:bg-muted/40 hover:text-foreground"
       }
       onClick={onClick}
       disabled={disabled || loading}

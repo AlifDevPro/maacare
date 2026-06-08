@@ -173,8 +173,8 @@ export function SignupEntryPanel({
           type="button"
           variant="outline"
           className={cn(
-            "h-11 w-full rounded-full border border-dashed border-border/70 bg-muted/15 text-sm font-semibold",
-            "hover:border-primary/35 hover:bg-primary-soft/25",
+            "h-11 w-full rounded-full border border-dashed border-border/70 bg-muted/15 text-sm font-semibold text-foreground",
+            "hover:border-primary/35 hover:bg-primary-soft/25 hover:text-foreground",
           )}
           onClick={onTryAi}
         >
