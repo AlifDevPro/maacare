@@ -107,7 +107,7 @@ export async function POST(
       .eq("post_id", postId);
 
     if (didInsert) {
-      void dispatchPushNow();
+      await dispatchPushNow();
     }
 
     return Response.json({

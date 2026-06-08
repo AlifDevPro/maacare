@@ -19,7 +19,7 @@ const ROUTE_POLICY: Record<McpRouteId, Record<IntentFamily, PolicyRule>> = {
     identity: { maxToolCalls: 1, families: ["profile"], allowWrites: false },
     greeting: { maxToolCalls: 1, families: ["profile"], allowWrites: false },
     symptom_guidance: { maxToolCalls: 3, families: ["profile", "knowledge", "reports", "observability"], allowWrites: false },
-    planning: { maxToolCalls: 2, families: ["profile", "knowledge", "planner"], allowWrites: false },
+    planning: { maxToolCalls: 2, families: ["profile", "knowledge", "planner"], allowWrites: true },
     nearby_facilities: { maxToolCalls: 2, families: ["facilities"], allowWrites: false },
     report_explanation: { maxToolCalls: 3, families: ["knowledge", "reports"], allowWrites: false },
     onboarding: { maxToolCalls: 1, families: [], allowWrites: false },
@@ -114,6 +114,7 @@ const TOOL_FAMILY: Record<McpToolName, McpToolFamily> = {
   search_user_reports: "reports",
   get_nearby_facilities: "facilities",
   create_care_reminder: "planner",
+  create_appointment: "planner",
   log_ai_escalation_event: "observability",
 };
 
@@ -131,7 +132,10 @@ export function mcpPlanForRoute(input: {
   const consentOk = (input.consentToken ?? "").trim().length >= 8;
   const allowedTools = input.requestedTools.filter((tool) => {
     const fam = TOOL_FAMILY[tool];
-    const isWrite = tool === "create_care_reminder" || tool === "log_ai_escalation_event";
+    const isWrite =
+      tool === "create_care_reminder" ||
+      tool === "create_appointment" ||
+      tool === "log_ai_escalation_event";
     if (!rule.families.includes(fam)) return false;
     if (isWrite && (!rule.allowWrites || !consentOk)) return false;
     return true;

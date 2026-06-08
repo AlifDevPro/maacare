@@ -127,6 +127,87 @@ function kindLabel(kind: string): string {
   return "Post";
 }
 
+const FOR_YOU_CARD =
+  "min-w-0 overflow-hidden break-words rounded-2xl border border-border bg-white p-3 shadow-sm transition-[box-shadow,colors] hover:bg-white hover:shadow-md";
+
+function ForYouPostCard({
+  post,
+  className,
+  onNavigate,
+}: {
+  post: FeedPost;
+  className?: string;
+  onNavigate: () => void;
+}) {
+  return (
+    <Link
+      href={`/community/${post.id}`}
+      onClick={onNavigate}
+      className={cn(FOR_YOU_CARD, className)}
+    >
+      <p className="text-[11px] text-muted-foreground">
+        {kindLabel(post.postKind)}
+        {post.gestationalWeekSnapshot != null ? ` · Week ${post.gestationalWeekSnapshot}` : ""}
+      </p>
+      {post.title ? (
+        <p className="mt-1 line-clamp-2 font-display text-sm font-semibold leading-snug">{post.title}</p>
+      ) : null}
+      <div className={cn("mt-0.5", post.title && "line-clamp-2")}>
+        <CommunityPostBody body={post.body} bodyFormat={post.bodyFormat} variant="compact" />
+      </div>
+    </Link>
+  );
+}
+
+function ForYouPostsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {[0, 1].map((i) => (
+        <div key={i} className={cn(FOR_YOU_CARD, "shrink-0")}>
+          <Skeleton className="h-3 w-24 rounded-md" />
+          <Skeleton className="mt-2 h-4 w-full rounded-md" />
+          <Skeleton className="mt-1.5 h-3 w-full rounded-md" />
+          <Skeleton className="mt-1 h-3 w-[85%] rounded-md" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ForYouPostsRow({
+  posts,
+  onNavigate,
+}: {
+  posts: FeedPost[];
+  onNavigate: () => void;
+}) {
+  const count = posts.length;
+  if (count === 1) {
+    return <ForYouPostCard post={posts[0]!} className="w-full" onNavigate={onNavigate} />;
+  }
+  if (count === 2) {
+    return (
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {posts.map((p) => (
+          <ForYouPostCard key={p.id} post={p} className="w-full" onNavigate={onNavigate} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-1">
+      {posts.map((p) => (
+        <ForYouPostCard
+          key={p.id}
+          post={p}
+          className="w-[min(100%,280px)] shrink-0"
+          onNavigate={onNavigate}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function CommunityPageClient({
   initialPosts,
   initialHasMore,
@@ -694,19 +775,7 @@ export default function CommunityPageClient({
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
               Near your week
             </div>
-            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="min-w-[220px] max-w-[78vw] shrink-0 rounded-2xl border border-border bg-card p-3 shadow-sm"
-                >
-                  <Skeleton className="h-3 w-24 rounded-md" />
-                  <Skeleton className="mt-2 h-4 w-full rounded-md" />
-                  <Skeleton className="mt-1.5 h-3 w-full rounded-md" />
-                  <Skeleton className="mt-1 h-3 w-[85%] rounded-md" />
-                </div>
-              ))}
-            </div>
+            <ForYouPostsSkeleton />
           </div>
         ) : null}
         {forYouLoaded && forYouPosts.length > 0 ? (
@@ -715,32 +784,7 @@ export default function CommunityPageClient({
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
               Near your week
             </div>
-            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-              {forYouPosts.map((p) => (
-                <Link
-                  key={p.id}
-                  href={`/community/${p.id}`}
-                  onClick={saveFeedScroll}
-                  className="min-w-[220px] max-w-[78vw] shrink-0 rounded-2xl border border-border bg-card p-3 shadow-sm transition-colors hover:bg-muted/40"
-                >
-                  <p className="text-[11px] text-muted-foreground">
-                    {kindLabel(p.postKind)}
-                    {p.gestationalWeekSnapshot != null ? ` · Week ${p.gestationalWeekSnapshot}` : ""}
-                  </p>
-                  {p.title ? (
-                    <p className="mt-1 line-clamp-2 font-display text-sm font-semibold leading-snug">{p.title}</p>
-                  ) : null}
-                  <div
-                    className={cn(
-                      "mt-0.5 text-xs leading-relaxed text-foreground/85 line-clamp-3",
-                      p.title && "line-clamp-2",
-                    )}
-                  >
-                    <CommunityPostBody body={p.body} bodyFormat={p.bodyFormat} collapseLines={4} />
-                  </div>
-                </Link>
-              ))}
-            </div>
+            <ForYouPostsRow posts={forYouPosts} onNavigate={saveFeedScroll} />
           </div>
         ) : null}
         {loading ? (

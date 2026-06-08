@@ -6,6 +6,7 @@ export const MCP_TOOL_NAMES = [
   "search_user_reports",
   "get_nearby_facilities",
   "create_care_reminder",
+  "create_appointment",
   "log_ai_escalation_event",
 ] as const;
 

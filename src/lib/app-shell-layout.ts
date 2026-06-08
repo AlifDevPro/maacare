@@ -13,3 +13,7 @@ export const APP_SHELL_CONTENT_WIDTH = `${APP_SHELL_COLUMN_MAX} ${APP_SHELL_CONT
 /** Fixed composer / chat input — always above bottom nav (do not use lg:bottom-* overrides). */
 export const APP_SHELL_COMPOSER_BOTTOM =
   "bottom-[calc(env(safe-area-inset-bottom)+5.5rem)]";
+
+/** Scroll padding so content clears fixed composer + bottom nav on mobile. */
+export const APP_SHELL_COMPOSER_SCROLL_PADDING =
+  "calc(10rem + env(safe-area-inset-bottom))";

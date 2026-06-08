@@ -84,7 +84,10 @@ function heuristicIntent(latestUserMessage: string): IntentResult {
   const asksNearby = /nearby|nearest|hospital|clinic|pharmacy|নিকট|কাছে|হাসপাতাল|ফার্মেসি/.test(t);
   const asksReport = /report|lab|cbc|hemoglobin|analysis|রিপোর্ট|রক্ত/.test(t);
   const asksSymptom = /pain|bleeding|fever|nausea|cramp|symptom|উপসর্গ|ব্যথা|জ্বর/.test(t);
-  const asksPlan = /plan|diet|meal|food|routine|কী খাব|খাবার|প্ল্যান/.test(t);
+  const asksPlan =
+    /plan|diet|meal|food|routine|কী খাব|খাবার|প্ল্যান|appointment|book(?:ing)?|schedule|checkup|visit|ডাক্তার|অ্যাপয়েন্টমেন্ট/.test(
+      t,
+    );
 
   if (asksWho) {
     return {

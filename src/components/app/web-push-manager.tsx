@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { PushPermissionPrompt } from "@/components/app/push-permission-prompt";
@@ -17,17 +18,26 @@ import {
 /** Syncs FCM token when signed in; shows in-app toast for foreground pushes. */
 export function WebPushManager() {
   const { user, loading } = useSession();
+  const router = useRouter();
 
   const syncPush = useCallback(async () => {
     if (!user || !(await isPushSupported())) return;
     const config = await fetchPushConfig();
-    if (!config.clientReady) return;
+    if (!config.clientReady) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[push] Firebase/VAPID not configured — browser push unavailable.");
+      }
+      return;
+    }
 
     const existing = await getStoredFcmToken();
     if (existing) return;
 
     if (Notification.permission === "granted") {
-      await subscribeToPush();
+      const result = await subscribeToPush();
+      if (!result.ok && result.reason === "save_failed") {
+        console.warn("[push] FCM token could not be saved.");
+      }
     }
   }, [user]);
 
@@ -48,11 +58,19 @@ export function WebPushManager() {
   useEffect(() => {
     if (!user) return;
     return listenForForegroundMessages((payload) => {
-      if (payload.title) {
-        toast(payload.title, { description: payload.body });
-      }
+      if (!payload.title) return;
+      const targetUrl = payload.url?.trim();
+      toast(payload.title, {
+        description: payload.body,
+        action: targetUrl
+          ? {
+              label: "Open",
+              onClick: () => router.push(targetUrl),
+            }
+          : undefined,
+      });
     });
-  }, [user]);
+  }, [user, router]);
 
   if (loading || !user) return null;
 

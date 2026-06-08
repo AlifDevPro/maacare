@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { createAppointmentForUser } from "@/lib/appointments/create-appointment";
 import { buildOneShotNearbyCatalogBlock } from "@/lib/bd-facilities/chat-nearby-context";
 import { searchKnowledge } from "@/lib/rag/service";
 import { searchUserReports } from "@/lib/reports/rag-search";
@@ -42,6 +43,17 @@ const createCareReminderSchema = z.object({
   title: z.string().min(2).max(140),
   timeIso: z.string().datetime(),
   channel: z.enum(["in_app"]).default("in_app"),
+  consentToken: z.string().min(8),
+});
+
+const createAppointmentSchema = z.object({
+  userId: z.string().uuid(),
+  title: z.string().min(1).max(200),
+  scheduledAt: z.string().datetime(),
+  providerName: z.string().max(200).optional(),
+  location: z.string().max(300).optional(),
+  appointmentType: z.string().max(120).optional(),
+  notes: z.string().max(2000).optional(),
   consentToken: z.string().min(8),
 });
 
@@ -159,6 +171,31 @@ async function createCareReminder(args: z.infer<typeof createCareReminderSchema>
   return { reminderId: data?.id ?? null, status: "created" };
 }
 
+async function createAppointmentTool(
+  args: z.infer<typeof createAppointmentSchema>,
+  ctx: ToolCallContext,
+): Promise<ToolResult> {
+  if (!ctx.userId || ctx.userId !== args.userId) {
+    throw new Error("Appointment can only be created for the signed-in user.");
+  }
+  const supabase = await createSupabaseServerClient();
+  const result = await createAppointmentForUser(supabase, args.userId, {
+    title: args.title,
+    scheduledAt: args.scheduledAt,
+    providerName: args.providerName,
+    location: args.location,
+    appointmentType: args.appointmentType,
+    notes: args.notes,
+  });
+  if (!result.ok) throw new Error(result.error);
+  return {
+    appointmentId: result.appointment.id,
+    title: result.appointment.title,
+    scheduledAt: result.appointment.scheduledAt,
+    status: "created",
+  };
+}
+
 async function logAiEscalationEvent(args: z.infer<typeof escalationSchema>): Promise<ToolResult> {
   const svc = createSupabaseServiceClient();
   const { data, error } = await svc
@@ -217,6 +254,13 @@ export const MCP_TOOL_REGISTRY: Record<McpToolName, ToolDefinition> = {
     inputSchema: createCareReminderSchema,
     outputSchema: z.object({}).passthrough(),
     handler: createCareReminder,
+  },
+  create_appointment: {
+    name: "create_appointment",
+    readonly: false,
+    inputSchema: createAppointmentSchema,
+    outputSchema: z.object({}).passthrough(),
+    handler: createAppointmentTool,
   },
   log_ai_escalation_event: {
     name: "log_ai_escalation_event",

@@ -18,7 +18,8 @@ export function unwrapProfileEmbed(p: unknown): {
       avatar_url: typeof o.avatar_url === "string" ? o.avatar_url : null,
       email: typeof o.email === "string" ? o.email : null,
       profession,
-      verified_professional: o.verified_professional === true,
+      verified_professional:
+        o.verified_professional === true || o.verified_professional === "true",
     };
   };
   if (Array.isArray(p)) {

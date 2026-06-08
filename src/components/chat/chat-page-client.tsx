@@ -421,6 +421,7 @@ export function ChatPageClient() {
         provider?: "gemini" | "groq";
         needsClientLocation?: boolean;
         conversationId?: string;
+        appointmentSaved?: { id: string; title: string; scheduledAt: string };
       };
 
       if (res.status === 401) {
@@ -450,6 +451,10 @@ export function ChatPageClient() {
         if (!activeConversationTitle) {
           setActiveConversationTitle(trimmed.slice(0, 80));
         }
+      }
+
+      if (data.appointmentSaved?.title) {
+        toast.success(`Appointment saved: ${data.appointmentSaved.title}`);
       }
 
       if (data.needsClientLocation) {

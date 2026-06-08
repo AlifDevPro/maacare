@@ -12,7 +12,9 @@ import {
   normalizeUiLanguagePrior,
   resolveLanguageForTurn,
 } from "@/lib/ai/language";
+import { extractAppointmentFromTurn, isAppointmentBookingMessage } from "@/lib/ai/extract-appointment";
 import { detectIntentForTurn } from "@/lib/ai/intent";
+import { createAppointmentForUser } from "@/lib/appointments/create-appointment";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { generateLocalizedAiReply } from "@/lib/ai/generate-localized-reply";
 import {
@@ -62,9 +64,13 @@ const bodySchema = z.object({
   consentToken: z.string().max(200).optional(),
   requestedAction: z
     .object({
-      type: z.enum(["create_care_reminder", "log_ai_escalation_event"]),
+      type: z.enum(["create_care_reminder", "create_appointment", "log_ai_escalation_event"]),
       title: z.string().max(140).optional(),
       whenIso: z.string().datetime().optional(),
+      scheduledAt: z.string().datetime().optional(),
+      providerName: z.string().max(200).optional(),
+      location: z.string().max(300).optional(),
+      notes: z.string().max(2000).optional(),
       reason: z.string().max(500).optional(),
       riskLevel: z.enum(["low", "medium", "high"]).optional(),
     })
@@ -449,6 +455,28 @@ export async function POST(req: Request) {
       ietfLanguageTag,
     });
     markPerf("intent_detect_ms", intentStart);
+
+    let appointmentSaved: { id: string; title: string; scheduledAt: string } | null = null;
+    const appointmentExtractStart = nowMs();
+    if (intent.family === "planning" || isAppointmentBookingMessage(latestUserOriginal)) {
+      const extracted = await extractAppointmentFromTurn({
+        latestUserMessage: latestUserOriginal,
+        transcriptSnippet: transcript,
+        nowIso: new Date().toISOString(),
+      });
+      if (extracted) {
+        const saveResult = await createAppointmentForUser(supabase, session.id, extracted);
+        if (saveResult.ok) {
+          appointmentSaved = {
+            id: saveResult.appointment.id,
+            title: saveResult.appointment.title,
+            scheduledAt: saveResult.appointment.scheduledAt,
+          };
+        }
+      }
+    }
+    markPerf("appointment_extract_ms", appointmentExtractStart);
+
     const responsePlan = planResponseForIntent({
       intent,
       ietfLanguageTag,
@@ -802,6 +830,9 @@ export async function POST(req: Request) {
       buildNaturalStyleRules({ voice: isVoiceChannel }),
       responsePlan.systemRules,
       `Current detected intent family: ${intent.family}.`,
+      appointmentSaved
+        ? `APPOINTMENT_SAVED: The user's appointment "${appointmentSaved.title}" at ${appointmentSaved.scheduledAt} was saved to their MaaCare calendar. Confirm this clearly and briefly in your reply.`
+        : "",
       `Current response mode: ${responsePlan.mode}.`,
       `Target max sentence count: ${responsePlan.maxSentences}.`,
       "MaaCare knowledge includes trusted admin-managed sources and user-specific health context.",
@@ -922,13 +953,26 @@ export async function POST(req: Request) {
               channel: "in_app",
               consentToken: consentToken ?? "",
             }
-          : {
-              userId: session.id,
-              riskLevel: requestedAction.riskLevel ?? "medium",
-              reason: requestedAction.reason ?? "User-triggered escalation event",
-              routeContext: "chat",
-              consentToken: consentToken ?? "",
-            };
+          : toolName === "create_appointment"
+            ? {
+                userId: session.id,
+                title: requestedAction.title ?? "Appointment",
+                scheduledAt:
+                  requestedAction.scheduledAt ??
+                  requestedAction.whenIso ??
+                  new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                providerName: requestedAction.providerName,
+                location: requestedAction.location,
+                notes: requestedAction.notes,
+                consentToken: consentToken ?? "",
+              }
+            : {
+                userId: session.id,
+                riskLevel: requestedAction.riskLevel ?? "medium",
+                reason: requestedAction.reason ?? "User-triggered escalation event",
+                routeContext: "chat",
+                consentToken: consentToken ?? "",
+              };
       const writeOut = await executeMcpTool({
         name: toolName,
         args: writeArgs,
@@ -1027,6 +1071,7 @@ export async function POST(req: Request) {
       needsClientLocation,
       ...(persistedConversationId ? { conversationId: persistedConversationId } : {}),
       ...(mcpActionResult ? { action: mcpActionResult } : {}),
+      ...(appointmentSaved ? { appointmentSaved } : {}),
       ...(debugMeta ? { debug: debugMeta } : {}),
       citations: hits.map((h) => ({
         id: h.id,

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
-import { GraduationCap, Shield, Stethoscope } from "lucide-react";
+import { Shield, Stethoscope } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -69,11 +69,7 @@ export function CommunityAuthorBadges({
   } else if (authorRole === "moderator") {
     roleMeta = <RoleMeta icon={Shield} label="Moderator" />;
   } else if (verifiedDoctor) {
-    roleMeta = <RoleMeta icon={Stethoscope} label="Verified clinician" />;
-  } else if (authorProfession === "clinician") {
-    roleMeta = <RoleMeta icon={Stethoscope} label="Clinician" />;
-  } else if (authorProfession === "student_researcher") {
-    roleMeta = <RoleMeta icon={GraduationCap} label="Student" />;
+    roleMeta = <RoleMeta icon={Stethoscope} label="Verified doctor" />;
   }
 
   return (

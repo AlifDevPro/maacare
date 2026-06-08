@@ -44,6 +44,15 @@ export default function DmThreadClient() {
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
+  const markThreadRead = useCallback(async () => {
+    if (!valid) return;
+    const readRes = await fetch(`/api/dm/conversations/${rawId}/read`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (readRes.ok) dispatchDmUnreadUpdated();
+  }, [rawId, valid]);
+
   const loadAll = useCallback(async () => {
     if (!valid) return;
     setLoading(true);
@@ -70,11 +79,7 @@ export default function DmThreadClient() {
       setMeta(mJson);
       setMessages(msgJson.messages ?? []);
 
-      const readRes = await fetch(`/api/dm/conversations/${rawId}/read`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (readRes.ok) dispatchDmUnreadUpdated();
+      await markThreadRead();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("toast_thread_load"));
       setMeta(null);
@@ -82,7 +87,7 @@ export default function DmThreadClient() {
     } finally {
       setLoading(false);
     }
-  }, [rawId, valid, t]);
+  }, [rawId, valid, t, markThreadRead]);
 
   useEffect(() => {
     void loadAll();
@@ -108,6 +113,9 @@ export default function DmThreadClient() {
             if (prev.some((p) => p.id === row.id)) return prev;
             return [...prev, row];
           });
+          if (user?.id && row.sender_id !== user.id) {
+            void markThreadRead();
+          }
         },
       )
       .subscribe();
@@ -115,7 +123,7 @@ export default function DmThreadClient() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [rawId, valid]);
+  }, [rawId, valid, user?.id, markThreadRead]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

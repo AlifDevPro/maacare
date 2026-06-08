@@ -13,7 +13,11 @@ import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { dispatchNotificationsUpdated } from "@/lib/notifications/events";
-import { APP_SHELL_CONTENT_WIDTH } from "@/lib/app-shell-layout";
+import {
+  APP_SHELL_COMPOSER_BOTTOM,
+  APP_SHELL_COMPOSER_SCROLL_PADDING,
+  APP_SHELL_CONTENT_WIDTH,
+} from "@/lib/app-shell-layout";
 import { Card } from "@/components/ui/card";
 import {
   Dialog,
@@ -130,6 +134,10 @@ export default function PostDetailPage() {
   >("spam");
   const [reportDetails, setReportDetails] = useState("");
   const [reporting, setReporting] = useState(false);
+  const [authorBadgeProfile, setAuthorBadgeProfile] = useState<{
+    profession: string | null;
+    verifiedProfessional: boolean;
+  } | null>(null);
   const validId = UUID_RE.test(rawId);
   const likeSyncPendingRef = useRef(false);
 
@@ -174,17 +182,25 @@ export default function PostDetailPage() {
     }
   }, [rawId, validId, router]);
 
-  /** Refetch post + comments without toggling `loading` (avoids full-page skeleton flash). */
-  const refreshPostDetailSilent = useCallback(async () => {
+  const refreshCommentsSilent = useCallback(async () => {
     if (!validId) return;
     try {
-      const [rp, rc] = await Promise.all([
-        fetch(`/api/community/posts/${rawId}`, { credentials: "include" }),
-        fetch(`/api/community/posts/${rawId}/comments`, { credentials: "include" }),
-      ]);
-      if (!rp.ok || !rc.ok) return;
-      const pj = (await rp.json()) as { post: PostPayload };
+      const rc = await fetch(`/api/community/posts/${rawId}/comments`, { credentials: "include" });
+      if (!rc.ok) return;
       const cj = (await rc.json()) as { comments: CommentRow[] };
+      setComments(cj.comments ?? []);
+    } catch {
+      /* keep existing UI */
+    }
+  }, [rawId, validId]);
+
+  /** Refetch post without toggling `loading` (likes / moderation). */
+  const refreshPostSilent = useCallback(async () => {
+    if (!validId) return;
+    try {
+      const rp = await fetch(`/api/community/posts/${rawId}`, { credentials: "include" });
+      if (!rp.ok) return;
+      const pj = (await rp.json()) as { post: PostPayload };
       setPost((prev) => {
         if (!prev) return pj.post;
         if (!likeSyncPendingRef.current) return pj.post;
@@ -194,14 +210,41 @@ export default function PostDetailPage() {
           likeCount: prev.likeCount,
         };
       });
-      setComments(cj.comments ?? []);
     } catch {
       /* keep existing UI */
     }
   }, [rawId, validId]);
 
-  useCommunityPostRealtime(post && validId ? rawId : null, () => {
-    void refreshPostDetailSilent();
+  const appendCommentById = useCallback(
+    async (commentId: string) => {
+      if (!validId) return;
+      try {
+        const res = await fetch(
+          `/api/community/posts/${rawId}/comments?commentId=${encodeURIComponent(commentId)}`,
+          { credentials: "include" },
+        );
+        if (!res.ok) return;
+        const j = (await res.json()) as { comment?: CommentRow };
+        const row = j.comment;
+        if (!row?.id) return;
+        setComments((prev) => {
+          if (prev.some((c) => c.id === row.id)) return prev;
+          setPost((p) => (p ? { ...p, commentCount: p.commentCount + 1 } : p));
+          return [...prev, row];
+        });
+      } catch {
+        /* keep existing UI */
+      }
+    },
+    [rawId, validId],
+  );
+
+  useCommunityPostRealtime(post && validId ? rawId : null, (change) => {
+    if (change.kind === "comment_insert") {
+      void appendCommentById(change.commentId);
+      return;
+    }
+    void refreshPostSilent();
   });
 
   useEffect(() => {
@@ -210,6 +253,33 @@ export default function PostDetailPage() {
     }, 0);
     return () => window.clearTimeout(t);
   }, [loadAll]);
+
+  useEffect(() => {
+    if (!user) {
+      setAuthorBadgeProfile(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/profile", { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const j = (await res.json()) as {
+          profile?: { profession?: string | null; verified_professional?: boolean };
+        };
+        if (cancelled) return;
+        setAuthorBadgeProfile({
+          profession: j.profile?.profession ?? null,
+          verifiedProfessional: j.profile?.verified_professional === true,
+        });
+      } catch {
+        if (!cancelled) setAuthorBadgeProfile(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const handleLikeUpdate = useCallback(
     (_postId: string, patch: { likedByMe: boolean; likeCount: number }) => {
@@ -240,6 +310,8 @@ export default function PostDetailPage() {
       authorDisplayName: user?.name ?? "You",
       authorRole: user?.role ?? "user",
       authorAvatarUrl: user?.avatarUrl ?? null,
+      authorProfession: authorBadgeProfile?.profession ?? null,
+      authorVerifiedProfessional: authorBadgeProfile?.verifiedProfessional ?? false,
     };
     setComments((prev) => [...prev, optimisticComment]);
     setPost((prev) => (prev ? { ...prev, commentCount: prev.commentCount + 1 } : prev));
@@ -252,9 +324,18 @@ export default function PostDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body: t, parentCommentId: replyToCommentId }),
       });
-      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        comment?: CommentRow;
+      };
       if (!res.ok) throw new Error(j.message ?? "Could not send reply");
-      await refreshPostDetailSilent();
+      if (j.comment?.id) {
+        setComments((prev) => {
+          const withoutOptimistic = prev.filter((c) => c.id !== optimisticId);
+          if (withoutOptimistic.some((c) => c.id === j.comment!.id)) return withoutOptimistic;
+          return [...withoutOptimistic, j.comment!];
+        });
+      }
       dispatchNotificationsUpdated();
     } catch (err) {
       setComments((prev) => prev.filter((c) => c.id !== optimisticId));
@@ -286,7 +367,7 @@ export default function PostDetailPage() {
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(j.message ?? "Could not update post");
       setEditOpen(false);
-      await refreshPostDetailSilent();
+      await refreshCommentsSilent();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not update post");
     } finally {
@@ -614,7 +695,7 @@ export default function PostDetailPage() {
 
       <div
         className="space-y-4 px-4 pt-4"
-        style={{ paddingBottom: "calc(6rem + env(safe-area-inset-bottom))" }}
+        style={{ paddingBottom: APP_SHELL_COMPOSER_SCROLL_PADDING }}
       >
         <Card className="relative p-4 shadow-soft">
           {isOwner ? (
@@ -732,7 +813,7 @@ export default function PostDetailPage() {
               postId={post.id}
               isModerator={isModerator}
               onReply={(id) => setReplyToCommentId(id)}
-              onModerated={() => void refreshPostDetailSilent()}
+              onModerated={() => void refreshCommentsSilent()}
             />
           )}
         </div>
@@ -741,7 +822,8 @@ export default function PostDetailPage() {
       <div
         id="community-reply-composer"
         className={cn(
-          "fixed inset-x-0 z-30 scroll-mt-4 border-t border-border/60 bg-background/95 pt-2 backdrop-blur-xl bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] lg:bottom-6",
+          "fixed inset-x-0 z-50 scroll-mt-4 border-t border-border/60 bg-background/95 px-2 pt-2 backdrop-blur-xl sm:px-4",
+          APP_SHELL_COMPOSER_BOTTOM,
           APP_SHELL_CONTENT_WIDTH,
         )}
       >

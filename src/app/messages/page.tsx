@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -16,6 +16,8 @@ import { CommunityAvatar } from "@/components/community/community-avatar";
 import { MessagesActivePeople } from "@/components/messages/messages-active-people";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useSession } from "@/lib/auth-client";
 
 type Row = {
   id: string;
@@ -47,12 +49,15 @@ function filterRows(rows: Row[], query: string): Row[] {
 export default function MessagesInboxPage() {
   const { t } = useTranslation("messages");
   const router = useRouter();
+  const { user } = useSession();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [peerResults, setPeerResults] = useState<PeerResult[]>([]);
   const [peerSearching, setPeerSearching] = useState(false);
   const [startingPeerId, setStartingPeerId] = useState<string | null>(null);
+
+  const loadRef = useRef<() => Promise<void>>(async () => {});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,9 +74,82 @@ export default function MessagesInboxPage() {
     }
   }, [t]);
 
+  const loadSilent = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dm/conversations", { credentials: "include" });
+      const j = (await res.json().catch(() => ({}))) as { conversations?: Row[]; message?: string };
+      if (!res.ok) return;
+      setRows(j.conversations ?? []);
+    } catch {
+      /* keep existing rows */
+    }
+  }, []);
+
+  loadRef.current = loadSilent;
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const supabase = createSupabaseBrowserClient();
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleSilentLoad = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void loadRef.current();
+      }, 500);
+    };
+
+    const channel = supabase
+      .channel(`dm_inbox:${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "dm_messages" },
+        (payload) => {
+          const row = payload.new as {
+            id?: string;
+            conversation_id?: string;
+            body?: string;
+            created_at?: string;
+            sender_id?: string;
+          } | null;
+          const conversationId = row?.conversation_id;
+          if (!conversationId || !row?.created_at) {
+            scheduleSilentLoad();
+            return;
+          }
+          const preview = typeof row.body === "string" ? row.body.slice(0, 200) : "";
+          const fromSelf = row.sender_id === user.id;
+          setRows((prev) => {
+            const idx = prev.findIndex((r) => r.id === conversationId);
+            if (idx < 0) {
+              scheduleSilentLoad();
+              return prev;
+            }
+            const item = prev[idx]!;
+            const patched: Row = {
+              ...item,
+              lastMessagePreview: preview || item.lastMessagePreview,
+              lastMessageAt: row.created_at ?? item.lastMessageAt,
+              updatedAt: row.created_at ?? item.updatedAt,
+              hasUnread: fromSelf ? item.hasUnread : true,
+            };
+            const rest = prev.filter((_, i) => i !== idx);
+            return [patched, ...rest];
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   const filteredRows = useMemo(() => filterRows(rows, searchQuery), [rows, searchQuery]);
   const trimmedQuery = searchQuery.trim();

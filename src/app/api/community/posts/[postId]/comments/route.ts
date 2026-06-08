@@ -3,7 +3,10 @@ import { z } from "zod";
 
 import { validationJsonResponse, failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
-import { unwrapProfileEmbed } from "@/lib/community/profile-embed";
+import {
+  COMMUNITY_COMMENT_SELECT,
+  mapCommunityCommentRow,
+} from "@/lib/community/comment-map";
 import { dispatchPushNow } from "@/lib/push/dispatch-now";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -27,28 +30,34 @@ export async function GET(
 
     const supabase = await createSupabaseServerClient();
     const postId = parsedId.data;
+    const commentId = req.nextUrl.searchParams.get("commentId")?.trim() ?? "";
+
+    if (commentId) {
+      const parsedCommentId = uuid.safeParse(commentId);
+      if (!parsedCommentId.success) return failJson(400, "Invalid comment.");
+
+      const { data: row, error } = await supabase
+        .from("community_comments")
+        .select(COMMUNITY_COMMENT_SELECT)
+        .eq("post_id", postId)
+        .eq("id", parsedCommentId.data)
+        .eq("moderation_status", "visible")
+        .maybeSingle();
+
+      if (error) {
+        console.error("comment single", error);
+        return failJson(500, "Could not load reply.");
+      }
+      if (!row) return failJson(404, "Reply not found.");
+
+      return Response.json({ comment: mapCommunityCommentRow(row as Record<string, unknown>) });
+    }
 
     const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? "50") || 50, 100);
 
     const { data: rows, error } = await supabase
       .from("community_comments")
-      .select(
-        `
-        id,
-        body,
-        created_at,
-        parent_comment_id,
-        author_id,
-        moderation_status,
-        profiles!author_id (
-          display_name,
-          role,
-          avatar_url,
-          profession,
-          verified_professional
-        )
-      `,
-      )
+      .select(COMMUNITY_COMMENT_SELECT)
       .eq("post_id", postId)
       .eq("moderation_status", "visible")
       .order("created_at", { ascending: true })
@@ -59,21 +68,9 @@ export async function GET(
       return failJson(500, "Could not load replies.");
     }
 
-    const comments = (rows ?? []).map((row: Record<string, unknown>) => {
-      const profile = unwrapProfileEmbed(row.profiles);
-      return {
-        id: row.id as string,
-        body: row.body as string,
-        createdAt: row.created_at as string,
-        parentCommentId: (row.parent_comment_id as string | null) ?? null,
-        authorId: row.author_id as string,
-        authorDisplayName: profile?.display_name ?? "Member",
-        authorRole: profile?.role ?? "user",
-        authorAvatarUrl: profile?.avatar_url ?? null,
-        authorProfession: profile?.profession ?? null,
-        authorVerifiedProfessional: profile?.verified_professional === true,
-      };
-    });
+    const comments = (rows ?? []).map((row) =>
+      mapCommunityCommentRow(row as Record<string, unknown>),
+    );
 
     return Response.json({ comments });
   } catch (e) {
@@ -125,24 +122,31 @@ export async function POST(
       console.warn("[community_comments] ensure_profile:", ensureErr.message);
     }
 
-    const { error } = await supabase.from("community_comments").insert({
-      post_id: postId,
-      parent_comment_id: parentCommentId,
-      author_id: uid,
-      body: parsed.data.body.trim(),
-      moderation_status: "visible",
-    });
+    const { data: inserted, error } = await supabase
+      .from("community_comments")
+      .insert({
+        post_id: postId,
+        parent_comment_id: parentCommentId,
+        author_id: uid,
+        body: parsed.data.body.trim(),
+        moderation_status: "visible",
+      })
+      .select(COMMUNITY_COMMENT_SELECT)
+      .single();
 
-    if (error) {
+    if (error || !inserted) {
       console.error("comment insert", error);
       const hint =
-        process.env.NODE_ENV === "development" ? error.message : "Could not post reply.";
-      return failJson(500, hint);
+        process.env.NODE_ENV === "development" ? error?.message : "Could not post reply.";
+      return failJson(500, hint ?? "Could not post reply.");
     }
 
     await dispatchPushNow();
 
-    return Response.json({ ok: true });
+    return Response.json({
+      ok: true,
+      comment: mapCommunityCommentRow(inserted as Record<string, unknown>),
+    });
   } catch (e) {
     return serverErrorJson("community_comments POST", e);
   }

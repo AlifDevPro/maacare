@@ -168,7 +168,7 @@ function Hero() {
               <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-card text-5xl shadow-soft animate-float">🍌</div>
             </div>
             <div className="mt-5 rounded-2xl bg-accent-soft/40 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-accent-foreground/70">Today</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-accent">Today</p>
               <p className="mt-1 text-sm font-medium">Your baby is the size of a banana 🍌</p>
               <p className="mt-1 text-xs text-muted-foreground">About 25cm long and developing rapidly.</p>
             </div>

@@ -12,6 +12,8 @@ type CommunityPostBodyProps = {
   className?: string;
   /** When set (e.g. 4), long bodies show See more / See less in feeds and previews. */
   collapseLines?: number;
+  /** Compact preview for carousels — plain text only, no expand toggle. */
+  variant?: "default" | "compact";
 };
 
 function stripHtmlApprox(s: string): string {
@@ -24,11 +26,26 @@ function needsExpand(body: string, bodyFormat: "plain" | "html", lines: number):
   return text.length > lines * 48 || body.split(/\r?\n/).length > lines;
 }
 
-export function CommunityPostBody({ body, bodyFormat, className, collapseLines }: CommunityPostBodyProps) {
+export function CommunityPostBody({
+  body,
+  bodyFormat,
+  className,
+  collapseLines,
+  variant = "default",
+}: CommunityPostBodyProps) {
   const [expanded, setExpanded] = useState(false);
   const fmt = bodyFormat === "html" ? "html" : "plain";
   const lines = collapseLines && collapseLines > 0 ? Math.min(collapseLines, 6) : 0;
-  const showToggle = lines > 0 && needsExpand(body, fmt, lines);
+  const showToggle = variant === "default" && lines > 0 && needsExpand(body, fmt, lines);
+
+  if (variant === "compact") {
+    const text = fmt === "html" ? stripHtmlApprox(body) : body;
+    return (
+      <p className={cn("line-clamp-3 break-words text-xs leading-relaxed text-foreground/85", className)}>
+        {text}
+      </p>
+    );
+  }
 
   if (fmt === "html") {
     const prefix = communityPostImagePublicPrefix() ?? "";

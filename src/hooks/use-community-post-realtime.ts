@@ -7,6 +7,10 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export type CommunityPostRealtimeChange =
+  | { kind: "comment_insert"; commentId: string }
+  | { kind: "refresh" };
+
 type Options = {
   /** Debounce refetch for like churn (ms). Comments/post updates fire immediately. */
   likesDebounceMs?: number;
@@ -18,7 +22,7 @@ type Options = {
  */
 export function useCommunityPostRealtime(
   postId: string | null | undefined,
-  onChange: () => void,
+  onChange: (change: CommunityPostRealtimeChange) => void,
   options?: Options,
 ) {
   const onChangeRef = useRef(onChange);
@@ -32,19 +36,19 @@ export function useCommunityPostRealtime(
 
     const supabase = createSupabaseBrowserClient();
 
-    const flushLikes = () => {
+    const flushRefresh = () => {
       if (likesTimerRef.current) {
         clearTimeout(likesTimerRef.current);
         likesTimerRef.current = null;
       }
-      onChangeRef.current();
+      onChangeRef.current({ kind: "refresh" });
     };
 
-    const scheduleLikes = () => {
+    const scheduleRefresh = () => {
       if (likesTimerRef.current) clearTimeout(likesTimerRef.current);
       likesTimerRef.current = setTimeout(() => {
         likesTimerRef.current = null;
-        onChangeRef.current();
+        onChangeRef.current({ kind: "refresh" });
       }, likesDebounceMs);
     };
 
@@ -58,8 +62,16 @@ export function useCommunityPostRealtime(
           table: "community_comments",
           filter: `post_id=eq.${id}`,
         },
-        () => {
-          flushLikes();
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const row = payload.new as { id?: string } | null;
+            const commentId = typeof row?.id === "string" ? row.id : "";
+            if (commentId) {
+              onChangeRef.current({ kind: "comment_insert", commentId });
+              return;
+            }
+          }
+          flushRefresh();
         },
       )
       .on(
@@ -71,7 +83,7 @@ export function useCommunityPostRealtime(
           filter: `post_id=eq.${id}`,
         },
         () => {
-          scheduleLikes();
+          scheduleRefresh();
         },
       )
       .on(
@@ -83,7 +95,7 @@ export function useCommunityPostRealtime(
           filter: `id=eq.${id}`,
         },
         () => {
-          flushLikes();
+          flushRefresh();
         },
       )
       .subscribe();

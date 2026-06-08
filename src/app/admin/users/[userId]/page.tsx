@@ -375,7 +375,16 @@ export default function AdminUserDetailPage() {
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <Switch id="vp" checked={verifiedProfessional} onCheckedChange={setVerifiedProfessional} />
+            <Switch
+              id="vp"
+              checked={verifiedProfessional}
+              onCheckedChange={(checked) => {
+                setVerifiedProfessional(checked);
+                if (checked && profession !== "clinician") {
+                  setProfession("clinician");
+                }
+              }}
+            />
             <Label htmlFor="vp">Verified professional (doctor badge)</Label>
           </div>
           <div className="flex items-center gap-2">
