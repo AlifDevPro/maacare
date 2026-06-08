@@ -49,6 +49,12 @@ function titleForSlug(slug: string[] | undefined): string {
     algorithms: "Algorithms",
     architecture: "Architecture",
     "visual-guides": "Visual guides",
+    "platform-overview": "Platform overview",
+    "platform-flows": "User flows",
+    "platform-system": "System design",
+    "platform-ai": "AI capabilities",
+    "platform-security": "Security & privacy",
+    "platform-deploy": "Deployment",
   };
   return map[one ?? ""] ?? "Documentation";
 }

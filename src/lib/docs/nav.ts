@@ -29,6 +29,18 @@ export const DOCS_NAV: DocsNavItem[] = [
   { title: "Algorithms", href: "/docs/algorithms" },
   { title: "Architecture", href: "/docs/architecture" },
   {
+    title: "Platform guide",
+    href: "/docs/platform-overview",
+    children: [
+      { title: "Overview", href: "/docs/platform-overview" },
+      { title: "User flows", href: "/docs/platform-flows" },
+      { title: "System design", href: "/docs/platform-system" },
+      { title: "AI capabilities", href: "/docs/platform-ai" },
+      { title: "Security & privacy", href: "/docs/platform-security" },
+      { title: "Deployment", href: "/docs/platform-deploy" },
+    ],
+  },
+  {
     title: "Live docs (CMS)",
     href: "/docs/live",
     children: [
@@ -49,6 +61,12 @@ export const DOCS_MARKDOWN_SLUGS = [
   "user-guide",
   "algorithms",
   "architecture",
+  "platform-overview",
+  "platform-flows",
+  "platform-system",
+  "platform-ai",
+  "platform-security",
+  "platform-deploy",
 ] as const;
 
 export type DocsMarkdownSlug = (typeof DOCS_MARKDOWN_SLUGS)[number];

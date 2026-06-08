@@ -20,4 +20,15 @@ MaaCare is **not** a substitute for a qualified clinician. AI output is for educ
 - [Algorithms](/docs/algorithms) — how the AI and retrieval layers behave
 - [Architecture](/docs/architecture) — system shape at a glance
 
+## Platform guide
+
+A fuller product and technical handbook for judges, contributors, and power users:
+
+- [Overview](/docs/platform-overview) — problem, audience, and value
+- [User flows](/docs/platform-flows) — registration through daily use
+- [System design](/docs/platform-system) — app structure, database, and APIs
+- [AI capabilities](/docs/platform-ai) — chat, reports, and safety
+- [Security & privacy](/docs/platform-security) — auth, RLS, and data handling
+- [Deployment](/docs/platform-deploy) — hosting, env vars, limits, and roadmap
+
 If you are already signed in, you can also open [Help & support](/help) for contact options.
