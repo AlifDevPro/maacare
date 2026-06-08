@@ -2,7 +2,7 @@ export type UserStyleHint = "native_script" | "latin_transliteration" | "mixed_c
 
 export type UiLanguagePrior = "en" | "bn" | null;
 
-export type DetectorSource = "cld3" | "fasttext" | "heuristic";
+export type DetectorSource = "cld3" | "fasttext" | "heuristic" | "conversation_lock";
 
 export type TranslatorSource = "passthrough" | "groq";
 

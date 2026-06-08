@@ -11,6 +11,7 @@ export type AiChatConversationRow = {
   title: string;
   last_message_preview: string | null;
   report_context: unknown | null;
+  language_tag: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -94,7 +95,7 @@ export async function getAiChatConversationForUser(
 ): Promise<AiChatConversationRow | null> {
   const { data, error } = await supabase
     .from("ai_chat_conversations")
-    .select("id, user_id, title, last_message_preview, report_context, created_at, updated_at")
+    .select("id, user_id, title, last_message_preview, report_context, language_tag, created_at, updated_at")
     .eq("id", conversationId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -173,6 +174,7 @@ export type PersistAiChatTurnInput = {
   userContent: string;
   assistantContent: string;
   reportContext?: unknown;
+  languageTag?: string | null;
   userMetadata?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
@@ -211,6 +213,15 @@ export async function persistAiChatTurn(
 
   const { error } = await supabase.from("ai_chat_messages").insert(rows);
   if (error) throw error;
+
+  if (input.languageTag?.trim()) {
+    const { error: langErr } = await supabase
+      .from("ai_chat_conversations")
+      .update({ language_tag: input.languageTag.trim() })
+      .eq("id", conversationId)
+      .eq("user_id", input.userId);
+    if (langErr) throw langErr;
+  }
 
   return conversationId;
 }

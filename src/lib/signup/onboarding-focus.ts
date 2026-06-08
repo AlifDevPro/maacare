@@ -1,4 +1,5 @@
 import type { SignupProfileDraft } from "@/lib/signup/signup-draft";
+import { fallbackQuestionForOnboardingFocusLocalized } from "@/lib/signup/onboarding-copy";
 
 export type OnboardingNextFocus =
   | "ask_display_name"
@@ -42,14 +43,14 @@ export function deriveOnboardingFocus(d: SignupProfileDraft): {
     return {
       nextFocus: "ask_display_name",
       modelInstruction:
-        "Ask only how they would like to be called (preferred name). Do not ask for profession, journey, or dates yet. Do not ask for email or password.",
+        "Ask only for their name (display name). Use a direct question like 'What is your name?'. Do not ask for profession, journey, or dates yet. Do not ask for email or password. Keep the reply to one short paragraph plus one question.",
     };
   }
   if (!d.profession) {
     return {
       nextFocus: "ask_profession",
       modelInstruction:
-        `Their preferred name is already saved as "${d.displayName.trim()}". Greet them briefly by name. Ask only how they use MaaCare (parent/caregiver, clinician, or student/researcher). If they say they are not pregnant, not expecting, or not tracking a pregnancy, set pregnancyStatus to not_applicable in DRAFT_PATCH. If they identify as a student, researcher, or academic role, set profession to student_researcher unless they clearly say they are a clinician or a parent/caregiver using the app for family. Do not ask for their name again.`,
+        `Their name is already saved as "${d.displayName.trim()}". Thank them briefly by name. Ask which role fits best using numbered options: 1) Parent or Caregiver, 2) Healthcare Professional, 3) Student or Researcher. Do not ask for their name again. If they say they are not pregnant or are a student/researcher, set pregnancyStatus to not_applicable when appropriate.`,
     };
   }
 
@@ -153,30 +154,7 @@ export function deriveOnboardingFocus(d: SignupProfileDraft): {
 export function fallbackQuestionForOnboardingFocus(
   focus: OnboardingNextFocus,
   d: SignupProfileDraft,
+  lang = "en",
 ): string {
-  if (focus === "ask_display_name") {
-    return "How should we call you?";
-  }
-  if (focus === "ask_profession") {
-    const name = d.displayName.trim();
-    return name
-      ? `Thanks, ${name}. Which best describes your role: parent/caregiver, clinician, or student/researcher?`
-      : "Which best describes your role: parent/caregiver, clinician, or student/researcher?";
-  }
-  if (focus === "ask_pregnancy_relevance") {
-    return "Are you currently pregnant, planning pregnancy, postpartum, or using MaaCare mainly for support/research?";
-  }
-  if (focus === "ask_parent_context") {
-    return "What is the main pregnancy or family-care question you want MaaCare to help with first?";
-  }
-  if (focus === "ask_student_context") {
-    return "What are you studying or researching in maternal health, and where are you studying?";
-  }
-  if (focus === "ask_clinician_context") {
-    return "What is your specialty, and how do you plan to use MaaCare in your clinical work?";
-  }
-  if (focus === "ask_optional_health_context") {
-    return "Any condition or health note you want MaaCare to remember while guiding you?";
-  }
-  return "You can continue with the secure email and password step below to finish creating your account.";
+  return fallbackQuestionForOnboardingFocusLocalized(focus, d.displayName, lang);
 }

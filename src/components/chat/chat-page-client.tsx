@@ -74,7 +74,7 @@ export const CHAT_WELCOME_SEED: Msg[] = [
 ];
 
 export function ChatPageClient() {
-  const { t } = useTranslation("health");
+  const { t, i18n } = useTranslation("health");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -335,6 +335,7 @@ export function ChatPageClient() {
               reportContext: effectiveReportContext ?? undefined,
               userLocation: coords,
               conversationId: activeConversationId ?? undefined,
+              appLanguage: i18n.language,
             }),
           });
           const data = (await res.json()) as {
@@ -409,6 +410,7 @@ export function ChatPageClient() {
           userLocation: chatUserLocation ?? undefined,
           replyChannel: opts?.replyChannel ?? "text",
           conversationId: activeConversationId ?? undefined,
+          appLanguage: i18n.language,
         }),
       });
 
@@ -747,7 +749,7 @@ export function ChatPageClient() {
               ref={scrollRef}
               className={cn(
                 "min-h-0 flex-1 overflow-y-auto py-4",
-                !voiceMode && "pb-[calc(7rem+env(safe-area-inset-bottom))]",
+                !voiceMode && "pb-[calc(9.5rem+env(safe-area-inset-bottom,0px))]",
                 voiceMode && !showVoiceTranscript && "hidden",
               )}
             >
@@ -827,6 +829,7 @@ export function ChatPageClient() {
                   ))}
                 </div>
               )}
+              <div aria-hidden className="h-2 shrink-0" />
             </div>
             </div>
           </div>

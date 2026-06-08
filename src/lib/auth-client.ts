@@ -84,6 +84,39 @@ export async function checkEmailRegistered(
   return { ok: true, registered: !!data.registered };
 }
 
+export async function signInWithGoogle(opts?: {
+  next?: string;
+  flow?: "signup" | "login";
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const origin = window.location.origin.replace(/\/+$/, "");
+    const next = opts?.next?.trim() || "/app";
+    const flow = opts?.flow ?? "signup";
+    const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(next)}&flow=${flow}`;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+
+    if (error) {
+      console.error("[auth/google] signInWithOAuth:", error.message);
+      return {
+        ok: false,
+        error:
+          error.message ||
+          "Could not start Google sign-in. Check that Google is enabled in your Supabase project.",
+      };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Google sign-in failed.";
+    return { ok: false, error: message };
+  }
+}
+
 export async function registerAccount(
   name: string,
   email: string,

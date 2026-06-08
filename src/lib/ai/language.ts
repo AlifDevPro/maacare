@@ -17,6 +17,8 @@ export type LanguageResolution = MultilingualChatPrep & {
   clarificationText: string | null;
   detectorSource?: DetectorSource;
   translatorSource?: TranslatorSource;
+  conversationLanguageSource?: import("@/lib/ai/multilingual-pipeline/conversation-language").ConversationLanguageSource;
+  updatedConversationLanguage?: string;
 };
 
 export function normalizeUiLanguagePrior(value: string | null | undefined): UiLanguagePrior {
@@ -114,18 +116,30 @@ export async function resolveLanguageForTurn(input: {
   latestUserMessage: string;
   priorAssistantSnippet?: string | null;
   uiLanguagePrior?: UiLanguagePrior;
+  conversationLanguage?: string | null;
+  recentUserMessages?: string[];
+  appLanguage?: string | null;
+  explicitUserLanguagePreference?: string | null;
 }): Promise<LanguageResolution> {
   const normalizedLatestUserMessage = normalizeUserMessage(input.latestUserMessage);
 
   let corrected: MultilingualChatPrep;
   let detectorSource: DetectorSource | undefined;
   let translatorSource: TranslatorSource | undefined;
+  let conversationLanguageSource:
+    | import("@/lib/ai/multilingual-pipeline/conversation-language").ConversationLanguageSource
+    | undefined;
+  let updatedConversationLanguage: string | undefined;
 
   if (isMultilingualPipelineEnabled()) {
     const pipeline = await runMultilingualPipeline({
       latestUserMessage: normalizedLatestUserMessage,
       priorAssistantSnippet: input.priorAssistantSnippet ?? null,
       uiLanguagePrior: input.uiLanguagePrior ?? null,
+      conversationLanguage: input.conversationLanguage ?? null,
+      recentUserMessages: input.recentUserMessages ?? [],
+      appLanguage: input.appLanguage ?? null,
+      explicitUserLanguagePreference: input.explicitUserLanguagePreference ?? null,
     });
     corrected = {
       ietfLanguageTag: pipeline.ietfLanguageTag,
@@ -136,12 +150,15 @@ export async function resolveLanguageForTurn(input: {
     };
     detectorSource = pipeline.detectorSource;
     translatorSource = pipeline.translatorSource;
+    conversationLanguageSource = pipeline.conversationLanguageSource;
+    updatedConversationLanguage = pipeline.updatedConversationLanguage;
   } else {
     corrected = await prepareMultilingualChatTurn({
       latestUserMessage: normalizedLatestUserMessage,
       priorAssistantSnippet: input.priorAssistantSnippet ?? null,
       uiLanguagePrior: input.uiLanguagePrior ?? null,
     });
+    updatedConversationLanguage = corrected.ietfLanguageTag;
   }
 
   const translationConfidence = estimateTranslationConfidence({
@@ -174,5 +191,7 @@ export async function resolveLanguageForTurn(input: {
     clarificationText,
     detectorSource,
     translatorSource,
+    conversationLanguageSource,
+    updatedConversationLanguage,
   };
 }

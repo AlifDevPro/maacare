@@ -466,18 +466,7 @@ export default function EmergencyClient() {
                             <Phone className="h-4 w-4" />
                           </a>
                         </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-9 w-9 shrink-0"
-                          disabled
-                          aria-label="No phone number listed"
-                        >
-                          <Phone className="h-4 w-4 opacity-40" />
-                        </Button>
-                      )}
+                      ) : null}
                       <Button asChild size="icon" variant="ghost" className="h-9 w-9 shrink-0">
                         <a
                           href={h.mapsUrl}

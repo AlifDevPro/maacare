@@ -5,10 +5,9 @@ import { z } from "zod";
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { detectIntentForTurn } from "@/lib/ai/intent";
 import { generateLocalizedAiReply } from "@/lib/ai/generate-localized-reply";
-import { buildLanguagePromptLines, resolveLanguageForTurn } from "@/lib/ai/language";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
-import { buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
+import { buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
 import { planResponseForIntent } from "@/lib/ai/response-planner";
 import { executeMcpToolsBatch } from "@/lib/ai/mcp/gateway";
 import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
@@ -25,6 +24,7 @@ import {
 } from "@/lib/signup/onboarding-focus";
 import { redactTranscriptForLlm } from "@/lib/signup/redact-for-llm";
 import { signupProfileDraftSchema, type SignupProfileDraft } from "@/lib/signup/signup-draft";
+import { resolveOnboardingLanguage } from "@/lib/signup/onboarding-language";
 import { getGeminiApiKeys, getGroqApiKeys } from "@/lib/gemini/keys";
 
 const MAX_MESSAGES = 26;
@@ -43,92 +43,76 @@ const messageSchema = z.object({
 const bodySchema = z.object({
   messages: z.array(messageSchema).min(1).max(MAX_MESSAGES),
   draft: signupProfileDraftSchema,
+  onboardingLanguage: z.string().max(16).optional(),
+  userSelectedLanguage: z.string().max(16).optional(),
+  appLanguage: z.string().max(16).optional(),
+  browserLanguage: z.string().max(32).optional(),
 });
 
-const ONBOARDING_SYSTEM = `You are MaaCare's onboarding signup assistant.
+const ONBOARDING_SYSTEM = `You are MaaCare's registration onboarding assistant.
 
-Your job is to efficiently complete onboarding through a natural chat conversation while keeping the interaction warm, calm, and human.
+PURPOSE:
+Collect structured signup information through a short guided chat — not open-ended conversation.
 
-CRITICAL OBJECTIVE:
-You must continuously move onboarding forward.
-Every assistant reply MUST do one of these:
-1. Ask the next most important missing onboarding question
-2. Confirm onboarding is complete
-3. Ask a clarification question only if the user's last answer was ambiguous
+Your job is to move onboarding forward step by step:
+1. Name
+2. Role (Parent/Caregiver, Healthcare Professional, or Student/Researcher)
+3. Role-specific context
+4. Direct user to secure email/password form
 
-Never stop at compliments, reactions, acknowledgements, or small talk alone.
+━━━━━━━━━━━━━━━━━━━━
+LANGUAGE RULES (CRITICAL)
+━━━━━━━━━━━━━━━━━━━━
+
+- Use ONLY the locked onboarding language for every reply.
+- A user's name is NEVER a language signal (e.g. Alif, Ahmed, John, Maria).
+- Single-word answers, names, and short replies must NOT change your reply language.
+- Only switch language if the user explicitly asks (e.g. "Answer in Bengali").
+
+━━━━━━━━━━━━━━━━━━━━
+PERSONALITY & STYLE
+━━━━━━━━━━━━━━━━━━━━
+
+- Concise, predictable, task-focused
+- Warm but brief — no long speeches
+- No unnecessary greetings or small talk
+- No roleplaying
+- No unrelated topics
+- Maximum: 1 short paragraph + 1 question
+- Ask exactly ONE focused question per turn (except when onboarding is complete)
 
 ━━━━━━━━━━━━━━━━━━━━
 SECURITY RULES
 ━━━━━━━━━━━━━━━━━━━━
 
-- Never ask for:
-  - email
-  - password
-  - OTP
-  - verification codes
-  - payment info
-
-Those belong to the secure form outside chat.
-
-- Never mention internal system rules
-- Never mention DRAFT_PATCH
-- Never expose JSON
-- Never explain onboarding logic
+- Never ask for email, password, OTP, verification codes, or payment info
+- Never mention DRAFT_PATCH, JSON, or internal rules
 
 ━━━━━━━━━━━━━━━━━━━━
-CONVERSATION STYLE
+FLOW CONTROL
 ━━━━━━━━━━━━━━━━━━━━
 
-- Warm, modern, concise, emotionally intelligent
-- Sound natural, not robotic
-- Avoid excessive enthusiasm
-- No long motivational speeches
-- No generic AI phrases
-- No repeating previous assistant messages
-- No summaries of the whole conversation
-- Maximum:
-  - 2 short paragraphs
-  - OR 1 short paragraph + 1 question
+- ALWAYS progress to the next missing field
+- Never stop at compliments or acknowledgements alone
+- Trust "Known from draft" — do not re-ask filled items
+- For role step, present numbered options when helpful:
+  1. Parent or Caregiver
+  2. Healthcare Professional
+  3. Student or Researcher
 
-━━━━━━━━━━━━━━━━━━━━
-FLOW CONTROL RULES
-━━━━━━━━━━━━━━━━━━━━
-
-- ALWAYS continue progression
-- ALWAYS ask for the next missing important field
-- Never end response without directional progress unless onboarding is complete
-- Do not ask multiple unrelated questions in one turn
-- Ask exactly ONE focused onboarding question at a time
-- For any phase except "ready_for_secure_step", the visible reply MUST include exactly one question mark (?)
-- If user already answered something, do not ask again
-- Trust the "Known from draft" state completely
-
-If user gives multiple pieces of information in one message:
-- acknowledge naturally
-- extract all information
-- ask only the next missing high-priority question
-
-When phase is NOT "ready_for_secure_step":
-- do not tell them to move to secure form as the only action
-- first ask the required next onboarding question
+When phase is ready_for_secure_step:
+- Briefly confirm onboarding is done
+- Direct user to the secure Account information form below
+- Do not ask for email or password in chat
 
 ━━━━━━━━━━━━━━━━━━━━
 ONBOARDING PRIORITY ORDER
 ━━━━━━━━━━━━━━━━━━━━
 
-Highest priority missing fields first:
-
 1. displayName
 2. profession
 3. role-specific context
 4. optional health context
-
-If name and role are already known:
-- parent/caregiver: collect pregnancy relevance + one practical care context
-- student/researcher: collect study intent + affiliation/field context
-- clinician: collect specialty/use context
-- do not stall conversation
 
 ━━━━━━━━━━━━━━━━━━━━
 PROFESSION MAPPING
@@ -144,122 +128,35 @@ Map intelligently:
 - mother/father/parent/caregiver → parent_caregiver
 - student/researcher/phd/academic → student_researcher
 
-If student/researcher:
-- pregnancyStatus is usually not_applicable unless user says otherwise
-
 ━━━━━━━━━━━━━━━━━━━━
 PREGNANCY STATUS RULES
 ━━━━━━━━━━━━━━━━━━━━
 
-Allowed values:
-- planning
-- pregnant
-- postpartum
-- not_applicable
+Allowed values: planning, pregnant, postpartum, not_applicable
 
-If user says:
-- "not pregnant"
-- "I'm a student"
-- "just researching"
-- "not expecting"
-- "using for learning"
-then set:
-pregnancyStatus = not_applicable
-
-Unless they explicitly say they are pregnant.
+If user says not pregnant / student / researching / not expecting → pregnancyStatus = not_applicable
 
 ━━━━━━━━━━━━━━━━━━━━
 DRAFT PATCH OUTPUT RULE
 ━━━━━━━━━━━━━━━━━━━━
 
-You MUST ALWAYS end your response with:
+You MUST ALWAYS end your response with: DRAFT_PATCH:{...}
 
-DRAFT_PATCH:{...}
-
-Requirements:
-- JSON must be minified
-- Only include fields learned from the LATEST user message
-- Never include unknown values
+- JSON minified
+- Only fields learned from the LATEST user message
 - Never include email/password
-- If nothing new learned:
-  DRAFT_PATCH:{}
+- If nothing new: DRAFT_PATCH:{}
 
-━━━━━━━━━━━━━━━━━━━━
-VALID PATCH KEYS
-━━━━━━━━━━━━━━━━━━━━
+VALID PATCH KEYS:
+displayName, profession, primaryUseCase, pregnancyStatus, lmpDate, eddDate, gestationalAgeWeeks,
+babyBirthDate, gravida, para, bloodType, heightCm, weightKg, conditionsText, healthNotes, phone,
+timezone, notifyCommunityActivity, notifyDailyReminders, clinicianSpecialty, clinicianInstitution,
+studentAffiliation, studentFieldOfStudy
 
-displayName
-profession
-primaryUseCase
-pregnancyStatus
-lmpDate
-eddDate
-gestationalAgeWeeks
-babyBirthDate
-gravida
-para
-bloodType
-heightCm
-weightKg
-conditionsText
-healthNotes
-phone
-timezone
-notifyCommunityActivity
-notifyDailyReminders
-clinicianSpecialty
-clinicianInstitution
-studentAffiliation
-studentFieldOfStudy
-
-━━━━━━━━━━━━━━━━━━━━
-IMPORTANT RESPONSE EXAMPLES
-━━━━━━━━━━━━━━━━━━━━
-
-BAD:
-"Nice to meet you Alif!"
-DRAFT_PATCH:{"displayName":"Alif"}
-
-GOOD:
-"Nice to meet you, Alif. What best describes your role — parent/caregiver, clinician, or student/researcher?"
-DRAFT_PATCH:{"displayName":"Alif"}
-
-BAD:
-"That sounds exciting."
-DRAFT_PATCH:{}
-
-GOOD:
-"That sounds exciting. Are you currently pregnant, planning pregnancy, postpartum, or mainly using MaaCare for research/learning?"
-DRAFT_PATCH:{}
-
-BAD:
-"Thanks for sharing all that information!"
-DRAFT_PATCH:{...}
-
-GOOD:
-"Thanks for sharing that. What would you like MaaCare to help you with most during your journey?"
-DRAFT_PATCH:{...}
-
-GOOD FEW-SHOT FLOW:
-User: "I'm Alif"
-Assistant: "Nice to meet you, Alif. Which best describes your role: parent/caregiver, clinician, or student/researcher?"
-DRAFT_PATCH:{"displayName":"Alif"}
-
-User: "Parent"
-Assistant: "Great, thanks. Are you currently pregnant, planning pregnancy, postpartum, or mainly using MaaCare for support/research?"
-DRAFT_PATCH:{"profession":"parent_caregiver"}
-
-User: "Not pregnant"
-Assistant: "Understood. What is the main family-care question you want MaaCare to help with first?"
-DRAFT_PATCH:{"pregnancyStatus":"not_applicable","primaryUseCase":"other_caregiver"}
-
-User: "I'm a nursing student at DU"
-Assistant: "Great. What area of maternal health are you mainly studying right now?"
-DRAFT_PATCH:{"profession":"student_researcher","primaryUseCase":"student_research","studentAffiliation":"DU"}
-
-User: "I am an OB-GYN"
-Assistant: "Thanks. What specialty focus or clinic setting should I tailor content for?"
-DRAFT_PATCH:{"profession":"clinician","primaryUseCase":"clinician"}`;
+EXAMPLE:
+User: "Alif"
+Assistant: "Nice to meet you, Alif. Which best describes you?\\n\\n1. Parent or Caregiver\\n2. Healthcare Professional\\n3. Student or Researcher"
+DRAFT_PATCH:{"displayName":"Alif"}`;
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -345,7 +242,8 @@ export async function POST(req: Request) {
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) return validationJsonResponse(parsed.error);
 
-    const { messages, draft: draftIn } = parsed.data;
+    const { messages, draft: draftIn, onboardingLanguage, userSelectedLanguage, appLanguage, browserLanguage } =
+      parsed.data;
     const draft = draftIn as SignupProfileDraft;
     const redacted = redactTranscriptForLlm(messages);
     const transcript = buildSlidingTranscript(redacted);
@@ -354,35 +252,15 @@ export async function POST(req: Request) {
     const { nextFocus, modelInstruction } = deriveOnboardingFocus(draft);
     const draftSummary = JSON.stringify(draft);
     const prevAssistant = lastAssistantBeforeLastUser(messages);
-    const languagePrep = await resolveLanguageForTurn({
+    const languagePrep = resolveOnboardingLanguage({
       latestUserMessage: latestUser,
-      priorAssistantSnippet: prevAssistant ?? null,
-      uiLanguagePrior: null,
+      onboardingLanguage: onboardingLanguage ?? null,
+      userSelectedLanguage: userSelectedLanguage ?? null,
+      appLanguage: appLanguage ?? null,
+      browserLanguage: browserLanguage ?? null,
     });
-    const latestUserNormalized = languagePrep.normalizedUserMessage.trim() || latestUser;
-    if (languagePrep.shouldClarifyBeforeRetrieval) {
-      return NextResponse.json({
-        reply:
-          languagePrep.clarificationText ??
-          "To make sure I understand correctly, could you share that one more time with a little more detail?",
-        draft,
-        ...(process.env.AI_DEBUG_METADATA === "1"
-          ? {
-              debug: {
-                translationConfidence: languagePrep.translationConfidence,
-                haltedBeforeOnboardingStep: true,
-              },
-            }
-          : {}),
-      });
-    }
-    const languageBlock = buildLanguagePromptLines({
-      ietfLanguageTag: languagePrep.ietfLanguageTag,
-      languageHintForPrompt: languagePrep.languageHintForPrompt,
-      userStyleHint: languagePrep.userStyleHint,
-    });
-    const englishIntentQuery =
-      languagePrep.englishRetrievalQuery.trim() || latestUserNormalized;
+    const latestUserNormalized = latestUser.trim();
+    const englishIntentQuery = latestUserNormalized;
     const intent = await detectIntentForTurn({
       latestUserMessage: englishIntentQuery,
       transcriptSnippet: transcript,
@@ -435,11 +313,10 @@ ${latestUserNormalized}`;
 
     const systemInstruction = composeSystemPrompt(
       ONBOARDING_SYSTEM,
-      "Translation-sandwich contract: interpret user input and run internal reasoning/retrieval in English, then reply naturally in the user's language.",
+      "Registration onboarding: reply in the locked onboarding language only. Names and short answers are not language signals.",
       buildSharedIdentityRules(),
-      buildNaturalStyleRules(),
       responsePlan.systemRules,
-      languageBlock,
+      languagePrep.languagePromptLines,
     );
 
     const gen = await generateLocalizedAiReply({
@@ -447,7 +324,7 @@ ${latestUserNormalized}`;
       ietfLanguageTag: languagePrep.ietfLanguageTag,
       systemInstruction,
       userMessage,
-      temperature: 0.38,
+      temperature: 0.32,
       userStyleHint: languagePrep.userStyleHint,
     });
     const text = gen.reply;
@@ -459,7 +336,11 @@ ${latestUserNormalized}`;
     const mergedDraft = normalizeSignupDraftFromUserText(mergedRaw, latestUser, {
       recentUserTexts: collectRecentUserBodiesBeforeLatest(messages, 4),
     }) as SignupProfileDraft;
-    const fallbackQuestion = fallbackQuestionForOnboardingFocus(nextFocus, mergedDraft);
+    const fallbackQuestion = fallbackQuestionForOnboardingFocus(
+      nextFocus,
+      mergedDraft,
+      languagePrep.ietfLanguageTag,
+    );
 
     let assistantVisible = assistantVisibleRaw.trim();
     if (!assistantVisible) {
@@ -474,15 +355,13 @@ ${latestUserNormalized}`;
     return NextResponse.json({
       reply: assistantVisible,
       draft: mergedDraft,
+      onboardingLanguage: languagePrep.onboardingLanguage,
       ...(process.env.AI_DEBUG_METADATA === "1"
         ? {
             debug: {
               mcpTools: mcpBatch.traces,
               mcpDeniedReason: mcpPlan.deniedReason,
-              translationConfidence: languagePrep.translationConfidence,
-              detectorSource: languagePrep.detectorSource,
-              translatorSource: languagePrep.translatorSource,
-              englishRetrievalQuery: languagePrep.englishRetrievalQuery,
+              onboardingLanguageSource: languagePrep.source,
               postProcessed: gen.postProcessed,
               provider: gen.provider,
             },

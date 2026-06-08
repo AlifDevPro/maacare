@@ -36,7 +36,7 @@ import {
   resolveHealthDataUserId,
   resolvePregnancyUserIdForRequester,
 } from "@/lib/app/care-access";
-import { persistAiChatTurn } from "@/lib/chat/history-repository";
+import { persistAiChatTurn, getAiChatConversationForUser } from "@/lib/chat/history-repository";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const bodySchema = z.object({
@@ -71,6 +71,8 @@ const bodySchema = z.object({
     .optional(),
   /** When set, user/assistant turns are persisted to this conversation after a successful reply. */
   conversationId: z.string().uuid().optional(),
+  /** App UI locale from the client (e.g. en, bn) — tie-breaker for ambiguous short replies. */
+  appLanguage: z.string().max(16).optional(),
 });
 
 const MAX_TRANSCRIPT_TOKENS = 2600;
@@ -210,6 +212,17 @@ function detectIdentityTargetFromUserTurn(text: string): "assistant" | "user" | 
   return "none";
 }
 
+function priorUserMessagesBefore(
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+  lastUserIndex: number,
+): string[] {
+  return messages
+    .slice(0, lastUserIndex)
+    .filter((m) => m.role === "user")
+    .map((m) => m.content)
+    .slice(-8);
+}
+
 function isShortUserTurn(text: string): boolean {
   const n = normalizeLoose(text);
   if (!n) return true;
@@ -239,6 +252,7 @@ export async function POST(req: Request) {
       consentToken,
       requestedAction,
       conversationId: requestConversationId,
+      appLanguage,
     } = bodySchema.parse(await req.json());
     markPerf("parse_ms", parseStart);
     const isVoiceChannel = replyChannel === "voice";
@@ -257,11 +271,15 @@ export async function POST(req: Request) {
     }
 
     const profileStart = nowMs();
+    const conversationLangPromise = requestConversationId
+      ? getAiChatConversationForUser(supabase, session.id, requestConversationId)
+      : Promise.resolve(null);
     const profileMini = await supabase
       .from("profiles")
       .select("language, date_of_birth, primary_use_case")
       .eq("id", session.id)
       .maybeSingle();
+    const storedConversation = await conversationLangPromise;
     markPerf("profile_lookup_ms", profileStart);
     if (profileMini.error) console.warn("[chat] profile:", profileMini.error.message);
     const profileLang = (profileMini.data?.language as string | null) ?? null;
@@ -271,6 +289,9 @@ export async function POST(req: Request) {
     const lastUserIndex = findLastUserMessageIndex(messages);
     const priorAssistantSnippet =
       lastUserIndex >= 0 ? priorAssistantSnippetBefore(messages, lastUserIndex) : null;
+    const recentUserMessages =
+      lastUserIndex >= 0 ? priorUserMessagesBefore(messages, lastUserIndex) : [];
+    const storedConversationLanguage = storedConversation?.language_tag ?? null;
     const transcriptStart = nowMs();
     const transcript = buildBudgetedTranscript(messages);
     markPerf("transcript_build_ms", transcriptStart);
@@ -280,6 +301,9 @@ export async function POST(req: Request) {
       latestUserMessage: lastUser.content,
       priorAssistantSnippet,
       uiLanguagePrior,
+      conversationLanguage: storedConversationLanguage,
+      recentUserMessages,
+      appLanguage: appLanguage ?? null,
     });
 
     const careResolveStart = nowMs();
@@ -973,11 +997,14 @@ export async function POST(req: Request) {
           userContent: lastUser.content,
           assistantContent: qualityRun.reply,
           reportContext: reportContextJson,
+          languageTag:
+            multilingualPrep.updatedConversationLanguage?.trim() || ietfLanguageTag,
           userMetadata: {
             ietfLanguageTag,
             englishRetrievalQuery: latestUserRetrievalQuery,
             detectorSource: multilingualPrep.detectorSource,
             translatorSource: multilingualPrep.translatorSource,
+            conversationLanguageSource: multilingualPrep.conversationLanguageSource,
           },
           metadata: {
             provider: providerUsed,

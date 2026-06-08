@@ -1,7 +1,16 @@
 import { detectLanguage } from "./language-detector";
 import { translateToEnglishQuery } from "./query-translator";
 import { isMultilingualPipelineEnabled } from "./config";
-import { applyReplyLanguageOverrides, languageHintForTag } from "./language-heuristics";
+import {
+  finalizeConversationLanguage,
+  tryResolveWithoutDetection,
+  type ConversationLanguageSource,
+} from "./conversation-language";
+import {
+  applyReplyLanguageOverrides,
+  inferUserStyleHint,
+  languageHintForTag,
+} from "./language-heuristics";
 import type { MultilingualPipelineResult, UiLanguagePrior } from "./types";
 
 export { isMultilingualPipelineEnabled } from "./config";
@@ -20,6 +29,14 @@ export type {
   DetectorSource,
   TranslatorSource,
 } from "./types";
+export type { ConversationLanguageSource } from "./conversation-language";
+export {
+  detectExplicitLanguageSwitchRequest,
+  finalizeConversationLanguage,
+  inferConversationLanguageFromHistory,
+  isShortLowInfoMessage,
+  tryResolveWithoutDetection,
+} from "./conversation-language";
 
 const STOPWORDS = new Set([
   "the",
@@ -71,32 +88,90 @@ export async function runMultilingualPipeline(input: {
   latestUserMessage: string;
   priorAssistantSnippet?: string | null;
   uiLanguagePrior?: UiLanguagePrior;
-}): Promise<MultilingualPipelineResult> {
+  conversationLanguage?: string | null;
+  recentUserMessages?: string[];
+  appLanguage?: string | null;
+  explicitUserLanguagePreference?: string | null;
+}): Promise<
+  MultilingualPipelineResult & {
+    conversationLanguageSource: ConversationLanguageSource;
+    updatedConversationLanguage: string;
+  }
+> {
   const normalizedUserMessage = normalizeUserMessage(input.latestUserMessage);
 
-  const detection = await detectLanguage({
-    text: normalizedUserMessage,
-    uiLanguagePrior: input.uiLanguagePrior ?? null,
+  const conversationInput = {
+    latestUserMessage: normalizedUserMessage,
+    conversationLanguage: input.conversationLanguage ?? null,
+    recentUserMessages: input.recentUserMessages ?? [],
     priorAssistantSnippet: input.priorAssistantSnippet ?? null,
-  });
+    uiLanguagePrior: input.uiLanguagePrior ?? null,
+    appLanguage: input.appLanguage ?? null,
+    explicitUserLanguagePreference: input.explicitUserLanguagePreference ?? null,
+  };
+
+  const preResolved = tryResolveWithoutDetection(conversationInput);
+  let ietfLanguageTag: string;
+  let detectionConfidence: number;
+  let userStyleHint: MultilingualPipelineResult["userStyleHint"];
+  let detectorSource: MultilingualPipelineResult["detectorSource"];
+  let languageHintForPrompt: string;
+  let conversationLanguageSource: ConversationLanguageSource;
+
+  if (preResolved) {
+    ietfLanguageTag = preResolved.ietfLanguageTag;
+    detectionConfidence = 0.92;
+    userStyleHint = inferUserStyleHint({
+      latestUserMessage: normalizedUserMessage,
+      ietfLanguageTag,
+    });
+    detectorSource =
+      preResolved.source === "conversation_lock" ? "conversation_lock" : "heuristic";
+    languageHintForPrompt = preResolved.languageHintForPrompt;
+    conversationLanguageSource = preResolved.source;
+  } else {
+    const rawDetection = await detectLanguage({
+      text: normalizedUserMessage,
+      uiLanguagePrior: input.uiLanguagePrior ?? null,
+      priorAssistantSnippet: input.priorAssistantSnippet ?? null,
+    });
+    const finalized = finalizeConversationLanguage({
+      ...conversationInput,
+      detectedTag: rawDetection.ietfLanguageTag,
+      detectionConfidence: rawDetection.detectionConfidence,
+    });
+    ietfLanguageTag = finalized.ietfLanguageTag;
+    detectionConfidence = rawDetection.detectionConfidence;
+    userStyleHint = rawDetection.userStyleHint;
+    detectorSource =
+      finalized.source === "conversation_lock" ? "conversation_lock" : rawDetection.detectorSource;
+    languageHintForPrompt = finalized.languageHintForPrompt;
+    conversationLanguageSource = finalized.source;
+  }
 
   const translation = await translateToEnglishQuery({
     text: normalizedUserMessage,
-    ietfLanguageTag: detection.ietfLanguageTag,
-    detectionConfidence: detection.detectionConfidence,
+    ietfLanguageTag,
+    detectionConfidence,
   });
 
   const corrected = applyReplyLanguageOverrides(
     {
-      ietfLanguageTag: detection.ietfLanguageTag,
+      ietfLanguageTag,
       englishRetrievalQuery: translation.englishRetrievalQuery,
-      languageHintForPrompt: detection.languageHintForPrompt,
+      languageHintForPrompt,
       translationConfidence: translation.translationConfidence,
-      userStyleHint: detection.userStyleHint,
+      userStyleHint,
     },
     normalizedUserMessage,
     input.uiLanguagePrior ?? null,
   );
+
+  const updatedConversationLanguage = finalizeConversationLanguage({
+    ...conversationInput,
+    detectedTag: corrected.ietfLanguageTag,
+    detectionConfidence,
+  }).updatedConversationLanguage;
 
   return {
     ietfLanguageTag: corrected.ietfLanguageTag,
@@ -104,10 +179,12 @@ export async function runMultilingualPipeline(input: {
     languageHintForPrompt: corrected.languageHintForPrompt ?? languageHintForTag(corrected.ietfLanguageTag),
     translationConfidence: corrected.translationConfidence ?? translation.translationConfidence,
     userStyleHint: corrected.userStyleHint,
-    detectorSource: detection.detectorSource,
+    detectorSource,
     translatorSource: translation.translatorSource,
     normalizedUserMessage,
     queryExpansion: buildQueryExpansion(normalizedUserMessage, corrected.englishRetrievalQuery),
+    conversationLanguageSource,
+    updatedConversationLanguage,
   };
 }
 

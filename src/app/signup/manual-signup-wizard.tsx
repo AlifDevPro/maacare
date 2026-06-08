@@ -71,11 +71,12 @@ function buildStepDefs(
   profession: ProfessionValue | "",
   primaryUseCase: PrimaryUseCaseValue | "",
   sex: SignupProfileDraft["sex"],
+  options?: { skipAccount?: boolean },
 ): StepDef[] {
-  const out: StepDef[] = [
-    { id: "persona", titleKey: "signup_wizard_step_persona" },
-    { id: "account", titleKey: "signup_wizard_step_account" },
-  ];
+  const out: StepDef[] = [{ id: "persona", titleKey: "signup_wizard_step_persona" }];
+  if (!options?.skipAccount) {
+    out.push({ id: "account", titleKey: "signup_wizard_step_account" });
+  }
   if (!profession) return out;
 
   if (profession === "parent_caregiver") {
@@ -104,9 +105,20 @@ export const MANUAL_SIGNUP_FORM_ID = "manual-signup-form";
 type ManualSignupWizardProps = {
   onNavChange: (nav: SignupWizardNav | null) => void;
   onCompleteChange?: (complete: boolean) => void;
+  initialAccount?: { name: string; email: string; password?: string };
+  skipAccountStep?: boolean;
+  initialTermsAccepted?: boolean;
+  accountAlreadyCreated?: boolean;
 };
 
-export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSignupWizardProps) {
+export function ManualSignupWizard({
+  onNavChange,
+  onCompleteChange,
+  initialAccount,
+  skipAccountStep = false,
+  initialTermsAccepted = false,
+  accountAlreadyCreated = false,
+}: ManualSignupWizardProps) {
   const { t } = useTranslation("auth");
   const router = useRouter();
   const [stepId, setStepId] = useState<StepId>("persona");
@@ -114,12 +126,12 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
   const [sex, setSex] = useState<SignupProfileDraft["sex"]>("");
   const [primaryUseCase, setPrimaryUseCase] = useState<PrimaryUseCaseValue | "">("self_maternal");
 
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState(initialAccount?.name ?? "");
+  const [email, setEmail] = useState(initialAccount?.email ?? "");
   const [emailRegistered, setEmailRegistered] = useState<boolean | null>(null);
   const [emailLookupPending, setEmailLookupPending] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(initialAccount?.password ?? "");
   const [showPassword, setShowPassword] = useState(false);
 
   const [pregnancyStatus, setPregnancyStatus] = useState<
@@ -149,7 +161,7 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
   const [notifyCommunityActivity, setNotifyCommunityActivity] = useState(true);
   const [notifyDailyReminders, setNotifyDailyReminders] = useState(true);
 
-  const [terms, setTerms] = useState(false);
+  const [terms, setTerms] = useState(initialTermsAccepted);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [emailConfirmSent, setEmailConfirmSent] = useState(false);
@@ -160,8 +172,9 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
         profession,
         (primaryUseCase || "self_maternal") as PrimaryUseCaseValue,
         sex,
+        { skipAccount: skipAccountStep || accountAlreadyCreated },
       ),
-    [profession, primaryUseCase, sex],
+    [profession, primaryUseCase, sex, skipAccountStep, accountAlreadyCreated],
   );
 
   function applySexDefaults(nextSex: SignupProfileDraft["sex"]) {
@@ -275,12 +288,23 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const accErr = validateAccountCredentials({ name, email, password });
     setFormError(null);
-    if (accErr) {
-      setFormError(accErr);
-      return;
+
+    if (!accountAlreadyCreated) {
+      const accErr = validateAccountCredentials({ name, email, password });
+      if (accErr) {
+        setFormError(accErr);
+        return;
+      }
+
+      const dupCheck = await checkEmailRegistered(email.trim());
+      if (dupCheck.ok && !("unavailable" in dupCheck) && dupCheck.registered) {
+        setFormError(t("signup_wizard_email_taken"));
+        setEmailRegistered(true);
+        return;
+      }
     }
+
     const termsErr = validateTermsAccepted(terms);
     if (termsErr) {
       setFormError(termsErr);
@@ -292,19 +316,21 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
       return;
     }
 
-    const dupCheck = await checkEmailRegistered(email.trim());
-    if (dupCheck.ok && !("unavailable" in dupCheck) && dupCheck.registered) {
-      setFormError(t("signup_wizard_email_taken"));
-      setEmailRegistered(true);
-      return;
-    }
-
     setSaving(true);
-    const result = await registerAccount(name, email, password);
-    if (!result.ok) {
-      setFormError(result.error);
-      setSaving(false);
-      return;
+
+    if (!accountAlreadyCreated) {
+      const result = await registerAccount(name, email, password);
+      if (!result.ok) {
+        setFormError(result.error);
+        setSaving(false);
+        return;
+      }
+
+      if ("needsEmailConfirmation" in result && result.needsEmailConfirmation) {
+        setEmailConfirmSent(true);
+        setSaving(false);
+        return;
+      }
     }
 
     const draft: SignupProfileDraft = {
@@ -334,12 +360,6 @@ export function ManualSignupWizard({ onNavChange, onCompleteChange }: ManualSign
       studentFieldOfStudy,
     };
     const profilePayload = buildSignupProfilePayload(draft);
-
-    if ("needsEmailConfirmation" in result && result.needsEmailConfirmation) {
-      setEmailConfirmSent(true);
-      setSaving(false);
-      return;
-    }
 
     const hasExtra = Object.values(profilePayload).some((v) => v !== undefined && v !== "unknown");
     if (hasExtra) {

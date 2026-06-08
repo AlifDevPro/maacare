@@ -28,7 +28,15 @@ import {
   deriveOnboardingFocus,
   fallbackQuestionForOnboardingFocus,
 } from "@/lib/signup/onboarding-focus";
+import {
+  getOnboardingProgressLabel,
+  getOnboardingSecureFormCopy,
+  getOnboardingSecureNotice,
+  getOnboardingSeedMessage,
+} from "@/lib/signup/onboarding-copy";
+import { normalizeOnboardingLanguageTag } from "@/lib/signup/onboarding-language";
 import { emptyAiSignupProfileDraft, type SignupProfileDraft } from "@/lib/signup/signup-draft";
+import { StepProgressRail } from "@/components/onboarding/step-progress-rail";
 import {
   signupDraftReadyForCredentials,
   validateAccountCredentials,
@@ -40,13 +48,6 @@ import { cn } from "@/lib/utils";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
-const SEED: Msg[] = [
-  {
-    role: "assistant",
-    content:
-      "Hi, I’ll help you set up MaaCare with a quick chat.\n\n**How should we call you?**\n\n(Your **email** and **password** are entered only on the secure step below — never paste them here.)",
-  },
-];
 
 const fieldBase = "rounded-sm shadow-none focus-visible:ring-1 h-10 w-full min-w-0";
 
@@ -58,10 +59,14 @@ type AiSignupChatProps = {
 };
 
 export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProps) {
-  const { t } = useTranslation("auth");
+  const { t, i18n } = useTranslation("auth");
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [messages, setMessages] = useState<Msg[]>(SEED);
+  const initialLang = normalizeOnboardingLanguageTag(i18n.language);
+  const [onboardingLanguage, setOnboardingLanguage] = useState(initialLang);
+  const [messages, setMessages] = useState<Msg[]>(() => [
+    { role: "assistant", content: getOnboardingSeedMessage(initialLang) },
+  ]);
   const [draft, setDraft] = useState<SignupProfileDraft>(() => emptyAiSignupProfileDraft());
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -84,6 +89,9 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
   }, [draft, messages]);
 
   const ready = signupDraftReadyForCredentials(effectiveDraft);
+  const { nextFocus } = deriveOnboardingFocus(effectiveDraft);
+  const progress = getOnboardingProgressLabel(nextFocus, onboardingLanguage);
+  const secureCopy = getOnboardingSecureFormCopy(onboardingLanguage);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -136,11 +144,18 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
       const res = await fetch("/api/signup/ai-turn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMsgs, draft: outboundDraft }),
+        body: JSON.stringify({
+          messages: nextMsgs,
+          draft: outboundDraft,
+          onboardingLanguage,
+          appLanguage: i18n.language,
+          browserLanguage: typeof navigator !== "undefined" ? navigator.language : undefined,
+        }),
       });
       const j = (await res.json().catch(() => ({}))) as {
         reply?: string;
         draft?: SignupProfileDraft;
+        onboardingLanguage?: string;
         message?: string;
         error?: string;
       };
@@ -162,6 +177,9 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
         ]);
         return;
       }
+      if (j.onboardingLanguage) {
+        setOnboardingLanguage(normalizeOnboardingLanguageTag(j.onboardingLanguage));
+      }
       const reply = typeof j.reply === "string" ? j.reply.trim() : "";
       const resolvedDraft =
         j.draft ??
@@ -177,12 +195,16 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
       } else {
         setDraft(resolvedDraft);
       }
-      const { nextFocus } = deriveOnboardingFocus(resolvedDraft);
-      const fallbackQuestion = fallbackQuestionForOnboardingFocus(nextFocus, resolvedDraft);
+      const { nextFocus: focusAfter } = deriveOnboardingFocus(resolvedDraft);
+      const fallbackQuestion = fallbackQuestionForOnboardingFocus(
+        focusAfter,
+        resolvedDraft,
+        onboardingLanguage,
+      );
       let assistantReply = reply;
       if (!assistantReply) {
         assistantReply = fallbackQuestion;
-      } else if (nextFocus !== "ready_for_secure_step" && !assistantReply.includes("?")) {
+      } else if (focusAfter !== "ready_for_secure_step" && !assistantReply.includes("?")) {
         assistantReply = `${assistantReply}\n\n${fallbackQuestion}`;
       }
       setMessages((prev) => [...prev, { role: "assistant", content: assistantReply }]);
@@ -191,7 +213,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
     } finally {
       setSending(false);
     }
-  }, [draft, input, messages, sending]);
+  }, [draft, i18n.language, input, messages, onboardingLanguage, sending]);
 
   async function createAccount(e: React.FormEvent) {
     e.preventDefault();
@@ -308,6 +330,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {formError ? <AuthInlineAlert message={formError} /> : null}
+      <StepProgressRail label={progress.label} percent={(progress.step / progress.total) * 100} />
       <div
         ref={scrollRef}
         className="flex max-h-[min(52vh,420px)] min-h-[200px] flex-col gap-3 overflow-y-auto rounded-lg bg-muted/15 px-2 py-3 sm:px-3"
@@ -369,9 +392,12 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
           onSubmit={(ev) => void createAccount(ev)}
           className={cn("space-y-3 border-t border-border/60 pt-4", FORM_FOCUS_SAFE)}
         >
-          <p className="text-xs font-medium text-muted-foreground">
-            Secure step — email and password on device only.
-          </p>
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-foreground">{secureCopy.title}</p>
+            <div className="prose prose-sm max-w-none whitespace-pre-line text-xs text-muted-foreground dark:prose-invert">
+              {secureCopy.bullets}
+            </div>
+          </div>
           <div>
             <Label htmlFor="ai-email">Email</Label>
             <div className="relative mt-1.5">
@@ -443,11 +469,7 @@ export function AiSignupChat({ onNavChange, onCompleteChange }: AiSignupChatProp
           </label>
         </form>
       ) : (
-        <p className="text-center text-xs text-muted-foreground">
-          Chat until we have your <strong className="font-medium text-foreground">name</strong>,{" "}
-          <strong className="font-medium text-foreground">role</strong>, and a little role-specific context — then
-          this secure step unlocks.
-        </p>
+        <p className="text-center text-xs text-muted-foreground">{getOnboardingSecureNotice(onboardingLanguage)}</p>
       )}
     </div>
   );

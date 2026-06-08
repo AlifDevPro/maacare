@@ -10,6 +10,8 @@
     "import-bd-facilities": "node scripts/import-bd-facilities.mjs",
     "generate-brand-icons": "node scripts/generate-brand-icons.mjs",
     "test:multilingual": "npx tsx scripts/test-multilingual-pipeline.ts",
+    "test:conversation-language": "npx tsx scripts/test-conversation-language.ts",
+    "test:onboarding-language": "npx tsx scripts/test-onboarding-language.ts",
     "test:report-simplifier": "npx tsx scripts/test-report-simplifier.ts"
   },
   "dependencies": {
