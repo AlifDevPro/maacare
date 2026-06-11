@@ -19,10 +19,6 @@ import {
   readEmergencyByKindCache,
   writeEmergencyByKindCache,
 } from "@/lib/emergency/nearby-session-cache";
-import { PremiumLockedBanner } from "@/components/subscription/premium-locked-banner";
-import { isSubscriptionPaywallError } from "@/lib/subscription/access";
-import { useSubscription } from "@/lib/subscription/use-subscription";
-
 const FALLBACK_HOSPITALS: Array<{
   name: string;
   distance: string;
@@ -155,7 +151,6 @@ export default function EmergencyClient() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locRetrySeed, setLocRetrySeed] = useState(0);
   const [hasLoadedNearby, setHasLoadedNearby] = useState(false);
-  const { subscription, openPaywall } = useSubscription();
 
   const locationFetchKey = useMemo(() => {
     if (!currentLocation) return null;
@@ -225,11 +220,6 @@ export default function EmergencyClient() {
     }
 
     async function fetchNearby() {
-      if (!subscription.features.nearby_facilities) {
-        setLoading(false);
-        return;
-      }
-
       if (!hasLoadedNearby) {
         setLoading(true);
       }
@@ -246,12 +236,7 @@ export default function EmergencyClient() {
           hospitals?: Hospital[];
           message?: string;
         };
-        if (!res.ok) {
-          if (res.status === 403 && isSubscriptionPaywallError(data)) {
-            openPaywall("nearby_facilities");
-          }
-          return [];
-        }
+        if (!res.ok) return [];
         if (!Array.isArray(data.hospitals)) return [];
         return data.hospitals.slice(0, 8);
       }
@@ -287,7 +272,7 @@ export default function EmergencyClient() {
     return () => {
       active = false;
     };
-  }, [locationFetchKey, hasLoadedNearby, subscription.features.nearby_facilities, openPaywall]);
+  }, [locationFetchKey, hasLoadedNearby]);
 
   const kindCounts = useMemo(
     () => ({
@@ -348,8 +333,6 @@ export default function EmergencyClient() {
       <AppHeader title={t("emergency_help_title")} showBack />
 
       <div className="space-y-5 px-4 pt-4">
-        <PremiumLockedBanner feature="nearby_facilities" />
-
         <Tabs
           value={facilityTab}
           onValueChange={(v) => setFacilityTab(v as FacilityKind)}

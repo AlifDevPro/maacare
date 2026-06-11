@@ -4,7 +4,6 @@ import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { fetchNearbyEmergencyByCategory } from "@/lib/bd-facilities/nearby";
 import type { FacilityKind } from "@/lib/emergency/facility-kind";
-import { enforceSubscriptionFeature } from "@/lib/subscription/enforce";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const categorySchema = z.enum(["clinic", "hospital", "pharmacy"]);
@@ -42,9 +41,6 @@ export async function POST(req: Request) {
   try {
     const session = await getSessionFromCookies();
     if (!session) return failJson(401, "Sign in to use emergency map.");
-
-    const facilitiesGate = await enforceSubscriptionFeature(session.id, "nearby_facilities");
-    if (!facilitiesGate.ok) return facilitiesGate.response;
 
     const payload = bodySchema.safeParse(await req.json().catch(() => ({})));
     if (!payload.success) return failJson(400, "Invalid location or category.");
