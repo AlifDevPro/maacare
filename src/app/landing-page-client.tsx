@@ -12,8 +12,9 @@ import "swiper/css";
 import "swiper/css/effect-coverflow";
 import {
   Heart, Sparkles, Stethoscope, Phone, Users, Calendar, FileText,
-  ChevronRight, Check, Star, ShieldCheck, Globe, Github, Linkedin,
+  ChevronRight, Check, Star, ShieldCheck, Globe, Github, Linkedin, Crown,
 } from "lucide-react";
+import { PREMIUM_PRICE_BDT } from "@/lib/subscription/constants";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +24,7 @@ import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from "@/components/ui/accordion";
 import { GlobalLanguageSwitcher } from "@/components/app/global-language-switcher";
+import { useSession } from "@/lib/auth-client";
 import { useTranslation } from "react-i18next";
 
 const features = [
@@ -716,43 +718,119 @@ function TeamSection() {
 }
 
 function Pricing() {
-  const perks = [
-    "Unlimited AI chat",
-    "Week-by-week planner",
+  const { user } = useSession();
+  const premiumHref = user ? "/subscription" : "/signup";
+  const premiumCta = user ? "Upgrade to Premium" : "Create account & upgrade";
+
+  const freePerks = [
+    "AI chat & week-by-week planner",
     "Symptom & risk checker",
     "Emergency map & hotlines",
-    "Verified community",
-    "Report simplifier",
+    "Verified mother community",
+    "2 report simplifications / month",
+    "2 symptom analyses / month",
     "EN & বাংলা support",
+  ];
+  const premiumPerks = [
+    "Everything in Free",
+    "Unlimited report simplification",
+    "Unlimited symptom analysis",
+    "Direct messaging with doctors",
+    "Nearby hospital & clinic connections",
+    "Priority care tools",
   ];
   return (
     <section id="pricing" className="bg-gradient-hero py-20 md:py-28">
-      <div className="mx-auto max-w-3xl px-4 text-center">
-        <Badge variant="secondary" className="mb-4 rounded-full bg-card/70 px-3 py-1 backdrop-blur">Free during beta</Badge>
-        <h2 className="font-display text-3xl font-semibold md:text-4xl">One simple plan. Free for every mother.</h2>
-        <p className="mt-3 text-muted-foreground">No credit card. No hidden fees. We're dedicated to keeping essential maternal care accessible.</p>
-        <Card className="mx-auto mt-10 max-w-md overflow-hidden border-0 p-8 text-left shadow-card">
-          <div className="flex items-baseline justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wider text-primary">Beta access</p>
-              <p className="mt-1 font-display text-5xl font-semibold">Free</p>
+      <div className="mx-auto max-w-4xl px-4 text-center">
+        <Badge variant="secondary" className="mb-4 rounded-full border border-primary/15 bg-card/80 px-3 py-1 shadow-soft backdrop-blur">
+          Simple pricing
+        </Badge>
+        <h2 className="font-display text-3xl font-semibold md:text-4xl">Start free. Upgrade when you need more.</h2>
+        <p className="mt-3 text-muted-foreground">
+          No credit card required to begin. Premium unlocks unlimited AI tools and direct care connections.
+        </p>
+        <div className="mt-10 grid gap-6 text-left md:grid-cols-2">
+          <Card className="relative overflow-hidden rounded-3xl border border-primary/10 bg-card/90 p-0 shadow-card ring-1 ring-primary/5">
+            <div className="bg-gradient-to-br from-primary/10 via-transparent to-accent/10 px-6 pb-2 pt-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-primary">Free</p>
+                  <p className="mt-1 font-display text-5xl font-semibold leading-none">৳0</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Forever free tier</p>
+                </div>
+                <Badge className="shrink-0 rounded-full bg-primary/15 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary shadow-none hover:bg-primary/15">
+                  Start here
+                </Badge>
+              </div>
             </div>
-            <Badge className="bg-accent text-accent-foreground">Limited time</Badge>
-          </div>
-          <ul className="mt-6 space-y-2.5">
-            {perks.map((p) => (
-              <li key={p} className="flex items-center gap-2.5 text-sm">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-soft text-accent">
-                  <Check className="h-3 w-3" strokeWidth={3} />
-                </span>
-                {p}
-              </li>
-            ))}
-          </ul>
-          <Button asChild size="lg" className="mt-7 w-full rounded-full">
-            <Link href="/signup">Claim free access</Link>
-          </Button>
-        </Card>
+            <div className="space-y-4 px-6 pb-6 pt-4">
+              <div className="flex flex-wrap gap-1.5">
+                {["AI tools", "Community", "Planner"].map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded-full bg-muted/60 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+              <ul className="space-y-2.5">
+                {freePerks.map((p) => (
+                  <li key={p} className="flex items-center gap-2.5 text-sm">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent shadow-sm">
+                      <Check className="h-3 w-3" strokeWidth={3} />
+                    </span>
+                    <span className="text-foreground/90">{p}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button asChild size="lg" className="h-12 w-full rounded-2xl text-base font-semibold shadow-soft transition-shadow hover:shadow-card">
+                <Link href="/signup">Get started free</Link>
+              </Button>
+            </div>
+          </Card>
+
+          <Card className="relative overflow-hidden rounded-3xl border border-amber-500/25 bg-card/90 p-0 shadow-card ring-1 ring-amber-500/15">
+            <div className="bg-gradient-to-br from-amber-500/15 via-transparent to-primary/10 px-6 pb-2 pt-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">Premium</p>
+                  <p className="mt-1 font-display text-5xl font-semibold leading-none">৳{PREMIUM_PRICE_BDT}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">per month</p>
+                </div>
+                <Badge className="shrink-0 gap-1 rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 shadow-none hover:bg-amber-500/20 dark:text-amber-200">
+                  <Crown className="h-3 w-3" />
+                  Best value
+                </Badge>
+              </div>
+            </div>
+            <div className="space-y-4 px-6 pb-6 pt-4">
+              <div className="flex flex-wrap gap-1.5">
+                {["Unlimited AI", "Doctor DM", "Nearby care"].map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+              <ul className="space-y-2.5">
+                {premiumPerks.map((p) => (
+                  <li key={p} className="flex items-center gap-2.5 text-sm">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 shadow-sm">
+                      <Check className="h-3 w-3" strokeWidth={3} />
+                    </span>
+                    <span className="text-foreground/90">{p}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button asChild size="lg" className="h-12 w-full rounded-2xl text-base font-semibold shadow-soft transition-shadow hover:shadow-card">
+                <Link href={premiumHref}>{premiumCta}</Link>
+              </Button>
+            </div>
+          </Card>
+        </div>
       </div>
     </section>
   );

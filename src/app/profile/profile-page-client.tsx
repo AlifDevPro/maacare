@@ -16,6 +16,7 @@ import {
   Pencil,
   Loader2,
   Users,
+  Crown,
 } from "lucide-react";
 
 import type { ProfileBundle } from "@/app/profile/profile-types";
@@ -31,6 +32,7 @@ import {
   useProfileBundle,
 } from "@/lib/app/profile-bundle-query";
 import { SmartHealthNudge } from "@/components/app/smart-health-nudge";
+import { PlanTierBadge } from "@/components/subscription/plan-tier-badge";
 import { WebPushPreferences } from "@/components/app/web-push-preferences";
 import { ProfileAvatarUploadDialog } from "@/components/profile/profile-avatar-upload-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -218,7 +220,8 @@ export function ProfilePageClient({
             </div>
             <div className="min-w-0 flex-1">
               <h1 className="truncate font-display text-xl font-semibold">{displayName}</h1>
-              <p className="truncate text-sm text-muted-foreground">{email}</p>
+              <PlanTierBadge className="mt-1.5" />
+              <p className="mt-1 truncate text-sm text-muted-foreground">{email}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
               <Button
                 variant="outline"
@@ -387,6 +390,19 @@ export function ProfilePageClient({
         </Section>
 
         <Section title="Data & account">
+          <InstantLink
+            href="/subscription"
+            className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300">
+              <Crown className="h-4 w-4" />
+            </span>
+            <span className="flex flex-1 flex-col gap-1">
+              <span className="text-sm font-medium">{t("subscription_manage")}</span>
+              <PlanTierBadge />
+            </span>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </InstantLink>
           <button
             type="button"
             className="flex w-full items-center gap-3 px-4 py-3 text-left"

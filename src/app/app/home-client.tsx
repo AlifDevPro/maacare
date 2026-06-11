@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useTranslation as useHealthTranslation } from "react-i18next";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
@@ -26,6 +27,8 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { SmartHealthNudge } from "@/components/app/smart-health-nudge";
+import { PlanTierBadge } from "@/components/subscription/plan-tier-badge";
+import { useSubscription } from "@/lib/subscription/use-subscription";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { babyAt, trimesterOf } from "@/lib/pregnancy";
@@ -46,6 +49,8 @@ function homeJourneyStage(p: HomeData["pregnancy"]): JourneyStage {
 
 export function HomeClient({ initial }: { initial: HomeData }) {
   const { t } = useTranslation("home");
+  const { t: tHealth } = useHealthTranslation("health");
+  const { subscription, loading: subLoading } = useSubscription();
   const router = useRouter();
   const [home, setHome] = useState(initial);
   const [refreshing, setRefreshing] = useState(false);
@@ -102,10 +107,26 @@ export function HomeClient({ initial }: { initial: HomeData }) {
 
       <div className="space-y-5 px-0 pt-4">
         <SmartHealthNudge />
-        <motion.div initial={false} animate={{ opacity: 1, y: 0 }} className="space-y-1">
-          <p className="text-sm text-muted-foreground">
-            {t("welcomeBack", { name: home.profile.displayName || t("memberFallback") })}
-          </p>
+        <motion.div initial={false} animate={{ opacity: 1, y: 0 }} className="space-y-2">
+          <div className="space-y-2.5">
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {t("welcomeBackPrefix")}{" "}
+              <span className="font-medium text-foreground">
+                {home.profile.displayName || t("memberFallback")}
+              </span>
+            </p>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <PlanTierBadge linkToSubscription={!subLoading && !subscription.isPremium} />
+              {!subLoading && !subscription.isPremium ? (
+                <Link
+                  href="/subscription"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  {tHealth("subscription_upgrade_from_home")}
+                </Link>
+              ) : null}
+            </div>
+          </div>
           <h1 className="font-display text-2xl font-semibold leading-tight text-balance">
             {t("greetingTitle")}
           </h1>

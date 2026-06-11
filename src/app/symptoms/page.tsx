@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
+import { SubscriptionUpgradePrompt } from "@/components/subscription/subscription-upgrade-prompt";
 import { cn } from "@/lib/utils";
 
 const GROUPS = [
@@ -100,6 +101,8 @@ export default function SymptomsPage() {
           <h1 className="mt-1 font-display text-xl font-semibold text-balance">{t("symptoms_heading")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t("symptoms_privacy")}</p>
         </div>
+
+        <SubscriptionUpgradePrompt variant="inline" />
 
         {GROUPS.map(({ titleKey, icon: Icon, items }) => (
           <div key={titleKey}>

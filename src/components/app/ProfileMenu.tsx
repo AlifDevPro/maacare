@@ -18,6 +18,7 @@ import {
   LogIn,
   BookOpen,
   Code2,
+  Crown,
   Pencil,
 } from "lucide-react";
 import { GlobalLanguageSwitcher } from "@/components/app/global-language-switcher";
@@ -85,6 +86,9 @@ function ProfileMenuLinks({
           <ShieldCheck className="h-4 w-4 shrink-0" /> {t("admin_panel")}
         </InstantLink>
       ) : null}
+      <InstantLink href="/subscription" className={linkClass} onClick={onNavigate}>
+        <Crown className="h-4 w-4 shrink-0" /> {t("subscription")}
+      </InstantLink>
       <InstantLink href="/settings" className={linkClass} onClick={onNavigate}>
         <Settings className="h-4 w-4 shrink-0" /> {t("settings")}
       </InstantLink>

@@ -16,6 +16,8 @@ import { executeMcpTool } from "@/lib/ai/mcp/gateway";
 import { buildToolCallContext, mcpPlanForRoute } from "@/lib/ai/mcp/policy";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { searchKnowledge } from "@/lib/rag/service";
+import { enforceSubscriptionFeature } from "@/lib/subscription/enforce";
+import { consumeFeatureUsage } from "@/lib/subscription/repository";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
@@ -251,6 +253,9 @@ export async function GET(
     const session = await getSessionFromCookies();
     if (!session) return failJson(401, "Sign in.");
 
+    const symptomGate = await enforceSubscriptionFeature(session.id, "symptom_analysis");
+    if (!symptomGate.ok) return symptomGate.response;
+
     const parsedId = uuid.safeParse((await context.params).id);
     if (!parsedId.success) return failJson(400, "Invalid symptom log id.");
 
@@ -391,6 +396,12 @@ export async function GET(
       }
     } catch (e) {
       console.warn("[symptoms/log/id] risk-rules fallback:", e);
+    }
+
+    try {
+      await consumeFeatureUsage(supabase, session.id, "symptom_analysis");
+    } catch (consumeErr) {
+      console.error("[symptoms/log/id] usage consume failed", consumeErr);
     }
 
     return Response.json({

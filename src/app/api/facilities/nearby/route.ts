@@ -7,6 +7,7 @@ import {
   fetchNearbyEmergencyListPrioritized,
   fetchNearbyFacilitiesFromDb,
 } from "@/lib/bd-facilities/nearby";
+import { enforceSubscriptionFeature } from "@/lib/subscription/enforce";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -25,6 +26,9 @@ export async function POST(req: Request) {
   try {
     const session = await getSessionFromCookies();
     if (!session) return failJson(401, "Sign in.");
+
+    const facilitiesGate = await enforceSubscriptionFeature(session.id, "nearby_facilities");
+    if (!facilitiesGate.ok) return facilitiesGate.response;
 
     const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) return failJson(400, "Invalid request body.");

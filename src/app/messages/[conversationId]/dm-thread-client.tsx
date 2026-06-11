@@ -12,6 +12,8 @@ import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { DmPeerHeader } from "@/components/messages/dm-peer-header";
 import { Button } from "@/components/ui/button";
+import { isSubscriptionPaywallError } from "@/lib/subscription/access";
+import { useSubscription } from "@/lib/subscription/use-subscription";
 import { Textarea } from "@/components/ui/textarea";
 import { dispatchDmUnreadUpdated } from "@/lib/dm/events";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -43,6 +45,7 @@ export default function DmThreadClient() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const { openPaywall } = useSubscription();
 
   const markThreadRead = useCallback(async () => {
     if (!valid) return;
@@ -144,7 +147,13 @@ export default function DmThreadClient() {
         posted?: Msg;
         message?: string;
       };
-      if (!res.ok) throw new Error(j.message ?? t("toast_send_failed"));
+      if (!res.ok) {
+        if (res.status === 403 && isSubscriptionPaywallError(j)) {
+          openPaywall("doctor_messaging");
+          return;
+        }
+        throw new Error(j.message ?? t("toast_send_failed"));
+      }
       const added = j.posted;
       if (added?.id) {
         setMessages((prev) => (prev.some((p) => p.id === added.id) ? prev : [...prev, added]));

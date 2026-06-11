@@ -1,5 +1,6 @@
 {
   "welcomeBack": "ফিরে এসেছেন, {{name}}",
+  "welcomeBackPrefix": "ফিরে এসেছেন,",
   "memberFallback": "সদস্য",
   "greetingTitle": "আজ কেমন লাগছে?",
   "careLinked": "সংযুক্ত গর্ভাবস্থার সময়রেখা",

@@ -8,6 +8,9 @@ import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PremiumLockedBanner } from "@/components/subscription/premium-locked-banner";
+import { isSubscriptionPaywallError } from "@/lib/subscription/access";
+import { useSubscription } from "@/lib/subscription/use-subscription";
 import { useTranslation } from "react-i18next";
 
 type Facility = {
@@ -27,6 +30,7 @@ export default function FacilitiesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retrySeed, setRetrySeed] = useState(0);
+  const { subscription } = useSubscription();
 
   useEffect(() => {
     let cancelled = false;
@@ -35,6 +39,11 @@ export default function FacilitiesPage() {
       setLoading(true);
       setError(null);
       setItems([]);
+
+      if (!subscription.features.nearby_facilities) {
+        setLoading(false);
+        return;
+      }
 
       if (!navigator.geolocation) {
         if (!cancelled) {
@@ -78,6 +87,9 @@ export default function FacilitiesPage() {
           message?: string;
         };
         if (!res.ok) {
+          if (res.status === 403 && isSubscriptionPaywallError(data)) {
+            return;
+          }
           throw new Error(data.message ?? "Could not load facilities.");
         }
         if (!cancelled) setItems(Array.isArray(data.facilities) ? data.facilities : []);
@@ -91,7 +103,7 @@ export default function FacilitiesPage() {
     return () => {
       cancelled = true;
     };
-  }, [preset, retrySeed]);
+  }, [preset, retrySeed, subscription.features.nearby_facilities]);
 
   return (
     <AppShell>
@@ -99,9 +111,11 @@ export default function FacilitiesPage() {
 
       <div className="space-y-4 px-4 pt-4">
         <p className="text-xs text-muted-foreground">
-          Uses your imported Bangladesh OSM points (hospitals, clinics, pharmacies). No AI — fast
-          and quota-free.
+          Uses your imported Bangladesh OSM points (hospitals, clinics, pharmacies). Premium unlocks
+          nearby connections.
         </p>
+
+        <PremiumLockedBanner feature="nearby_facilities" />
 
         <div className="flex gap-2 rounded-xl border border-border/70 bg-muted/30 p-1">
           <button

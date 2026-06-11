@@ -13,7 +13,8 @@
     "test:conversation-language": "npx tsx scripts/test-conversation-language.ts",
     "test:onboarding-language": "npx tsx scripts/test-onboarding-language.ts",
     "test:report-simplifier": "npx tsx scripts/test-report-simplifier.ts",
-    "test:symptom-insight-language": "npx tsx scripts/test-symptom-insight-language.ts"
+    "test:symptom-insight-language": "npx tsx scripts/test-symptom-insight-language.ts",
+    "test:subscription-access": "npx tsx scripts/test-subscription-access.ts"
   },
   "dependencies": {
     "@fontsource/figtree": "^5.2.10",

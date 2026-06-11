@@ -15,6 +15,7 @@ import {
   parseReportAnalysisFromModelText,
   sanitizeReportAnalysis,
 } from "@/lib/reports/parse-analysis";
+import { enforceAndConsumeSubscriptionFeature } from "@/lib/subscription/enforce";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -27,6 +28,9 @@ export async function POST(_req: Request, { params }: RouteParams) {
   try {
     const session = await getSessionFromCookies();
     if (!session) return failJson(401, "Please sign in and try again.");
+
+    const reportGate = await enforceAndConsumeSubscriptionFeature(session.id, "report_simplification");
+    if (!reportGate.ok) return reportGate.response;
 
     const geminiKeys = getGeminiApiKeys();
     const groqKeys = getGroqApiKeys();

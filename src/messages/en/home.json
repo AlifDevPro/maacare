@@ -1,5 +1,6 @@
 {
   "welcomeBack": "Welcome back, {{name}}",
+  "welcomeBackPrefix": "Welcome back,",
   "memberFallback": "Member",
   "greetingTitle": "How are you feeling today?",
   "careLinked": "Linked pregnancy view",

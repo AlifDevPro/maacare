@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   ChevronRight,
+  Crown,
   KeyRound,
   Monitor,
   Moon,
@@ -23,6 +24,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PlanTierBadge } from "@/components/subscription/plan-tier-badge";
 import { useSession } from "@/lib/auth-client";
 import { useTheme } from "@/lib/theme";
 import { useTranslation } from "react-i18next";
@@ -60,6 +62,27 @@ export default function SettingsPage() {
                 <span className="flex items-center gap-2">
                   <UserPen className="h-4 w-4" />
                   Edit medical profile
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="overflow-hidden rounded-2xl border-border/80 shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="font-display text-base">{t("subscription_page_title")}</CardTitle>
+            <CardDescription>{t("subscription_manage_hint")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" className="h-11 w-full justify-between rounded-xl px-4" asChild>
+              <Link href="/subscription">
+                <span className="flex items-center gap-2">
+                  <Crown className="h-4 w-4 text-amber-600" />
+                  <span className="flex items-center gap-2">
+                    {t("subscription_manage")}
+                    <PlanTierBadge />
+                  </span>
                 </span>
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
               </Link>

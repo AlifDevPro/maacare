@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { formatDistanceToNow } from "date-fns";
-import { ArrowLeft, Loader2, MailCheck, MailWarning, ShieldBan } from "lucide-react";
+import { ArrowLeft, Crown, Loader2, MailCheck, MailWarning, ShieldBan } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { invalidateByPrefix } from "@/lib/client/request-cache";
+import type { SubscriptionView } from "@/lib/subscription/types";
 
 import { AdminUserDetailSkeleton } from "./admin-user-detail-skeleton";
 
@@ -79,6 +80,31 @@ export default function AdminUserDetailPage() {
   const [adminNote, setAdminNote] = useState("");
   const [role, setRole] = useState<Role>("user");
   const [banReason, setBanReason] = useState("");
+  const [subscription, setSubscription] = useState<SubscriptionView | null>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [subscriptionBusy, setSubscriptionBusy] = useState(false);
+
+  const loadSubscription = useCallback(async () => {
+    if (!rawId) return;
+    setSubscriptionLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users/${rawId}/subscription`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        subscription?: SubscriptionView;
+        message?: string;
+      };
+      if (!res.ok) throw new Error(j.message ?? "Could not load subscription");
+      setSubscription(j.subscription ?? null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load subscription");
+      setSubscription(null);
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }, [rawId]);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -116,6 +142,35 @@ export default function AdminUserDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadSubscription();
+  }, [loadSubscription]);
+
+  async function patchSubscription(action: "grant_premium" | "reset_free") {
+    if (!rawId) return;
+    if (action === "reset_free" && !confirm("Reset this user to the Free plan?")) return;
+    setSubscriptionBusy(true);
+    try {
+      const res = await fetch(`/api/admin/users/${rawId}/subscription`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        subscription?: SubscriptionView;
+        message?: string;
+      };
+      if (!res.ok) throw new Error(j.message ?? "Could not update subscription");
+      setSubscription(j.subscription ?? null);
+      toast.success(action === "grant_premium" ? "Premium granted" : "Reset to Free");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update subscription");
+    } finally {
+      setSubscriptionBusy(false);
+    }
+  }
 
   async function saveProfile() {
     if (!rawId) return;
@@ -400,6 +455,88 @@ export default function AdminUserDetailPage() {
           {savingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Save changes
         </Button>
+      </Card>
+
+      <Card className="space-y-4 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-display text-base font-semibold">Subscription</h2>
+          {subscription?.isPremium ? (
+            <Badge className="gap-1 bg-amber-500/15 text-amber-800 dark:text-amber-200">
+              <Crown className="h-3 w-3" />
+              Premium
+            </Badge>
+          ) : (
+            <Badge variant="secondary">Free</Badge>
+          )}
+        </div>
+        {subscriptionLoading ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : subscription ? (
+          <>
+            <div className="grid gap-2 text-sm sm:grid-cols-2">
+              <div>
+                <span className="text-muted-foreground">Plan</span>
+                <p className="mt-0.5 font-medium capitalize">{subscription.plan}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Status</span>
+                <p className="mt-0.5 font-medium capitalize">{subscription.subscriptionStatus}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Reports used</span>
+                <p className="mt-0.5 font-medium tabular-nums">
+                  {subscription.quotas.reportSimplification.used}
+                  {subscription.quotas.reportSimplification.limit != null
+                    ? ` / ${subscription.quotas.reportSimplification.limit}`
+                    : " (unlimited)"}
+                </p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Symptoms used</span>
+                <p className="mt-0.5 font-medium tabular-nums">
+                  {subscription.quotas.symptomAnalysis.used}
+                  {subscription.quotas.symptomAnalysis.limit != null
+                    ? ` / ${subscription.quotas.symptomAnalysis.limit}`
+                    : " (unlimited)"}
+                </p>
+              </div>
+              {subscription.subscriptionEndDate ? (
+                <div className="sm:col-span-2">
+                  <span className="text-muted-foreground">Premium until</span>
+                  <p className="mt-0.5 font-medium">
+                    {new Date(subscription.subscriptionEndDate).toLocaleString()}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                className="h-9 min-h-9"
+                disabled={subscriptionBusy}
+                onClick={() => void patchSubscription("grant_premium")}
+              >
+                <Crown className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+                Grant Premium
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 min-h-9"
+                disabled={subscriptionBusy}
+                onClick={() => void patchSubscription("reset_free")}
+              >
+                Reset to Free
+              </Button>
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">Subscription data unavailable.</p>
+        )}
       </Card>
 
       <Card className="p-5 space-y-3">

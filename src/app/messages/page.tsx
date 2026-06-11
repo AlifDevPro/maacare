@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 import { formatDistanceToNow } from "date-fns";
-import { Loader2, MessageCircle, Search } from "lucide-react";
+import { Crown, Loader2, Lock, MessageCircle, Search } from "lucide-react";
 import { MessagesInboxSkeleton } from "./messages-inbox-skeleton";
 import { toast } from "sonner";
 
@@ -14,6 +14,9 @@ import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { CommunityAvatar } from "@/components/community/community-avatar";
 import { MessagesActivePeople } from "@/components/messages/messages-active-people";
+import { PremiumLockedBanner } from "@/components/subscription/premium-locked-banner";
+import { isSubscriptionPaywallError } from "@/lib/subscription/access";
+import { useSubscription } from "@/lib/subscription/use-subscription";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -48,6 +51,7 @@ function filterRows(rows: Row[], query: string): Row[] {
 
 export default function MessagesInboxPage() {
   const { t } = useTranslation("messages");
+  const { t: tHealth } = useTranslation("health");
   const router = useRouter();
   const { user } = useSession();
   const [rows, setRows] = useState<Row[]>([]);
@@ -56,6 +60,8 @@ export default function MessagesInboxPage() {
   const [peerResults, setPeerResults] = useState<PeerResult[]>([]);
   const [peerSearching, setPeerSearching] = useState(false);
   const [startingPeerId, setStartingPeerId] = useState<string | null>(null);
+  const { subscription, openPaywall } = useSubscription();
+  const dmUnlocked = subscription.features.doctor_messaging;
 
   const loadRef = useRef<() => Promise<void>>(async () => {});
 
@@ -228,7 +234,13 @@ export default function MessagesInboxPage() {
         conversationId?: string;
         message?: string;
       };
-      if (!res.ok) throw new Error(j.message ?? t("toast_start_chat"));
+      if (!res.ok) {
+        if (res.status === 403 && isSubscriptionPaywallError(j)) {
+          openPaywall("doctor_messaging");
+          return;
+        }
+        throw new Error(j.message ?? t("toast_start_chat"));
+      }
       if (!j.conversationId) throw new Error(t("toast_start_chat"));
       router.push(`/messages/${j.conversationId}`);
     } catch (e) {
@@ -246,7 +258,8 @@ export default function MessagesInboxPage() {
     <AppShell>
       <AppHeader title={t("inbox_title")} showBack backHref="/app" showNotifications />
 
-      <div className="px-4 pt-3">
+      <div className="space-y-3 px-4 pt-3">
+        <PremiumLockedBanner feature="doctor_messaging" />
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -335,9 +348,19 @@ export default function MessagesInboxPage() {
                           type="button"
                           className="w-full text-left"
                           disabled={startingPeerId === p.id}
-                          onClick={() => void startChatWithPeer(p.id)}
+                          onClick={() => {
+                            if (!dmUnlocked) {
+                              openPaywall("doctor_messaging");
+                              return;
+                            }
+                            void startChatWithPeer(p.id);
+                          }}
                         >
-                          <Card className="flex gap-3 p-3 transition-colors hover:bg-muted/40">
+                          <Card
+                            className={`flex gap-3 p-3 transition-colors ${
+                              dmUnlocked ? "hover:bg-muted/40" : "border-dashed border-amber-500/30 bg-amber-500/5"
+                            }`}
+                          >
                             <CommunityAvatar
                               url={p.avatarUrl}
                               name={p.displayName}
@@ -346,9 +369,16 @@ export default function MessagesInboxPage() {
                             />
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-semibold">{p.displayName}</p>
-                              <p className="text-xs text-muted-foreground">{t("thread_active")}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {dmUnlocked ? t("thread_active") : tHealth("subscription_dm_locked_hint")}
+                              </p>
                             </div>
-                            {startingPeerId === p.id ? (
+                            {!dmUnlocked ? (
+                              <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                                <Lock className="h-3 w-3" />
+                                <Crown className="h-3 w-3" />
+                              </span>
+                            ) : startingPeerId === p.id ? (
                               <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
                             ) : null}
                           </Card>

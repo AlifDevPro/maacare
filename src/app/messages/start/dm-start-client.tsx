@@ -10,12 +10,17 @@ import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
+import { isSubscriptionPaywallError } from "@/lib/subscription/access";
+import { useSubscription } from "@/lib/subscription/use-subscription";
+import { Button } from "@/components/ui/button";
 
 export default function DmStartClient() {
   const { t } = useTranslation("messages");
   const router = useRouter();
   const searchParams = useSearchParams();
   const [bad, setBad] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const { openPaywall } = useSubscription();
 
   useEffect(() => {
     const peer = searchParams.get("peer")?.trim() ?? "";
@@ -36,7 +41,16 @@ export default function DmStartClient() {
           body: JSON.stringify({ peerUserId: peer }),
         });
         const j = (await res.json().catch(() => ({}))) as { conversationId?: string; message?: string };
-        if (!res.ok) throw new Error(j.message ?? t("toast_start_chat"));
+        if (!res.ok) {
+          if (res.status === 403 && isSubscriptionPaywallError(j)) {
+            if (!cancelled) {
+              setLocked(true);
+              openPaywall("doctor_messaging");
+            }
+            return;
+          }
+          throw new Error(j.message ?? t("toast_start_chat"));
+        }
         const id = j.conversationId;
         if (!id) throw new Error(t("toast_start_chat"));
         if (!cancelled) router.replace(`/messages/${id}`);
@@ -57,7 +71,18 @@ export default function DmStartClient() {
     <AppShell>
       <AppHeader title={t("inbox_title")} showBack backHref="/messages" showNotifications />
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-20 text-sm text-muted-foreground">
-        {!bad ? (
+        {locked ? (
+          <div className="max-w-sm space-y-3 text-center">
+            <p className="font-medium text-foreground">Unlock this by buying a subscription.</p>
+            <p className="text-xs">Premium includes direct messaging with doctors.</p>
+            <Button className="rounded-xl" onClick={() => openPaywall("doctor_messaging")}>
+              Upgrade to Premium
+            </Button>
+            <Link href="/messages" className="block text-sm font-medium text-primary">
+              {t("back_to_inbox")}
+            </Link>
+          </div>
+        ) : !bad ? (
           <>
             <Loader2 className="h-8 w-8 animate-spin" />
             <p>{t("opening_conversation")}</p>

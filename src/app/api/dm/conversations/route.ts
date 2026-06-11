@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
+import { enforceSubscriptionFeature } from "@/lib/subscription/enforce";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 function peerIdForViewer(
@@ -111,6 +112,9 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSessionFromCookies();
     if (!session) return failJson(401, "Sign in.");
+
+    const dmGate = await enforceSubscriptionFeature(session.id, "doctor_messaging");
+    if (!dmGate.ok) return dmGate.response;
 
     let json: unknown;
     try {

@@ -18,6 +18,8 @@ import {
   getGroqReportModelName,
   isRateLimitError,
 } from "@/lib/gemini/text-failover";
+import { enforceSubscriptionFeature } from "@/lib/subscription/enforce";
+import { consumeFeatureUsage } from "@/lib/subscription/repository";
 import { persistReportIntelligence } from "@/lib/reports/intelligence";
 import { updateReportStoragePaths } from "@/lib/reports/repository";
 import { uploadReportImage } from "@/lib/reports/storage";
@@ -289,6 +291,12 @@ async function finalizeAnalysisResponse(input: {
     }
   }
 
+  try {
+    await consumeFeatureUsage(supabase, session.id, "report_simplification");
+  } catch (consumeErr) {
+    console.error("[reports_analyze] usage consume failed", consumeErr);
+  }
+
   return Response.json({
     ...cleanedAnalysis,
     provider,
@@ -413,6 +421,9 @@ export async function POST(req: Request) {
   try {
     const session = await getSessionFromCookies();
     if (!session) return failJson(401, "Please sign in and try again.");
+
+    const reportGate = await enforceSubscriptionFeature(session.id, "report_simplification");
+    if (!reportGate.ok) return reportGate.response;
 
     const form = await req.formData();
     const reportTitle = String(form.get("reportTitle") ?? "").trim();

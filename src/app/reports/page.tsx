@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -21,16 +21,16 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   REPORT_IMAGE_ACCEPT,
   validateReportUploadFile,
 } from "@/lib/reports/file-utils";
-import {
-  ReportHistoryCard,
-  type ReportHistoryListItem,
-} from "@/components/reports/report-history-card";
+import { SubscriptionQuotaChip } from "@/components/subscription/subscription-quota-chip";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useSubscription } from "@/lib/subscription/use-subscription";
 import { apiErrorMessage, reportLoadingSteps } from "@/lib/reports/user-messages";
 import { useTranslation } from "react-i18next";
 
@@ -75,6 +75,7 @@ const RATE_LIMIT_RE = /\b(resource_exhausted|quota|rate[\s_-]*limit|too many req
 
 export default function ReportsPage() {
   const { t } = useTranslation("health");
+  const { subscription, loading: subLoading, handleApiResponse, openPaywall } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const loadingTimerRef = useRef<number | null>(null);
   const [stage, setStage] = useState<"input" | "loading" | "result">("input");
@@ -89,22 +90,6 @@ export default function ReportsPage() {
   const [uiError, setUiError] = useState<string | null>(null);
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingProgress, setLoadingProgress] = useState(12);
-  const [recentReports, setRecentReports] = useState<ReportHistoryListItem[]>([]);
-  const [recentLoading, setRecentLoading] = useState(false);
-
-  const loadRecentReports = useCallback(async () => {
-    setRecentLoading(true);
-    try {
-      const res = await fetch("/api/reports?limit=5", { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as { items?: ReportHistoryListItem[] };
-      if (res.ok) setRecentReports(data.items ?? []);
-    } catch {
-      // Non-blocking — recent list is optional on the input screen.
-    } finally {
-      setRecentLoading(false);
-    }
-  }, []);
-
   const loadingSteps =
     inputMode === "file" ? reportLoadingSteps.file : reportLoadingSteps.text;
 
@@ -113,10 +98,6 @@ export default function ReportsPage() {
       if (loadingTimerRef.current != null) window.clearInterval(loadingTimerRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (stage === "input") void loadRecentReports();
-  }, [stage, loadRecentReports]);
 
   function resetToFreshInput() {
     setStage("input");
@@ -231,6 +212,11 @@ export default function ReportsPage() {
         retryAfterSeconds?: number;
       };
 
+      if (handleApiResponse(res, data)) {
+        setStage("input");
+        return;
+      }
+
       const errText = apiErrorMessage(data);
       const looksLikeLimit = res.status === 429 || RATE_LIMIT_RE.test(data.error ?? "") || RATE_LIMIT_RE.test(data.message ?? "");
       if (looksLikeLimit) {
@@ -298,53 +284,29 @@ export default function ReportsPage() {
               transition={{ duration: 0.22, ease: "easeOut" }}
               className="space-y-4"
             >
-              {recentLoading ? (
-                <div className="flex justify-center py-4">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : recentReports.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="font-display text-sm font-semibold">{t("reports_recent_title")}</h2>
-                    <Button asChild variant="link" className="h-auto p-0 text-xs">
-                      <Link href="/reports/history">{t("reports_view_all_history")}</Link>
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    {recentReports.map((report) => (
-                      <ReportHistoryCard key={report.id} report={report} />
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
               <Card className="p-4">
                 <div className="grid gap-4">
-                  <div className="flex items-center gap-4 rounded-xl border border-border/70 bg-muted/20 px-4 py-3.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Whose report is this?
-                      </p>
-                      <p className="mt-1 text-sm font-semibold leading-snug text-foreground">
-                        {reportForSelf ? "My report" : "Someone else's report"}
-                      </p>
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                        {reportForSelf
-                          ? "We can save useful details to your health profile after simplifying."
-                          : "We'll only show a summary — nothing will be saved to your profile."}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center">
-                      <Switch
-                        checked={!reportForSelf}
-                        onCheckedChange={(c) => setReportForSelf(!Boolean(c))}
-                        aria-label={
-                          reportForSelf
-                            ? "This is my report; turn on if it is for someone else"
-                            : "This is someone else's report; turn off for my report"
-                        }
-                      />
-                    </div>
+                  {subLoading ? (
+                    <Skeleton className="h-10 w-full rounded-xl" />
+                  ) : (
+                    <SubscriptionQuotaChip
+                      label="Report simplification"
+                      quota={subscription.quotas.reportSimplification}
+                      isPremium={subscription.isPremium}
+                      variant="plain"
+                    />
+                  )}
+
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="report-save" className="text-sm font-medium">
+                      Save
+                    </Label>
+                    <Switch
+                      id="report-save"
+                      checked={reportForSelf}
+                      onCheckedChange={setReportForSelf}
+                      aria-label="Save report to your profile"
+                    />
                   </div>
 
                   <div className="flex border-b border-border">
@@ -418,11 +380,7 @@ export default function ReportsPage() {
                             {file.name}
                           </span>
                         </div>
-                      ) : (
-                        <p className="mt-2 text-[11px] text-muted-foreground">
-                          Use a well-lit photo with all text visible. You can also paste the report text instead.
-                        </p>
-                      )}
+                      ) : null}
                     </div>
                   )}
 
@@ -442,8 +400,22 @@ export default function ReportsPage() {
 
                   <Button
                     className="rounded-2xl"
-                    disabled={analyzing || cooldownSeconds > 0}
-                    onClick={() => void analyzeReport()}
+                    disabled={
+                      analyzing ||
+                      cooldownSeconds > 0 ||
+                      (!subscription.isPremium &&
+                        (subscription.quotas.reportSimplification.remaining ?? 0) <= 0)
+                    }
+                    onClick={() => {
+                      if (
+                        !subscription.isPremium &&
+                        (subscription.quotas.reportSimplification.remaining ?? 0) <= 0
+                      ) {
+                        openPaywall("report_simplification");
+                        return;
+                      }
+                      void analyzeReport();
+                    }}
                   >
                     <Sparkles className="mr-1.5 h-4 w-4" /> Simplify report
                   </Button>

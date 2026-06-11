@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { format, formatDistanceToNow } from "date-fns";
-import { Activity, MessageCircle } from "lucide-react";
+import { Activity } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { PremiumGatedDmButton } from "@/components/subscription/premium-gated-dm-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CommunityPostBody } from "@/components/community/community-post-body";
@@ -286,12 +287,7 @@ export default function CommunityMemberPage() {
                 </span>
               </div>
               {user?.id && user.id !== profile.id ? (
-                <Button asChild className="mt-3 h-10 w-full rounded-xl text-sm font-semibold" size="default">
-                  <Link href={`/messages/start?peer=${profile.id}`}>
-                    <MessageCircle className="mr-2 h-4 w-4" />
-                    Send message
-                  </Link>
-                </Button>
+                <PremiumGatedDmButton peerUserId={profile.id} className="mt-3" label="Send message" />
               ) : null}
               {!profile.showExtendedToViewer && user?.id !== profile.id ? (
                 <p className="mt-2 text-[11px] text-muted-foreground">
