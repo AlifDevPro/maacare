@@ -19,6 +19,8 @@ import {
   isRateLimitError,
 } from "@/lib/gemini/text-failover";
 import { persistReportIntelligence } from "@/lib/reports/intelligence";
+import { updateReportStoragePaths } from "@/lib/reports/repository";
+import { uploadReportImage } from "@/lib/reports/storage";
 import {
   clipReportText,
   resolveReportTextFromUpload,
@@ -85,6 +87,7 @@ function buildReportSystemInstruction(languageBlock: string | string[]): string 
     "- If the input IS a valid medical report: set isMedicalReport to true and summarize normally.",
     "When isMedicalReport is false: write a friendly 1-2 sentence summary and plainExplanation telling the user this is not a medical report (or is unreadable). Leave findings, recommendations, extractedVitals, and extractedProfile empty.",
     "When isMedicalReport is true:",
+    "Classify documentType as one of: lab (lab results), prescription (medication orders), imaging (ultrasound, X-ray, scan reports), clinical_note (visit summaries, discharge notes), or other.",
     "Focus ONLY on important information: abnormal results, key diagnoses, medications, and actionable follow-ups.",
     "Omit boilerplate, legal disclaimers, generic wellness tips, and filler unless critical to safety.",
     "summary: 2-4 concise sentences highlighting what matters most.",
@@ -92,7 +95,7 @@ function buildReportSystemInstruction(languageBlock: string | string[]): string 
     "findings: include only notable lab/vital values (skip routine normals unless the patient should know). Max 12 items.",
     "recommendations: max 3 specific, practical next steps tied to the report. No generic 'talk to your doctor' lines.",
     "Return STRICT JSON only (no markdown) with this shape:",
-    '{ "isMedicalReport": boolean, "summary": string, "plainExplanation": string, "riskLevel": "low"|"medium"|"high", "findings": [{ "name": string, "value": string, "range": string, "status": "normal"|"low"|"high"|"borderline", "note": string }], "recommendations": string[], "extractedVitals": { "systolicBp": number|null, "diastolicBp": number|null, "heartRateBpm": number|null, "weightKg": number|null, "temperatureC": number|null, "glucoseMgDl": number|null, "spo2Pct": number|null }, "extractedProfile": { "conditions": string[], "allergies": string[], "medications": string[], "notes": string } }',
+    '{ "isMedicalReport": boolean, "documentType": "lab"|"prescription"|"imaging"|"clinical_note"|"other", "summary": string, "plainExplanation": string, "riskLevel": "low"|"medium"|"high", "findings": [{ "name": string, "value": string, "range": string, "status": "normal"|"low"|"high"|"borderline", "note": string }], "recommendations": string[], "extractedVitals": { "systolicBp": number|null, "diastolicBp": number|null, "heartRateBpm": number|null, "weightKg": number|null, "temperatureC": number|null, "glucoseMgDl": number|null, "spo2Pct": number|null }, "extractedProfile": { "conditions": string[], "allergies": string[], "medications": string[], "notes": string } }',
     "If a value is not present, keep it null/empty.",
     languageBlock,
   );
@@ -113,6 +116,7 @@ async function finalizeAnalysisResponse(input: {
   extractedText?: string;
   inputMode: "file" | "text";
   fileMeta?: { name: string; mime: string; size: number } | null;
+  reportFile?: File | null;
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
 }) {
   const {
@@ -130,6 +134,7 @@ async function finalizeAnalysisResponse(input: {
     extractedText,
     inputMode,
     fileMeta,
+    reportFile,
     supabase,
   } = input;
 
@@ -247,6 +252,7 @@ async function finalizeAnalysisResponse(input: {
 
   let savedReportId: string | null = null;
   let reportAvailableToAi = false;
+  let saveError: string | null = null;
 
   if (persistReport) {
     try {
@@ -268,7 +274,17 @@ async function finalizeAnalysisResponse(input: {
       });
       savedReportId = report.id;
       reportAvailableToAi = indexed && cleanedAnalysis.isMedicalReport !== false;
+
+      if (inputMode === "file" && reportFile && isReportImageFile(reportFile)) {
+        try {
+          const { bucket, path } = await uploadReportImage(supabase, session.id, report.id, reportFile);
+          await updateReportStoragePaths(supabase, report.id, session.id, bucket, path);
+        } catch (uploadErr) {
+          console.error("[reports_analyze] image upload failed", uploadErr);
+        }
+      }
     } catch (e) {
+      saveError = e instanceof Error ? e.message : "Could not save report to your history.";
       console.error("[reports_analyze] persist failed", e);
     }
   }
@@ -280,6 +296,7 @@ async function finalizeAnalysisResponse(input: {
     savedVitalId,
     savedVitals: !!savedVitalId,
     savedReportId,
+    saveError,
     reportAvailableToAi,
     savedProfile: {
       conditions: savedConditions,
@@ -407,7 +424,8 @@ export async function POST(req: Request) {
     const fileMeta = reportFile
       ? { name: reportFile.name, mime: reportFile.type || "application/octet-stream", size: reportFile.size }
       : null;
-    const persistReport = saveVitals;
+    const persistReport =
+      String(form.get("persistReport") ?? form.get("saveVitals") ?? "true") === "true";
 
     if (!reportTextInput && !reportFile) {
       return failJson(400, "Add report text or upload an image of your report.");
@@ -493,6 +511,7 @@ export async function POST(req: Request) {
         extractedText,
         inputMode,
         fileMeta,
+        reportFile,
         supabase,
       });
     }
@@ -513,6 +532,7 @@ export async function POST(req: Request) {
         extractedText,
         inputMode,
         fileMeta,
+        reportFile,
         supabase,
       });
     }
@@ -596,6 +616,7 @@ export async function POST(req: Request) {
         extractedText,
         inputMode,
         fileMeta,
+        reportFile,
         supabase,
       });
     }
@@ -676,6 +697,7 @@ export async function POST(req: Request) {
         extractedText,
         inputMode,
         fileMeta,
+        reportFile,
         supabase,
       });
     }
@@ -708,6 +730,7 @@ export async function POST(req: Request) {
         extractedText,
         inputMode,
         fileMeta,
+        reportFile,
         supabase,
       });
     }
@@ -727,6 +750,7 @@ export async function POST(req: Request) {
       extractedText,
       inputMode,
       fileMeta,
+      reportFile,
       supabase,
     });
   } catch (e) {

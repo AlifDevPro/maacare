@@ -1,5 +1,6 @@
 import type { ReportAnalysis } from "@/lib/reports/parse-analysis";
 import type { ExtractionMode } from "@/lib/reports/extraction";
+import { getReportImageSignedUrl } from "@/lib/reports/storage";
 
 export type UserMedicalReportRow = {
   id: string;
@@ -9,6 +10,8 @@ export type UserMedicalReportRow = {
   file_name: string | null;
   file_mime: string | null;
   file_size_bytes: number | null;
+  storage_bucket: string | null;
+  storage_path: string | null;
   extracted_text: string | null;
   analysis: ReportAnalysis;
   is_medical_report: boolean;
@@ -28,6 +31,11 @@ export type UserMedicalReportListItem = {
   is_medical_report: boolean;
   risk_level: string | null;
   summary: string;
+  document_type: ReportAnalysis["documentType"];
+  findings_count: number;
+  recommendations_count: number;
+  has_file: boolean;
+  thumbnail_url?: string | null;
   embedding_status: string;
   created_at: string;
   updated_at: string;
@@ -43,6 +51,10 @@ function rowToListItem(row: UserMedicalReportRow): UserMedicalReportListItem {
     is_medical_report: row.is_medical_report,
     risk_level: row.risk_level,
     summary: analysis?.summary ?? "",
+    document_type: analysis?.documentType ?? "other",
+    findings_count: analysis?.findings?.length ?? 0,
+    recommendations_count: analysis?.recommendations?.length ?? 0,
+    has_file: Boolean(row.storage_bucket && row.storage_path),
     embedding_status: row.embedding_status,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -73,8 +85,17 @@ export async function listUserMedicalReports(
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as UserMedicalReportRow[];
+  const items = await Promise.all(
+    rows.map(async (row) => {
+      const item = rowToListItem(row);
+      if (!item.has_file) return item;
+      const thumbnail_url = await getReportImageSignedUrl(supabase, row.storage_bucket, row.storage_path);
+      return { ...item, thumbnail_url };
+    }),
+  );
+
   return {
-    items: rows.map(rowToListItem),
+    items,
     total: count ?? rows.length,
   };
 }
@@ -197,4 +218,23 @@ export async function updateReportAnalysis(
 
   if (error || !data) throw new Error(error?.message ?? "Failed to update report");
   return data as UserMedicalReportRow;
+}
+
+export async function updateReportStoragePaths(
+  supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createSupabaseServerClient>>,
+  reportId: string,
+  userId: string,
+  storageBucket: string,
+  storagePath: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("user_medical_reports")
+    .update({
+      storage_bucket: storageBucket,
+      storage_path: storagePath,
+    })
+    .eq("id", reportId)
+    .eq("user_id", userId);
+
+  if (error) throw new Error(error.message);
 }

@@ -89,6 +89,7 @@ function testNonMedicalAiResponse() {
 function testSanitizeNonMedical() {
   const cleaned = sanitizeReportAnalysis({
     isMedicalReport: false,
+    documentType: "other",
     summary: "Not a report",
     plainExplanation: "Try again",
     riskLevel: "low",
@@ -106,6 +107,7 @@ function testSanitizeNonMedical() {
 function testSanitize() {
   const cleaned = sanitizeReportAnalysis({
     isMedicalReport: true,
+    documentType: "lab",
     summary: "  Hello  ",
     plainExplanation: "Meaning",
     riskLevel: "low",

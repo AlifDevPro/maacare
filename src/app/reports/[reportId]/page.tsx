@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import {
   Bot,
   CheckCircle2,
@@ -18,6 +20,7 @@ import { AppHeader } from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiErrorMessage } from "@/lib/reports/user-messages";
+import type { ReportDocumentType } from "@/lib/reports/parse-analysis";
 
 type Finding = {
   name: string;
@@ -39,6 +42,7 @@ type ReportDetail = {
   created_at: string;
   analysis: {
     isMedicalReport?: boolean;
+    documentType?: ReportDocumentType;
     summary: string;
     plainExplanation: string;
     riskLevel: "low" | "medium" | "high";
@@ -47,10 +51,20 @@ type ReportDetail = {
   };
 };
 
+const DOC_TYPE_KEYS: Record<ReportDocumentType, string> = {
+  lab: "reports_doc_type_lab",
+  prescription: "reports_doc_type_prescription",
+  imaging: "reports_doc_type_imaging",
+  clinical_note: "reports_doc_type_clinical_note",
+  other: "reports_doc_type_other",
+};
+
 export default function ReportDetailPage() {
+  const { t } = useTranslation("health");
   const params = useParams();
   const reportId = String(params.reportId ?? "");
   const [report, setReport] = useState<ReportDetail | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reprocessing, setReprocessing] = useState(false);
@@ -61,9 +75,15 @@ export default function ReportDetailPage() {
     setError(null);
     try {
       const res = await fetch(`/api/reports/${reportId}`, { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as { report?: ReportDetail; message?: string; error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        report?: ReportDetail;
+        imageUrl?: string | null;
+        message?: string;
+        error?: string;
+      };
       if (!res.ok) throw new Error(apiErrorMessage(data));
       setReport(data.report ?? null);
+      setImageUrl(data.imageUrl ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load report.");
     } finally {
@@ -121,19 +141,62 @@ export default function ReportDetailPage() {
           <Card className="p-4 text-sm text-red-700 dark:text-red-200">{error}</Card>
         ) : report && analysis ? (
           <>
+            {imageUrl ? (
+              <Card className="overflow-hidden p-0">
+                <div className="relative aspect-[4/3] w-full bg-muted/30">
+                  <Image
+                    src={imageUrl}
+                    alt={report.file_name ?? t("reports_original_image")}
+                    fill
+                    className="object-contain"
+                    sizes="(max-width: 768px) 100vw, 640px"
+                    unoptimized
+                  />
+                </div>
+              </Card>
+            ) : null}
+
             <Card className="p-4">
-              <p className="text-xs text-muted-foreground">
-                Uploaded{" "}
+              <div className="flex flex-wrap items-center gap-2">
+                {analysis.documentType ? (
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                    {t(DOC_TYPE_KEYS[analysis.documentType] ?? DOC_TYPE_KEYS.other)}
+                  </span>
+                ) : null}
+                {report.is_medical_report ? (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                      analysis.riskLevel === "high"
+                        ? "bg-risk-high text-risk-high-foreground"
+                        : analysis.riskLevel === "medium"
+                          ? "bg-risk-medium text-risk-medium-foreground"
+                          : "bg-risk-low text-risk-low-foreground"
+                    }`}
+                  >
+                    {analysis.riskLevel === "high"
+                      ? t("reports_risk_high")
+                      : analysis.riskLevel === "medium"
+                        ? t("reports_risk_medium")
+                        : t("reports_risk_low")}
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t("reports_not_medical")}
+                  </span>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t("reports_uploaded_on")}{" "}
                 {new Date(report.created_at).toLocaleDateString(undefined, {
                   year: "numeric",
                   month: "long",
                   day: "numeric",
                 })}
-                {report.file_name ? ` · ${report.file_name}` : " · Pasted text"}
+                {report.file_name ? ` · ${report.file_name}` : ` · ${t("reports_pasted_text")}`}
               </p>
               {report.embedding_status === "ready" ? (
                 <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-primary">
-                  <Bot className="h-3.5 w-3.5" /> Available to your AI assistant
+                  <Bot className="h-3.5 w-3.5" /> {t("reports_ai_available")}
                 </p>
               ) : null}
             </Card>

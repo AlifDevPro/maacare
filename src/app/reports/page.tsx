@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -27,6 +27,10 @@ import {
   REPORT_IMAGE_ACCEPT,
   validateReportUploadFile,
 } from "@/lib/reports/file-utils";
+import {
+  ReportHistoryCard,
+  type ReportHistoryListItem,
+} from "@/components/reports/report-history-card";
 import { apiErrorMessage, reportLoadingSteps } from "@/lib/reports/user-messages";
 import { useTranslation } from "react-i18next";
 
@@ -61,7 +65,9 @@ type AnalysisResult = {
     notesUpdated: boolean;
   };
   savedReportId?: string | null;
+  saveError?: string | null;
   reportAvailableToAi?: boolean;
+  documentType?: string;
 };
 
 const ANALYZE_TIMEOUT_MS = 55_000;
@@ -83,6 +89,21 @@ export default function ReportsPage() {
   const [uiError, setUiError] = useState<string | null>(null);
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingProgress, setLoadingProgress] = useState(12);
+  const [recentReports, setRecentReports] = useState<ReportHistoryListItem[]>([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+
+  const loadRecentReports = useCallback(async () => {
+    setRecentLoading(true);
+    try {
+      const res = await fetch("/api/reports?limit=5", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { items?: ReportHistoryListItem[] };
+      if (res.ok) setRecentReports(data.items ?? []);
+    } catch {
+      // Non-blocking — recent list is optional on the input screen.
+    } finally {
+      setRecentLoading(false);
+    }
+  }, []);
 
   const loadingSteps =
     inputMode === "file" ? reportLoadingSteps.file : reportLoadingSteps.text;
@@ -92,6 +113,10 @@ export default function ReportsPage() {
       if (loadingTimerRef.current != null) window.clearInterval(loadingTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (stage === "input") void loadRecentReports();
+  }, [stage, loadRecentReports]);
 
   function resetToFreshInput() {
     setStage("input");
@@ -190,6 +215,7 @@ export default function ReportsPage() {
       fd.append("reportText", inputMode === "text" ? reportText.trim() : "");
       fd.append("saveVitals", String(reportForSelf));
       fd.append("saveProfileInsights", String(reportForSelf));
+      fd.append("persistReport", String(reportForSelf));
       if (inputMode === "file" && file) fd.append("file", file);
 
       const res = await fetch("/api/reports/analyze", {
@@ -257,7 +283,7 @@ export default function ReportsPage() {
           <div className="flex justify-end">
             <Button asChild variant="outline" size="sm" className="rounded-xl">
               <Link href="/reports/history">
-                <History className="mr-1.5 h-4 w-4" /> Report history
+                <History className="mr-1.5 h-4 w-4" /> {t("reports_history_title")}
               </Link>
             </Button>
           </div>
@@ -270,7 +296,28 @@ export default function ReportsPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.22, ease: "easeOut" }}
+              className="space-y-4"
             >
+              {recentLoading ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : recentReports.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="font-display text-sm font-semibold">{t("reports_recent_title")}</h2>
+                    <Button asChild variant="link" className="h-auto p-0 text-xs">
+                      <Link href="/reports/history">{t("reports_view_all_history")}</Link>
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {recentReports.map((report) => (
+                      <ReportHistoryCard key={report.id} report={report} />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <Card className="p-4">
                 <div className="grid gap-4">
                   <div className="flex items-center gap-4 rounded-xl border border-border/70 bg-muted/20 px-4 py-3.5">
@@ -480,21 +527,33 @@ export default function ReportsPage() {
               </Card>
             </motion.div>
 
+            {analysis.saveError ? (
+              <Card className="border-amber-300/60 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-500/15">
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                  {t("reports_save_error_title")}
+                </p>
+                <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-200">{analysis.saveError}</p>
+              </Card>
+            ) : null}
+
             {analysis.savedReportId ? (
               <Card className="flex items-start gap-2 bg-primary-soft/30 p-3">
                 <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">
                     {analysis.reportAvailableToAi
-                      ? "This report is now available to your AI assistant."
-                      : "This report was saved to your history."}
+                      ? t("reports_saved_ai_available")
+                      : t("reports_saved_history")}
                   </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Ask questions in chat about your results — your assistant can reference saved reports when relevant.
-                  </p>
-                  <Button asChild variant="link" className="mt-1 h-auto p-0 text-xs">
-                    <Link href={`/reports/${analysis.savedReportId}`}>View saved report</Link>
-                  </Button>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t("reports_saved_ai_hint")}</p>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    <Button asChild variant="link" className="h-auto p-0 text-xs">
+                      <Link href={`/reports/${analysis.savedReportId}`}>{t("reports_view_saved")}</Link>
+                    </Button>
+                    <Button asChild variant="link" className="h-auto p-0 text-xs">
+                      <Link href="/reports/history">{t("reports_history_title")}</Link>
+                    </Button>
+                  </div>
                 </div>
               </Card>
             ) : null}

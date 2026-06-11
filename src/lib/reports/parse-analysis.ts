@@ -18,8 +18,19 @@ export const vitalsSchema = z.object({
   spo2Pct: z.number().int().min(50).max(100).nullable().optional(),
 });
 
+export const reportDocumentTypeSchema = z.enum([
+  "lab",
+  "prescription",
+  "imaging",
+  "clinical_note",
+  "other",
+]);
+
+export type ReportDocumentType = z.infer<typeof reportDocumentTypeSchema>;
+
 export const reportAnalysisSchema = z.object({
   isMedicalReport: z.boolean().default(true),
+  documentType: reportDocumentTypeSchema.default("other"),
   summary: z.string().min(1),
   plainExplanation: z.string().min(1),
   riskLevel: z.enum(["low", "medium", "high"]).default("low"),
@@ -70,6 +81,7 @@ export function buildNonReportFallback(reason: NonReportFallbackReason): ReportA
   const { summary, plainExplanation, recommendations } = copy[reason];
   return {
     isMedicalReport: false,
+    documentType: "other",
     summary,
     plainExplanation,
     riskLevel: "low",
@@ -130,9 +142,14 @@ export function sanitizeReportAnalysis(analysis: ReportAnalysis): ReportAnalysis
     .filter((f) => f.name.trim() && f.value.trim())
     .slice(0, 20);
 
+  const documentType = reportDocumentTypeSchema.safeParse(analysis.documentType).success
+    ? analysis.documentType
+    : "other";
+
   return {
     ...analysis,
     isMedicalReport: analysis.isMedicalReport !== false,
+    documentType,
     summary: analysis.summary.trim(),
     plainExplanation: analysis.plainExplanation.trim(),
     recommendations: analysis.isMedicalReport === false ? [] : recommendations,
