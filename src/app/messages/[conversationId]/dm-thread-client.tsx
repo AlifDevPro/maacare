@@ -39,13 +39,16 @@ export default function DmThreadClient() {
     peerDisplayName: string;
     peerAvatarUrl: string | null;
     peerUserId: string;
+    peerVerifiedProfessional: boolean;
   } | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const { openPaywall } = useSubscription();
+  const { subscription, openPaywall } = useSubscription();
+  const doctorComposerLocked =
+    Boolean(meta?.peerVerifiedProfessional) && !subscription.features.doctor_messaging;
 
   const markThreadRead = useCallback(async () => {
     if (!valid) return;
@@ -77,9 +80,13 @@ export default function DmThreadClient() {
         peerDisplayName: string;
         peerAvatarUrl: string | null;
         peerUserId: string;
+        peerVerifiedProfessional?: boolean;
       };
       const msgJson = (await msgRes.json()) as { messages: Msg[] };
-      setMeta(mJson);
+      setMeta({
+        ...mJson,
+        peerVerifiedProfessional: mJson.peerVerifiedProfessional === true,
+      });
       setMessages(msgJson.messages ?? []);
 
       await markThreadRead();
@@ -238,32 +245,46 @@ export default function DmThreadClient() {
               APP_SHELL_CONTENT_WIDTH,
             )}
           >
-            <div className="flex min-w-0 gap-2">
-              <Textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={t("placeholder_write")}
-                rows={2}
-                className="min-h-[44px] flex-1 resize-none rounded-xl"
-                maxLength={8000}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-              />
-              <Button
-                type="button"
-                size="icon"
-                className="h-11 w-11 shrink-0 rounded-xl"
-                onClick={() => void send()}
-                disabled={sending || !draft.trim()}
-                aria-label={t("send_aria")}
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
+            {doctorComposerLocked ? (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-center text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Premium is required to message this doctor.</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-2 rounded-xl"
+                  onClick={() => openPaywall("doctor_messaging")}
+                >
+                  Upgrade to Premium
+                </Button>
+              </div>
+            ) : (
+              <div className="flex min-w-0 gap-2">
+                <Textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={t("placeholder_write")}
+                  rows={2}
+                  className="min-h-[44px] flex-1 resize-none rounded-xl"
+                  maxLength={8000}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  className="h-11 w-11 shrink-0 rounded-xl"
+                  onClick={() => void send()}
+                  disabled={sending || !draft.trim()}
+                  aria-label={t("send_aria")}
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
         </>
       ) : loading ? (

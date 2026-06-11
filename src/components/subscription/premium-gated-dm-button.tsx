@@ -11,11 +11,18 @@ import { cn } from "@/lib/utils";
 
 type PremiumGatedDmButtonProps = {
   peerUserId: string;
+  /** When true, messaging this peer requires Premium (verified doctors only). */
+  peerVerifiedProfessional?: boolean;
   className?: string;
   label?: string;
 };
 
-export function PremiumGatedDmButton({ peerUserId, className, label }: PremiumGatedDmButtonProps) {
+export function PremiumGatedDmButton({
+  peerUserId,
+  peerVerifiedProfessional = false,
+  className,
+  label,
+}: PremiumGatedDmButtonProps) {
   const { t } = useTranslation("health");
   const { subscription, loading, openPaywall } = useSubscription();
 
@@ -25,7 +32,8 @@ export function PremiumGatedDmButton({ peerUserId, className, label }: PremiumGa
     return <Skeleton className={cn("h-10 w-full rounded-xl", className)} />;
   }
 
-  const unlocked = subscription.features.doctor_messaging;
+  const requiresPremium = peerVerifiedProfessional;
+  const unlocked = !requiresPremium || subscription.features.doctor_messaging;
 
   if (unlocked) {
     return (

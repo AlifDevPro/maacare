@@ -4,7 +4,7 @@ import { z } from "zod";
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
 import { dispatchPushNow } from "@/lib/push/dispatch-now";
-import { enforceSubscriptionFeature } from "@/lib/subscription/enforce";
+import { enforceDoctorMessagingInConversation } from "@/lib/dm/enforce-doctor-messaging";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
@@ -62,9 +62,6 @@ export async function POST(
     const session = await getSessionFromCookies();
     if (!session) return failJson(401, "Sign in.");
 
-    const dmGate = await enforceSubscriptionFeature(session.id, "doctor_messaging");
-    if (!dmGate.ok) return dmGate.response;
-
     const conversationId = uuid.safeParse((await context.params).conversationId);
     if (!conversationId.success) return failJson(400, "Invalid conversation.");
 
@@ -88,6 +85,9 @@ export async function POST(
 
     if (cErr || !conv) return failJson(404, "Conversation not found.");
     if (conv.user_low !== uid && conv.user_high !== uid) return failJson(404, "Conversation not found.");
+
+    const dmGate = await enforceDoctorMessagingInConversation(session.id, conv, supabase);
+    if (!dmGate.ok) return dmGate.response;
 
     const text = parsed.data.body.trim();
     const { data: inserted, error: insErr } = await supabase

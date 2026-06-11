@@ -18,8 +18,8 @@ export function defaultFreeSubscriptionView(): SubscriptionView {
       },
       symptomAnalysis: {
         used: 0,
-        limit: FREE_MONTHLY_LIMIT,
-        remaining: FREE_MONTHLY_LIMIT,
+        limit: null,
+        remaining: null,
       },
     },
     features: {

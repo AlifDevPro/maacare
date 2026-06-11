@@ -33,7 +33,7 @@ export async function GET(
     const peerId = conv.user_low === uid ? conv.user_high : conv.user_low;
     const { data: prof } = await supabase
       .from("profiles")
-      .select("id, display_name, avatar_url")
+      .select("id, display_name, avatar_url, verified_professional")
       .eq("id", peerId)
       .maybeSingle();
 
@@ -43,6 +43,7 @@ export async function GET(
       peerUserId: peerId as string,
       peerDisplayName: (prof?.display_name as string | null)?.trim() || "Member",
       peerAvatarUrl: (prof?.avatar_url as string | null) ?? null,
+      peerVerifiedProfessional: prof?.verified_professional === true,
     });
   } catch (e) {
     return serverErrorJson("dm/conversation GET", e);

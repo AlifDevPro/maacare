@@ -18,10 +18,6 @@ import {
   SymptomsAiInsightSkeleton,
   SymptomsAiSuggestionsSkeleton,
 } from "@/app/symptoms/result/symptoms-ai-skeleton";
-import { SubscriptionQuotaChip } from "@/components/subscription/subscription-quota-chip";
-import { Skeleton } from "@/components/ui/skeleton";
-import { isSubscriptionPaywallError } from "@/lib/subscription/access";
-import { useSubscription } from "@/lib/subscription/use-subscription";
 
 type InsightLoadState = "idle" | "loading" | "done";
 
@@ -77,9 +73,6 @@ function SymptomsResultInner() {
   const [logMeta, setLogMeta] = useState<{ title: string | null; loggedAt: string } | null>(null);
   const [logUserNotes, setLogUserNotes] = useState<string | null>(null);
   const [insightLoadState, setInsightLoadState] = useState<InsightLoadState>("idle");
-  const [paywallBlocked, setPaywallBlocked] = useState(false);
-  const { subscription, loading: subLoading, openPaywall } = useSubscription();
-
   const { level: levelFromUrl } = useMemo(() => {
     const parsed = search.safeParse(Object.fromEntries(searchParams.entries()));
     return parsed.success ? parsed.data : search.parse({});
@@ -111,14 +104,7 @@ function SymptomsResultInner() {
           suggestions?: string[];
           log?: { title: string | null; loggedAt: string; description?: string | null };
         };
-        if (!res.ok) {
-          if (res.status === 403 && isSubscriptionPaywallError(j)) {
-            setPaywallBlocked(true);
-            openPaywall("symptom_analysis");
-          }
-          return;
-        }
-        setPaywallBlocked(false);
+        if (!res.ok) return;
         if (!alive) return;
         if (j.level === "low" || j.level === "medium" || j.level === "high") {
           setLevelFromLog(j.level);
@@ -160,25 +146,6 @@ function SymptomsResultInner() {
       <AppHeader title={t("symptoms_result_title")} showBack />
 
       <div className="space-y-5 px-4 pt-4">
-        {subLoading ? (
-          <Skeleton className="h-10 w-full rounded-xl" />
-        ) : (
-          <SubscriptionQuotaChip
-            label="Symptom analysis"
-            quota={subscription.quotas.symptomAnalysis}
-            isPremium={subscription.isPremium}
-          />
-        )}
-
-        {paywallBlocked ? (
-          <Card className="border-amber-500/40 bg-amber-500/10 p-4 text-sm">
-            <p className="font-semibold">{t("subscription_premium_required")}</p>
-            <Button className="mt-3 rounded-xl" size="sm" onClick={() => openPaywall("symptom_analysis")}>
-              {t("subscription_upgrade_short")}
-            </Button>
-          </Card>
-        ) : null}
-
         <motion.div
           initial={{ scale: 0.92, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}

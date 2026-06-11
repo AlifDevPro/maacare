@@ -35,7 +35,7 @@ export function toSubscriptionView(row: UserSubscriptionRow): SubscriptionView {
 
   const features: Record<SubscriptionFeature, boolean> = {
     report_simplification: premium || reportUsed < FREE_MONTHLY_LIMIT,
-    symptom_analysis: premium || symptomUsed < FREE_MONTHLY_LIMIT,
+    symptom_analysis: true,
     doctor_messaging: premium,
     nearby_facilities: premium,
   };
@@ -49,7 +49,7 @@ export function toSubscriptionView(row: UserSubscriptionRow): SubscriptionView {
     usageResetAt: row.usage_reset_at,
     quotas: {
       reportSimplification: buildQuota(reportUsed, premium),
-      symptomAnalysis: buildQuota(symptomUsed, premium),
+      symptomAnalysis: buildQuota(symptomUsed, true),
     },
     features,
     premiumPriceBdt: PREMIUM_PRICE_BDT,
@@ -63,7 +63,7 @@ export function evaluateFeatureAccess(
   const normalized = applyMonthlyUsageReset(row);
   const premium = isPremiumActive(normalized);
 
-  if (premium) {
+  if (premium || feature === "symptom_analysis") {
     return { allowed: true, subscription: normalized };
   }
 

@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, display_name, avatar_url")
+      .select("id, display_name, avatar_url, verified_professional")
       .neq("id", session.id)
       .ilike("display_name", `%${esc}%`)
       .order("display_name", { ascending: true })
@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
       id: p.id as string,
       displayName: (p.display_name as string | null)?.trim() || "Member",
       avatarUrl: (p.avatar_url as string | null) ?? null,
+      verifiedProfessional: p.verified_professional === true,
     }));
 
     return Response.json({ peers });

@@ -14,7 +14,6 @@ import { AppShell } from "@/components/app/AppShell";
 import { AppHeader } from "@/components/app/AppHeader";
 import { CommunityAvatar } from "@/components/community/community-avatar";
 import { MessagesActivePeople } from "@/components/messages/messages-active-people";
-import { PremiumLockedBanner } from "@/components/subscription/premium-locked-banner";
 import { isSubscriptionPaywallError } from "@/lib/subscription/access";
 import { useSubscription } from "@/lib/subscription/use-subscription";
 import { Card } from "@/components/ui/card";
@@ -37,6 +36,7 @@ type PeerResult = {
   id: string;
   displayName: string;
   avatarUrl: string | null;
+  verifiedProfessional?: boolean;
 };
 
 function filterRows(rows: Row[], query: string): Row[] {
@@ -61,7 +61,7 @@ export default function MessagesInboxPage() {
   const [peerSearching, setPeerSearching] = useState(false);
   const [startingPeerId, setStartingPeerId] = useState<string | null>(null);
   const { subscription, openPaywall } = useSubscription();
-  const dmUnlocked = subscription.features.doctor_messaging;
+  const doctorMessagingUnlocked = subscription.features.doctor_messaging;
 
   const loadRef = useRef<() => Promise<void>>(async () => {});
 
@@ -259,7 +259,6 @@ export default function MessagesInboxPage() {
       <AppHeader title={t("inbox_title")} showBack backHref="/app" showNotifications />
 
       <div className="space-y-3 px-4 pt-3">
-        <PremiumLockedBanner feature="doctor_messaging" />
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -342,49 +341,54 @@ export default function MessagesInboxPage() {
                   </div>
                 ) : peerResults.length > 0 ? (
                   <ul className="space-y-2">
-                    {peerResults.map((p) => (
-                      <li key={p.id}>
-                        <button
-                          type="button"
-                          className="w-full text-left"
-                          disabled={startingPeerId === p.id}
-                          onClick={() => {
-                            if (!dmUnlocked) {
-                              openPaywall("doctor_messaging");
-                              return;
-                            }
-                            void startChatWithPeer(p.id);
-                          }}
-                        >
-                          <Card
-                            className={`flex gap-3 p-3 transition-colors ${
-                              dmUnlocked ? "hover:bg-muted/40" : "border-dashed border-amber-500/30 bg-amber-500/5"
-                            }`}
+                    {peerResults.map((p) => {
+                      const doctorPeerLocked = p.verifiedProfessional && !doctorMessagingUnlocked;
+                      return (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            className="w-full text-left"
+                            disabled={startingPeerId === p.id}
+                            onClick={() => {
+                              if (doctorPeerLocked) {
+                                openPaywall("doctor_messaging");
+                                return;
+                              }
+                              void startChatWithPeer(p.id);
+                            }}
                           >
-                            <CommunityAvatar
-                              url={p.avatarUrl}
-                              name={p.displayName}
-                              className="h-11 w-11 shrink-0"
-                              fallbackClassName="bg-primary-soft text-sm font-semibold"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-semibold">{p.displayName}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {dmUnlocked ? t("thread_active") : tHealth("subscription_dm_locked_hint")}
-                              </p>
-                            </div>
-                            {!dmUnlocked ? (
-                              <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">
-                                <Lock className="h-3 w-3" />
-                                <Crown className="h-3 w-3" />
-                              </span>
-                            ) : startingPeerId === p.id ? (
-                              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-                            ) : null}
-                          </Card>
-                        </button>
-                      </li>
-                    ))}
+                            <Card
+                              className={`flex gap-3 p-3 transition-colors ${
+                                doctorPeerLocked
+                                  ? "border-dashed border-amber-500/30 bg-amber-500/5"
+                                  : "hover:bg-muted/40"
+                              }`}
+                            >
+                              <CommunityAvatar
+                                url={p.avatarUrl}
+                                name={p.displayName}
+                                className="h-11 w-11 shrink-0"
+                                fallbackClassName="bg-primary-soft text-sm font-semibold"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold">{p.displayName}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {doctorPeerLocked ? tHealth("subscription_dm_locked_hint") : t("thread_active")}
+                                </p>
+                              </div>
+                              {doctorPeerLocked ? (
+                                <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                                  <Lock className="h-3 w-3" />
+                                  <Crown className="h-3 w-3" />
+                                </span>
+                              ) : startingPeerId === p.id ? (
+                                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                              ) : null}
+                            </Card>
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : filteredRows.length === 0 ? null : null}
               </div>

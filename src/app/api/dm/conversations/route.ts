@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { failJson, serverErrorJson, validationJsonResponse } from "@/lib/api/error-response";
 import { getSessionFromCookies } from "@/lib/auth/get-session";
-import { enforceSubscriptionFeature } from "@/lib/subscription/enforce";
+import { enforceDoctorMessagingToPeer } from "@/lib/dm/enforce-doctor-messaging";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 function peerIdForViewer(
@@ -113,8 +113,7 @@ export async function POST(req: NextRequest) {
     const session = await getSessionFromCookies();
     if (!session) return failJson(401, "Sign in.");
 
-    const dmGate = await enforceSubscriptionFeature(session.id, "doctor_messaging");
-    if (!dmGate.ok) return dmGate.response;
+    const supabase = await createSupabaseServerClient();
 
     let json: unknown;
     try {
@@ -125,7 +124,9 @@ export async function POST(req: NextRequest) {
     const parsed = postSchema.safeParse(json);
     if (!parsed.success) return validationJsonResponse(parsed.error);
 
-    const supabase = await createSupabaseServerClient();
+    const dmGate = await enforceDoctorMessagingToPeer(session.id, parsed.data.peerUserId, supabase);
+    if (!dmGate.ok) return dmGate.response;
+
     const { data: cid, error } = await supabase.rpc("dm_start_or_get_conversation", {
       p_peer: parsed.data.peerUserId,
     });

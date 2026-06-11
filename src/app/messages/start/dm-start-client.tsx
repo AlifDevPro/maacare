@@ -73,8 +73,8 @@ export default function DmStartClient() {
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-20 text-sm text-muted-foreground">
         {locked ? (
           <div className="max-w-sm space-y-3 text-center">
-            <p className="font-medium text-foreground">Unlock this by buying a subscription.</p>
-            <p className="text-xs">Premium includes direct messaging with doctors.</p>
+            <p className="font-medium text-foreground">Premium is required to message verified doctors.</p>
+            <p className="text-xs">You can still message other community members for free.</p>
             <Button className="rounded-xl" onClick={() => openPaywall("doctor_messaging")}>
               Upgrade to Premium
             </Button>

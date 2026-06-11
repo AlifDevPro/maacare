@@ -287,7 +287,12 @@ export default function CommunityMemberPage() {
                 </span>
               </div>
               {user?.id && user.id !== profile.id ? (
-                <PremiumGatedDmButton peerUserId={profile.id} className="mt-3" label="Send message" />
+                <PremiumGatedDmButton
+                  peerUserId={profile.id}
+                  peerVerifiedProfessional={profile.verifiedProfessional}
+                  className="mt-3"
+                  label="Send message"
+                />
               ) : null}
               {!profile.showExtendedToViewer && user?.id !== profile.id ? (
                 <p className="mt-2 text-[11px] text-muted-foreground">

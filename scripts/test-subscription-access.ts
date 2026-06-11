@@ -41,10 +41,13 @@ function testFreeReportLimit() {
   }
 }
 
-function testFreeSymptomLimit() {
+function testFreeSymptomUnlimited() {
   const row = baseRow({ symptom_analysis_used_this_month: FREE_MONTHLY_LIMIT });
-  const denied = evaluateFeatureAccess(row, "symptom_analysis");
-  assert.equal(denied.allowed, false);
+  const allowed = evaluateFeatureAccess(row, "symptom_analysis");
+  assert.equal(allowed.allowed, true);
+  const view = toSubscriptionView(row);
+  assert.equal(view.features.symptom_analysis, true);
+  assert.equal(view.quotas.symptomAnalysis.limit, null);
 }
 
 function testFreeDoctorMessagingBlocked() {
@@ -121,7 +124,7 @@ function testPremiumWithoutEndDateIsNotActive() {
 
 function main() {
   testFreeReportLimit();
-  testFreeSymptomLimit();
+  testFreeSymptomUnlimited();
   testFreeDoctorMessagingBlocked();
   testPremiumAllowed();
   testMonthlyUsageReset();

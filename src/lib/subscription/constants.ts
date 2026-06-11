@@ -6,7 +6,7 @@ export const FREE_MONTHLY_LIMIT = 2;
 
 export const PAYWALL_MESSAGE = "Unlock this by buying a subscription.";
 
-export const QUOTA_FEATURES: SubscriptionFeature[] = ["report_simplification", "symptom_analysis"];
+export const QUOTA_FEATURES: SubscriptionFeature[] = ["report_simplification"];
 
 export const PREMIUM_ONLY_FEATURES: SubscriptionFeature[] = ["doctor_messaging", "nearby_facilities"];
 
