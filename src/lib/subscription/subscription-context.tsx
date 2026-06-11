@@ -11,6 +11,8 @@ import {
 } from "react";
 
 import { PaywallModal } from "@/components/subscription/paywall-modal";
+import { useAuthSession } from "@/components/providers/auth-session-provider";
+import { AUTH_EVENT } from "@/lib/auth/session-query";
 import { isSubscriptionPaywallError } from "@/lib/subscription/access";
 import { defaultFreeSubscriptionView } from "@/lib/subscription/default-view";
 import type { SubscriptionFeature, SubscriptionView } from "@/lib/subscription/types";
@@ -33,17 +35,28 @@ type SubscriptionContextValue = {
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
+  const { user, loading: authLoading } = useAuthSession();
   const [subscription, setSubscription] = useState<SubscriptionView | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [subscriptionFetching, setSubscriptionFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [paywallFeature, setPaywallFeature] = useState<SubscriptionFeature | null>(null);
 
+  const loading = authLoading || subscriptionFetching;
   const displaySubscription = subscription ?? defaultFreeSubscriptionView();
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    if (authLoading) return;
+
+    if (!user) {
+      setSubscription(null);
+      setError(null);
+      setSubscriptionFetching(false);
+      return;
+    }
+
+    setSubscriptionFetching(true);
     setError(null);
     try {
       const res = await fetch("/api/subscription", { credentials: "include" });
@@ -52,6 +65,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         message?: string;
         code?: string;
       };
+      if (res.status === 401) {
+        setSubscription(null);
+        setError(data.message ?? "Sign in to view your subscription.");
+        return;
+      }
       if (!res.ok) {
         throw new Error(data.message ?? "Could not load subscription.");
       }
@@ -60,12 +78,24 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setSubscription(null);
       setError(e instanceof Error ? e.message : "Could not load subscription.");
     } finally {
-      setLoading(false);
+      setSubscriptionFetching(false);
     }
-  }, []);
+  }, [authLoading, user]);
 
   useEffect(() => {
+    if (authLoading) {
+      setSubscriptionFetching(true);
+      return;
+    }
     void refresh();
+  }, [authLoading, user?.id, refresh]);
+
+  useEffect(() => {
+    const onAuth = () => {
+      void refresh();
+    };
+    window.addEventListener(AUTH_EVENT, onAuth);
+    return () => window.removeEventListener(AUTH_EVENT, onAuth);
   }, [refresh]);
 
   const openPaywall = useCallback((feature?: SubscriptionFeature | null) => {
