@@ -14,6 +14,13 @@ import { Card } from "@/components/ui/card";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
 
+import {
+  SymptomsAiInsightSkeleton,
+  SymptomsAiSuggestionsSkeleton,
+} from "@/app/symptoms/result/symptoms-ai-skeleton";
+
+type InsightLoadState = "idle" | "loading" | "done";
+
 const search = z.object({
   level: z.enum(["low", "medium", "high"]).default("low"),
   count: z.coerce.number().default(0),
@@ -58,13 +65,14 @@ function SymptomsResultFallback() {
 }
 
 function SymptomsResultInner() {
-  const { t } = useTranslation("health");
+  const { t, i18n } = useTranslation("health");
   const searchParams = useSearchParams();
   const [logInsight, setLogInsight] = useState<string | null>(null);
   const [logSuggestions, setLogSuggestions] = useState<string[]>([]);
   const [levelFromLog, setLevelFromLog] = useState<"low" | "medium" | "high" | null>(null);
   const [logMeta, setLogMeta] = useState<{ title: string | null; loggedAt: string } | null>(null);
   const [logUserNotes, setLogUserNotes] = useState<string | null>(null);
+  const [insightLoadState, setInsightLoadState] = useState<InsightLoadState>("idle");
 
   const { level: levelFromUrl } = useMemo(() => {
     const parsed = search.safeParse(Object.fromEntries(searchParams.entries()));
@@ -80,13 +88,17 @@ function SymptomsResultInner() {
       setLevelFromLog(null);
       setLogMeta(null);
       setLogUserNotes(null);
+      setInsightLoadState("idle");
       return;
     }
     async function loadLog() {
+      setInsightLoadState("loading");
       try {
-        const res = await fetch(`/api/symptoms/log/${encodeURIComponent(logId)}`, {
-          credentials: "include",
-        });
+        const params = new URLSearchParams({ appLanguage: i18n.language });
+        const res = await fetch(
+          `/api/symptoms/log/${encodeURIComponent(logId)}?${params.toString()}`,
+          { credentials: "include" },
+        );
         const j = (await res.json().catch(() => ({}))) as {
           insight?: string;
           level?: string;
@@ -109,20 +121,26 @@ function SymptomsResultInner() {
         }
       } catch {
         /* keep URL-level fallback */
+      } finally {
+        if (alive) setInsightLoadState("done");
       }
     }
     void loadLog();
     return () => {
       alive = false;
     };
-  }, [logId]);
+  }, [logId, i18n.language]);
 
   const displayLevel = (levelFromLog ?? levelFromUrl) as keyof typeof COPY;
   const c = COPY[displayLevel] ?? COPY.low;
 
+  const awaitingAi = insightLoadState === "loading" && Boolean(logId);
   const showAiInsight = Boolean(logInsight?.trim());
   const showAiSuggestions = logSuggestions.length > 0;
-  const showStaticTips = !showAiInsight && !showAiSuggestions;
+  const showStaticTips =
+    (insightLoadState === "idle" && !logId) ||
+    (insightLoadState === "done" && !showAiInsight && !showAiSuggestions);
+  const aiLoadingLabel = t("symptoms_result_ai_loading");
 
   return (
     <AppShell>
@@ -155,7 +173,19 @@ function SymptomsResultInner() {
           </Card>
         ) : null}
 
+        {awaitingAi ? (
+          <>
+            <SymptomsAiInsightSkeleton loadingLabel={aiLoadingLabel} />
+            <SymptomsAiSuggestionsSkeleton loadingLabel={aiLoadingLabel} />
+          </>
+        ) : null}
+
         {showAiInsight ? (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+          >
           <Card className="relative overflow-hidden rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-500/[0.09] via-card to-sky-500/[0.06] p-4 shadow-soft backdrop-blur-[2px]">
             <div className="maacare-ai-shimmer-sweep" aria-hidden />
             <div className="relative">
@@ -181,9 +211,15 @@ function SymptomsResultInner() {
               </p>
             </div>
           </Card>
+          </motion.div>
         ) : null}
 
         {showAiSuggestions ? (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: "easeOut", delay: 0.05 }}
+          >
           <Card className="relative overflow-hidden rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-500/[0.08] via-card to-muted/50 p-4 shadow-soft backdrop-blur-[2px]">
             <div className="maacare-ai-shimmer-sweep" aria-hidden />
             <div className="relative">
@@ -205,6 +241,7 @@ function SymptomsResultInner() {
               </ul>
             </div>
           </Card>
+          </motion.div>
         ) : null}
 
         {showStaticTips ? (

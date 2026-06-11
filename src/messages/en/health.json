@@ -111,6 +111,7 @@
   "facilities_nearby_title": "Nearby facilities",
   "symptoms_result_title": "Your risk level",
   "symptoms_result_loading": "Loading…",
+  "symptoms_result_ai_loading": "Generating personalized guidance…",
   "community_post_title": "Post",
   "community_member_title": "Member",
   "guidance_why_title": "Why this matters",

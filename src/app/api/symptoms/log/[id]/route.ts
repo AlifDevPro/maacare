@@ -4,7 +4,10 @@ import { z } from "zod";
 import { failJson, serverErrorJson } from "@/lib/api/error-response";
 import { generateLocalizedAiReply } from "@/lib/ai/generate-localized-reply";
 import { buildLanguagePromptLines, normalizeUiLanguagePrior } from "@/lib/ai/language";
-import { resolveLanguageFromTextOrPrior } from "@/lib/ai/multilingual-pipeline";
+import {
+  resolveSymptomInsightLanguage,
+  symptomInsightLanguageTag,
+} from "@/lib/symptoms/insight-language";
 import { composeSystemPrompt } from "@/lib/ai/prompt-composer";
 import { enforceNaturalResponseQuality } from "@/lib/ai/quality-guard";
 import { buildMedicalSafetyRules, buildNaturalStyleRules, buildSharedIdentityRules } from "@/lib/ai/prompts/shared";
@@ -283,25 +286,19 @@ export async function GET(
       description,
     };
     const userText = [title, description].filter(Boolean).join(" ").trim();
-    const langCtx = await resolveLanguageFromTextOrPrior({
-      userText: userText || null,
-      uiLanguagePrior: uiLang,
-    });
-    const languageTag = langCtx.ietfLanguageTag;
-    const outputLang: "en" | "bn" = languageTag.startsWith("bn") ? "bn" : "en";
+    const appLang = normalizeUiLanguagePrior(req.nextUrl.searchParams.get("appLanguage"));
+    const outputLang = resolveSymptomInsightLanguage(appLang, uiLang);
+    const languageTag = symptomInsightLanguageTag(outputLang);
     const latestUserMessage = userText || buildUserMessageForRag(insightInput);
-    const ragEnglishQuery =
-      langCtx.queryExpansion.trim() ||
-      langCtx.englishRetrievalQuery.trim() ||
-      [
-        "Pregnancy symptom risk rules and triage guidance.",
-        title ? `Title: ${title}.` : "",
-        symptomCodes.length > 0 ? `Symptoms: ${symptomCodes.join(", ")}.` : "",
-        severity != null ? `Severity: ${severity}/10.` : "",
-        description ? `User additional notes: ${truncateForDisplay(description, DESC_TRUNC_RAG)}.` : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
+    const ragEnglishQuery = [
+      "Pregnancy symptom risk rules and triage guidance.",
+      title ? `Title: ${title}.` : "",
+      symptomCodes.length > 0 ? `Symptoms: ${symptomCodes.join(", ")}.` : "",
+      severity != null ? `Severity: ${severity}/10.` : "",
+      description ? `User additional notes: ${truncateForDisplay(description, DESC_TRUNC_RAG)}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     const mcpEnabled = process.env.MCP_ENABLED === "1";
     const consentToken = req.nextUrl.searchParams.get("consentToken");
     const mcpReadPlan = mcpPlanForRoute({
@@ -353,20 +350,8 @@ export async function GET(
       if (!ctx) ctx = await fetchRiskRulesContext(insightInput, ragEnglishQuery);
       if (ctx) {
         const [ragInsight, ragSuggestions] = await Promise.all([
-          buildRagRiskInsightFromContext(
-            ctx,
-            insightInput,
-            languageTag,
-            latestUserMessage,
-            langCtx.userStyleHint,
-          ),
-          buildRagSuggestionsFromContext(
-            ctx,
-            insightInput,
-            languageTag,
-            latestUserMessage,
-            langCtx.userStyleHint,
-          ),
+          buildRagRiskInsightFromContext(ctx, insightInput, languageTag, latestUserMessage),
+          buildRagSuggestionsFromContext(ctx, insightInput, languageTag, latestUserMessage),
         ]);
         if (ragInsight) insight = ragInsight;
         suggestions = ragSuggestions;
@@ -420,7 +405,8 @@ export async function GET(
       insight,
       level,
       suggestions,
-      ...(process.env.AI_DEBUG_METADATA === "1" ? { debug: { mcpTraces } } : {}),
+      language: outputLang,
+      ...(process.env.AI_DEBUG_METADATA === "1" ? { debug: { mcpTraces, languageTag } } : {}),
     });
   } catch (e) {
     return serverErrorJson("symptoms_log_id GET", e);

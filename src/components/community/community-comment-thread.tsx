@@ -6,7 +6,7 @@ import { CornerDownRight } from "lucide-react";
 import { toast } from "sonner";
 
 import { CommunityAvatar } from "@/components/community/community-avatar";
-import { CommunityAuthorBadges, authorRowHighlightClass } from "@/components/community/community-author-badges";
+import { CommunityAuthorBadges } from "@/components/community/community-author-badges";
 import {
   COMMUNITY_COMMENT_ACTION,
   COMMUNITY_COMMENT_ACTION_ICON,
@@ -183,12 +183,7 @@ function CommentBranch({
                 ) : null}
               </p>
             ) : null}
-            <div
-              className={cn(
-                "rounded-xl px-0 py-0",
-                authorRowHighlightClass(node.authorProfession, node.authorVerifiedProfessional),
-              )}
-            >
+            <div>
               <CommunityAuthorBadges
                 authorId={node.authorId}
                 authorDisplayName={node.authorDisplayName}

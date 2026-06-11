@@ -18,24 +18,56 @@ export type CommunityAuthorBadgeProps = {
   variant?: "default" | "prominent";
 };
 
-const metaCls =
-  "inline-flex items-center gap-1 text-[11px] font-medium leading-none text-muted-foreground sm:text-xs";
+type RoleAccent = "admin" | "moderator" | "doctor";
 
-function RoleMeta({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
+const ROLE_ACCENT_STYLES: Record<
+  RoleAccent,
+  { iconClass: string; labelClass: string }
+> = {
+  admin: {
+    iconClass: "text-violet-600 dark:text-violet-400",
+    labelClass: "text-violet-700/90 dark:text-violet-300",
+  },
+  moderator: {
+    iconClass: "text-amber-600 dark:text-amber-400",
+    labelClass: "text-amber-800/90 dark:text-amber-200",
+  },
+  doctor: {
+    iconClass: "text-emerald-600 dark:text-emerald-400",
+    labelClass: "text-emerald-800/90 dark:text-emerald-200",
+  },
+};
+
+function RoleMeta({
+  icon: Icon,
+  label,
+  accent,
+  prominent,
+}: {
+  icon: LucideIcon;
+  label: string;
+  accent: RoleAccent;
+  prominent?: boolean;
+}) {
+  const styles = ROLE_ACCENT_STYLES[accent];
   return (
-    <span className={metaCls}>
-      <Icon className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 text-[11px] font-medium leading-none sm:text-xs",
+        styles.labelClass,
+      )}
+    >
+      <Icon
+        className={cn(
+          "shrink-0",
+          prominent ? "h-3.5 w-3.5" : "h-3 w-3",
+          styles.iconClass,
+        )}
+        aria-hidden
+      />
       {label}
     </span>
   );
-}
-
-export function authorRowHighlightClass(
-  authorProfession: string | null | undefined,
-  authorVerifiedProfessional?: boolean,
-): string {
-  const verifiedDoctor = authorVerifiedProfessional === true && authorProfession === "clinician";
-  return verifiedDoctor ? "rounded-xl bg-muted/30" : "";
 }
 
 export function CommunityAuthorBadges({
@@ -46,7 +78,9 @@ export function CommunityAuthorBadges({
   authorVerifiedProfessional,
   timeLabel,
   nameClassName,
+  variant = "default",
 }: CommunityAuthorBadgeProps) {
+  const prominent = variant === "prominent";
   const verifiedDoctor = authorVerifiedProfessional === true && authorProfession === "clinician";
   const nameCls = cn(
     "truncate font-semibold leading-tight text-foreground hover:underline",
@@ -65,11 +99,13 @@ export function CommunityAuthorBadges({
 
   let roleMeta: ReactNode = null;
   if (authorRole === "admin") {
-    roleMeta = <RoleMeta icon={Shield} label="Admin" />;
+    roleMeta = <RoleMeta icon={Shield} label="Admin" accent="admin" prominent={prominent} />;
   } else if (authorRole === "moderator") {
-    roleMeta = <RoleMeta icon={Shield} label="Moderator" />;
+    roleMeta = <RoleMeta icon={Shield} label="Moderator" accent="moderator" prominent={prominent} />;
   } else if (verifiedDoctor) {
-    roleMeta = <RoleMeta icon={Stethoscope} label="Verified doctor" />;
+    roleMeta = (
+      <RoleMeta icon={Stethoscope} label="Verified doctor" accent="doctor" prominent={prominent} />
+    );
   }
 
   return (
@@ -82,4 +118,3 @@ export function CommunityAuthorBadges({
     </div>
   );
 }
-

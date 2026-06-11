@@ -55,10 +55,7 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { CommunityAvatar } from "@/components/community/community-avatar";
 import { CommunityLikeButton } from "@/components/community/community-like-button";
-import {
-  CommunityAuthorBadges,
-  authorRowHighlightClass,
-} from "@/components/community/community-author-badges";
+import { CommunityAuthorBadges } from "@/components/community/community-author-badges";
 import { CommunityCommentThread,
   type CommunityCommentNode as CommentNode,
   type CommunityCommentRow as CommentRow,
@@ -742,11 +739,7 @@ export default function PostDetailPage() {
             </div>
           ) : null}
           <div
-            className={cn(
-              "mb-2 flex items-start gap-2.5",
-              (isOwner || isModerator) && "pr-10",
-              authorRowHighlightClass(post.authorProfession, post.authorVerifiedProfessional),
-            )}
+            className={cn("mb-2 flex items-start gap-2.5", (isOwner || isModerator) && "pr-10")}
           >
             <Link
               href={`/community/member/${post.authorId}`}

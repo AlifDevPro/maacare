@@ -58,10 +58,7 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { CommunityAvatar } from "@/components/community/community-avatar";
 import { CommunityLikeButton } from "@/components/community/community-like-button";
-import {
-  CommunityAuthorBadges,
-  authorRowHighlightClass,
-} from "@/components/community/community-author-badges";
+import { CommunityAuthorBadges } from "@/components/community/community-author-badges";
 import { CommunityPostBody } from "@/components/community/community-post-body";
 import { CommunityRichEditor } from "@/components/community/community-rich-editor";
 import { isRichPostBodyEmpty } from "@/lib/community/rich-post-empty";
@@ -830,12 +827,7 @@ export default function CommunityPageClient({
                     </div>
                   ) : null}
                   <div className={cn("px-4 pb-2 pt-4", isOwner && "pr-12")}>
-                    <div
-                      className={cn(
-                        "mb-2 flex items-start gap-2.5 rounded-xl py-1",
-                        authorRowHighlightClass(p.authorProfession, p.authorVerifiedProfessional),
-                      )}
-                    >
+                    <div className="mb-2 flex items-start gap-2.5">
                       <Link
                         href={`/community/member/${p.authorId}`}
                         onClick={saveFeedScroll}
