@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "docker:build": "bash scripts/docker-build-push.sh latest",
+    "docker:push": "DOCKER_PUSH=1 bash scripts/docker-build-push.sh latest",
     "lint": "eslint",
     "import-bd-facilities": "node scripts/import-bd-facilities.mjs",
     "generate-brand-icons": "node scripts/generate-brand-icons.mjs",

@@ -1,25 +1,21 @@
-# Local MongoDB + Qdrant for auth and RAG development.
-# Usage: docker compose up -d
-# Then copy .env.example → .env and set AUTH_SECRET + OPENAI_API_KEY.
-
 services:
-  mongo:
-    image: mongo:7
+  maacare:
+    image: alifahmaddev/maacare:latest
+    container_name: maacare
     restart: unless-stopped
     ports:
-      - "27017:27017"
-    volumes:
-      - maacare_mongo_data:/data/db
-
-  qdrant:
-    image: qdrant/qdrant:v1.12.5
-    restart: unless-stopped
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - maacare_qdrant_data:/qdrant/storage
-
-volumes:
-  maacare_mongo_data:
-  maacare_qdrant_data:
+      - "${MAACARE_PORT:-3000}:3000"
+    env_file:
+      - .env
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/app/version').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
